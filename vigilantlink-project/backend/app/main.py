@@ -29,14 +29,32 @@ logger = logging.getLogger(__name__)
 def calculate_risk_score(hops, scan_data, final_url):
     risk_score = 0
     reasons = []
-
-    # 1. Punycode/Homograph Detector
+    
+    # 1. Brand Protection (Levenshtein) Rule - STRICT
+    if scan_data.get("brand_penalty_reason"):
+        risk_score += 50
+        reasons.append(scan_data.get("brand_penalty_reason"))
+    
+    # 2. Homograph 'Kill-Switch' - STRICT OVERRIDE
+    punycode_detected = scan_data.get("punycode_detected", False)
+    if punycode_detected or "xn--" in final_url or any("xn--" in hop["url"] for hop in hops):
+        # Set minimum score of 75 - this is almost exclusively deception
+        risk_score = max(risk_score, 75)
+        if "Punycode" not in str(reasons):
+            reasons.append("CRITICAL: Punycode Homograph Attack Detected (Minimum Score: 75)")
+    
+    # 3. Synergy Check (TLD + Keywords) - STRICT
+    if scan_data.get("synergy_detected"):
+        risk_score += 40
+        reasons.append(scan_data.get("synergy_reason", "High-Risk TLD & Keyword Synergy (Phishing Pattern)"))
+    
+    # 4. Punycode/Homograph Detector (legacy check)
     punycode_found = "xn--" in final_url or any("xn--" in hop["url"] for hop in hops)
-    if punycode_found:
-        risk_score += 60
-        reasons.append("Deceptive Identity (Punycode Homograph Attack)")
-
-    # 2. Redirect Chain Analysis (first 2 hops are free - covers normal http→https, tracking, etc.)
+    if punycode_found and not punycode_detected:
+        risk_score = max(risk_score, 75)
+        reasons.append("CRITICAL: Punycode Homograph Attack Detected (Minimum Score: 75)")
+    
+    # 5. Redirect Chain Analysis (first 2 hops are free)
     if len(hops) > 3:
         redirect_score = 0
         for i in range(3, len(hops)):
@@ -49,14 +67,14 @@ def calculate_risk_score(hops, scan_data, final_url):
         risk_score += redirect_score
         if redirect_score > 0:
             reasons.append(f"Excessive Redirect Chain (+{redirect_score})")
-
-    # 3. VirusTotal Flags
+    
+    # 6. VirusTotal Flags
     vendor_flags = scan_data.get("vendor_flags", 0)
     if vendor_flags > 0:
         risk_score += 40
         reasons.append(f"Flagged by {vendor_flags} Security Vendors")
-
-    # 4. Domain Age Scoring
+    
+    # 7. Domain Age Scoring
     domain_age_days = scan_data.get("domain_age_days", 3000)
     if domain_age_days < 14:
         risk_score += 40
@@ -64,42 +82,33 @@ def calculate_risk_score(hops, scan_data, final_url):
     elif domain_age_days <= 90:
         risk_score += 20
         reasons.append("Recently Registered Domain (<90 days)")
-
-    # 5. Compound Heuristics
-    parsed_final = urlparse(final_url)
-    domain_parts = parsed_final.netloc.split('.')
-    tld = f".{domain_parts[-1]}".lower() if len(domain_parts) > 0 else ""
-    path_lower = parsed_final.path.lower()
-
-    if tld in SUSPICIOUS_TLDS and any(kw in path_lower for kw in HIGH_RISK_KEYWORDS):
-        risk_score += 40
-        reasons.append("High-Risk TLD & Keyword Synergy (Phishing Pattern)")
-
-    # Existing heuristics from scan_data
-    if scan_data.get("typosquatting_detected"):
+    
+    # 8. Existing typosquatting detection from scanner
+    if scan_data.get("typosquatting_detected") and not scan_data.get("brand_penalty_reason"):
         risk_score += 50
         reasons.append("Typosquatting Detected (High Value Target)")
-    elif scan_data.get("threat_type") == "Suspicious Keywords in Domain":
-        risk_score += 25
-        reasons.append("Suspicious Keywords in Domain")
-
+    
+    # Cap the score at 100
     capped_score = min(risk_score, 100)
-
+    
     # Verdict Mapper
     is_safe = True
     verdict = "green"
-
-    # Force red verdict if > 5 VT flags
+    
+    # VirusTotal 'Critical' Override - STRICT
     if vendor_flags > 5:
+        # Force MALICIOUS (red) and score to 99
         is_safe = False
         verdict = "red"
+        capped_score = 99
+        reasons.append(f"CRITICAL OVERRIDE: VirusTotal flagged by {vendor_flags} vendors (>5) - Forced Score: 99")
     elif capped_score >= 71:
         is_safe = False
         verdict = "red"
     elif capped_score >= 36:
         is_safe = False
         verdict = "yellow"
-
+    
     return capped_score, verdict, is_safe, reasons
 
 app = FastAPI(title="VigilantLink Security API")
