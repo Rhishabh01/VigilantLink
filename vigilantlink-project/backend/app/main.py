@@ -45,8 +45,8 @@ def calculate_risk_score(hops, scan_data, final_url):
     path_lower = parsed_final.path.lower()
     
     if tld in SUSPICIOUS_TLDS and any(kw in path_lower for kw in HIGH_RISK_KEYWORDS):
-        risk_score += 50
-        reasons.append("High-Risk TLD & Keyword Synergy")
+        risk_score += 40
+        reasons.append("High-Risk TLD & Keyword Synergy (Phishing Pattern)")
         
     # Existing heuristics from scan_data
     if scan_data.get("domain_age_days", 3000) < 30:
@@ -65,7 +65,7 @@ def calculate_risk_score(hops, scan_data, final_url):
     # Verdict Mapper
     is_safe = True
     verdict = "green"
-    if capped_score >= 66:
+    if capped_score >= 71:
         is_safe = False
         verdict = "red"
     elif capped_score >= 36:
