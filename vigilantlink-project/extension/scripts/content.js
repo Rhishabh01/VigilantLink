@@ -12,7 +12,8 @@ document.addEventListener("mouseover", (event) => {
   const target = event.target.closest("a");
   if (!target || !target.href) return;
   
-  if (target.href.startsWith("javascript:") || target.href.startsWith("#")) return;
+  // Only analyze http/https links — skip mailto:, tel:, javascript:, data:, etc.
+  if (!target.href.startsWith("http://") && !target.href.startsWith("https://")) return;
 
   const url = target.href;
   hoverTargetUrl = url;

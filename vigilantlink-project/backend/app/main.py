@@ -24,19 +24,19 @@ def calculate_risk_score(hops, scan_data, final_url):
         risk_score += 60
         reasons.append("Deceptive Identity (Punycode Homograph Attack)")
         
-    # 2. Redirect Velocity Logic
-    if len(hops) > 1:
-        redirect_penalty = 0
-        for i in range(1, len(hops)):
+    # 2. Redirect Chain Analysis (first 2 hops are free - covers normal http→https, tracking, etc.)
+    if len(hops) > 3:
+        redirect_score = 0
+        for i in range(3, len(hops)):
             prev_domain = urlparse(hops[i-1]["url"]).netloc
             curr_domain = urlparse(hops[i]["url"]).netloc
             if prev_domain != curr_domain:
-                redirect_penalty += 30
+                redirect_score += 20
             else:
-                redirect_penalty += 15
-        risk_score += redirect_penalty
-        if redirect_penalty > 0:
-            reasons.append(f"High Redirect Velocity (+{redirect_penalty} penalty)")
+                redirect_score += 5
+        risk_score += redirect_score
+        if redirect_score > 0:
+            reasons.append(f"Excessive Redirect Chain (+{redirect_score})")
                 
     # 3. Compound Heuristics
     parsed_final = urlparse(final_url)
@@ -95,6 +95,11 @@ async def shutdown_event():
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_link(request: AnalyzeRequest):
     url_str = str(request.url)
+    
+    # Reject non-http/https schemes (mailto:, tel:, file:, etc.)
+    parsed = urlparse(url_str)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail=f"Unsupported scheme: {parsed.scheme}. Only http/https URLs are supported.")
     
     # 1. Check Cache
     cached_result = cache_manager.get(url_str)
