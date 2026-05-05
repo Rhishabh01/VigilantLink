@@ -8,44 +8,85 @@ let currentPopupShadowRoot = null;
 let currentPopupContent = null;
 const HOVER_DELAY_MS = 400;
 
-document.addEventListener("mouseover", (event) => {
+// Default settings
+const DEFAULT_SETTINGS = {
+  globalEnabled: true,
+  disabledSites: []
+};
+
+// Default settings constants
+const DEFAULT_GLOBAL_ENABLED = true;
+const DEFAULT_DISABLED_SITES = [];
+
+// Check if VigilantLink is enabled for current site
+async function isEnabledForSite() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['globalEnabled', 'disabledSites'], (result) => {
+      // 1. Check for temporary tab-level override
+      const override = window.sessionStorage.getItem('vigilantlink_override');
+      if (override === 'enabled') return resolve(true);
+      if (override === 'disabled') return resolve(false);
+
+      // 2. Fallback to default persistent setting
+      const globalEnabled = result.globalEnabled !== false; // Default to true
+      const disabledSites = result.disabledSites || [];
+      const currentDomain = window.location.hostname;
+      
+      if (!globalEnabled) return resolve(false);
+      
+      const isSiteDisabled = disabledSites.some(disabledDomain => {
+          return currentDomain === disabledDomain || currentDomain.endsWith('.' + disabledDomain);
+      });
+      
+      if (isSiteDisabled) return resolve(false);
+      
+      resolve(true);
+    });
+  });
+}
+
+document.addEventListener("mouseover", async (event) => {
   const target = event.target.closest("a");
   if (!target || !target.href) return;
-  
-  // Only analyze http/https links — skip mailto:, tel:, javascript:, data:, etc.
+   
+  // Only analyze http/https links
   if (!target.href.startsWith("http://") && !target.href.startsWith("https://")) return;
-
+  
+  // Check if enabled for this site
+  const enabled = await isEnabledForSite();
+  if (!enabled) return;
+  
   const url = target.href;
   hoverTargetUrl = url;
-  
+   
   if (hoverTimer) clearTimeout(hoverTimer);
-  
+   
   hoverTimer = setTimeout(() => {
     if (hoverTargetUrl !== url) return;
-    
+      
     const rect = target.getBoundingClientRect();
     let x = rect.right + 10;
     let y = rect.top;
-    
+      
     const POPUP_WIDTH = 340;
     const POPUP_HEIGHT = 450;
-    
+      
     // If no room on the right, show on the left
     if (x + POPUP_WIDTH > window.innerWidth) x = rect.left - POPUP_WIDTH - 10;
     if (x < 0) x = 10;
-    
+      
     // If no room below, flip above the link
     if (y + POPUP_HEIGHT > window.innerHeight) y = rect.bottom - POPUP_HEIGHT;
     if (y < 0) y = 10;
 
     showLoadingPopup(x, y);
-    
+      
     try {
         chrome.runtime.sendMessage({ action: "analyze_link", url }, (response) => {
           if (response && response.success) {
-            updatePopupWithResult(response.data);
+              updatePopupWithResult(response.data);
           } else {
-            updatePopupWithError(response?.error || "Unknown error");
+              updatePopupWithError(response?.error || "Unknown error");
           }
         });
     } catch (e) {
@@ -57,7 +98,7 @@ document.addEventListener("mouseover", (event) => {
 document.addEventListener("mouseout", (event) => {
   const target = event.target.closest("a");
   if (!target) return;
-  
+   
   if (hoverTimer) {
     clearTimeout(hoverTimer);
     hoverTimer = null;
@@ -97,6 +138,22 @@ document.addEventListener("click", (event) => {
   }
 });
 
+// Listen for messages from popup
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'settings_updated') {
+    // Close any open popup when settings change
+    closePopup();
+  } else if (message.action === 'set_override') {
+    // Set a temporary override for this tab
+    window.sessionStorage.setItem('vigilantlink_override', message.enabled ? 'enabled' : 'disabled');
+    closePopup();
+    sendResponse({ success: true });
+  } else if (message.action === 'get_override') {
+    // Send the current override back to the popup
+    sendResponse({ override: window.sessionStorage.getItem('vigilantlink_override') });
+  }
+});
+
 function closePopup() {
     if (currentPopupContainer) {
         currentPopupContainer.remove();
@@ -123,24 +180,24 @@ function createShadowPopup(x, y) {
   container.style.left = `${x}px`;
   container.style.top = `${y}px`;
   container.style.zIndex = "2147483647"; // Max z-index
-  
+   
   // Use closed mode for Zero-Trust isolation from host page JS
   const shadowRoot = container.attachShadow({ mode: "closed" });
   currentPopupShadowRoot = shadowRoot;
-  
+   
   const styleLink = document.createElement("link");
   styleLink.rel = "stylesheet";
   styleLink.href = styleUrl;
   shadowRoot.appendChild(styleLink);
-  
+   
   const content = document.createElement("div");
   content.className = "vigilant-card";
   shadowRoot.appendChild(content);
 
   document.body.appendChild(container);
-  
+   
   currentPopupContainer = container;
-  currentPopupContent = content; // Keep reference to modify internal HTML safely
+  currentPopupContent = content;
 }
 
 function showLoadingPopup(x, y) {
@@ -160,15 +217,23 @@ function showLoadingPopup(x, y) {
   `;
 }
 
+function getBadgeColor(reason) {
+  if (reason.includes("Punycode")) return "red";
+  if (reason.includes("Excessive Redirect Chain") || reason.includes("Cross-Domain")) return "orange";
+  if (reason.includes("Typosquatting") || reason.includes("Synergy")) return "red";
+  if (reason.includes("Newly Registered")) return "orange";
+  return "gray";
+}
+
 function updatePopupWithResult(data) {
   if (!currentPopupContent) return;
-  
+   
   const { original_url, final_url, redirect_chain, screenshot_base64, security } = data;
-  
-  let verdictClass = security.verdict; // 'green', 'yellow', 'red'
+   
+  let verdictClass = security.verdict;
   let verdictText = security.is_safe ? "Safe" : "Suspicious";
   if (verdictClass === "red") verdictText = "Dangerous";
-
+  
   let warningHtml = '';
   if (verdictClass !== "green") {
       warningHtml = `
@@ -176,7 +241,7 @@ function updatePopupWithResult(data) {
           <strong>Warning:</strong> ${security.threat_type || 'Potential risk detected'}
       </div>`;
   }
-  
+   
   let redirectsHtml = '';
   if (redirect_chain && redirect_chain.length > 1) {
       const maxCompact = 3;
@@ -185,7 +250,7 @@ function updatePopupWithResult(data) {
       });
       const hiddenCount = redirect_chain.length - maxCompact;
       const compactText = showUrls.join(' → ');
-      
+       
       if (hiddenCount > 0) {
           redirectsHtml = `
           <div class="redirects" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #eee;">
@@ -209,22 +274,14 @@ function updatePopupWithResult(data) {
           </div>`;
       }
   }
-
+  
   let screenshotHtml = '';
   if (screenshot_base64) {
       screenshotHtml = `<img src="${screenshot_base64}" alt="Preview of ${final_url}" />`;
   } else {
       screenshotHtml = `<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #888; font-style: italic; text-align: center; padding: 0 20px;">Image blocked or preview unavailable</div>`;
   }
-
-  function getBadgeColor(reason) {
-      if (reason.includes("Punycode")) return "red";
-      if (reason.includes("Excessive Redirect Chain") || reason.includes("Cross-Domain")) return "orange";
-      if (reason.includes("Typosquatting") || reason.includes("Synergy")) return "red";
-      if (reason.includes("Newly Registered")) return "orange";
-      return "gray";
-  }
-
+  
   let forensicHtml = '';
   if (security.reasons && security.reasons.length > 0) {
       forensicHtml = `
@@ -235,7 +292,7 @@ function updatePopupWithResult(data) {
         </div>
       </div>`;
   }
-
+  
   currentPopupContent.innerHTML = `
     <div class="header ${verdictClass}-header">
       <div class="logo">VigilantLink <span style="font-size: 10px; margin-left: 8px; opacity: 0.8; font-weight: normal;">Score: ${security.risk_score}/100</span></div>
@@ -262,10 +319,10 @@ function updatePopupWithResult(data) {
       </div>
     </div>
   `;
-
+  
   const shadowRoot = currentPopupShadowRoot;
   if (!shadowRoot) return;
-  
+   
   shadowRoot.addEventListener('click', async (e) => {
       const copyBtn = e.target.closest('#copy-dest-btn');
       if (copyBtn) {
@@ -273,28 +330,28 @@ function updatePopupWithResult(data) {
           e.stopPropagation();
           e.stopImmediatePropagation();
            try {
-               // Use navigator.clipboard directly - works in extension contexts
-               if (navigator.clipboard) {
-                   await navigator.clipboard.writeText(final_url);
-               } else {
-                   throw new Error("Clipboard API not available");
-               }
-               const originalHtml = copyBtn.innerHTML;
-               copyBtn.innerHTML = `<span style="color: #28a745; font-size: 10px; font-weight: bold; margin: 0 2px;">✓</span>`;
-               setTimeout(() => {
-                   copyBtn.innerHTML = originalHtml;
-               }, 1500);
-           } catch (err) {
-               console.error("VigilantLink Copy Error: ", err);
-               const originalHtml = copyBtn.innerHTML;
-               copyBtn.innerHTML = `<span style="color: #dc3545; font-size: 10px; font-weight: bold; margin: 0 2px;">✗</span>`;
-               setTimeout(() => {
-                   copyBtn.innerHTML = originalHtml;
-               }, 1500);
-           }
-           return;
+                // Use navigator.clipboard directly - works in extension contexts
+                if (navigator.clipboard) {
+                    await navigator.clipboard.writeText(final_url);
+                } else {
+                    throw new Error("Clipboard API not available");
+                }
+                const originalHtml = copyBtn.innerHTML;
+                copyBtn.innerHTML = `<span style="color: #28a745; font-size: 10px; font-weight: bold; margin: 0 2px;">✓</span>`;
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalHtml;
+                }, 1500);
+            } catch (err) {
+                console.error("VigilantLink Copy Error: ", err);
+                const originalHtml = copyBtn.innerHTML;
+                copyBtn.innerHTML = `<span style="color: #dc3545; font-size: 10px; font-weight: bold; margin: 0 2px;">✗</span>`;
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalHtml;
+                }, 1500);
+            }
+            return;
       }
-
+      
       const toggleBtn = e.target.closest('#redirects-toggle-btn');
       const moreLink = e.target.closest('#redirects-more');
       if (toggleBtn || moreLink) {
@@ -306,7 +363,7 @@ function updatePopupWithResult(data) {
           const moreEl = shadowRoot.getElementById('redirects-more');
           const btn = shadowRoot.getElementById('redirects-toggle-btn');
           if (!fullView) return;
-          
+           
           const isExpanded = fullView.style.display === 'block';
           fullView.style.display = isExpanded ? 'none' : 'block';
           if (compactView) compactView.style.display = isExpanded ? 'inline' : 'none';
