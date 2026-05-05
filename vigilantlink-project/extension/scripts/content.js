@@ -27,9 +27,15 @@ document.addEventListener("mouseover", (event) => {
     let x = rect.right + 10;
     let y = rect.top;
     
-    if (x + 350 > window.innerWidth) x = rect.left - 360;
+    const POPUP_WIDTH = 340;
+    const POPUP_HEIGHT = 450;
+    
+    // If no room on the right, show on the left
+    if (x + POPUP_WIDTH > window.innerWidth) x = rect.left - POPUP_WIDTH - 10;
     if (x < 0) x = 10;
-    if (y + 300 > window.innerHeight) y = window.innerHeight - 310;
+    
+    // If no room below, flip above the link
+    if (y + POPUP_HEIGHT > window.innerHeight) y = rect.bottom - POPUP_HEIGHT;
     if (y < 0) y = 10;
 
     showLoadingPopup(x, y);
@@ -173,13 +179,35 @@ function updatePopupWithResult(data) {
   
   let redirectsHtml = '';
   if (redirect_chain && redirect_chain.length > 1) {
-      redirectsHtml = `
-      <div class="redirects" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #eee;">
-        <small style="font-weight: 600; color: #555;">Redirect Path:</small>
-        <div style="font-size: 11px; color: #666; margin-top: 4px; word-break: break-all;">
-            ${redirect_chain.map(r => `<div>&rarr; ${r.url}</div>`).join('')}
-        </div>
-      </div>`;
+      const maxCompact = 3;
+      const showUrls = redirect_chain.slice(0, maxCompact).map(r => {
+          try { return new URL(r.url).hostname; } catch { return r.url; }
+      });
+      const hiddenCount = redirect_chain.length - maxCompact;
+      const compactText = showUrls.join(' → ');
+      
+      if (hiddenCount > 0) {
+          redirectsHtml = `
+          <div class="redirects" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #eee;">
+            <small style="font-weight: 600; color: #555;">Redirect Path:</small>
+            <div style="font-size: 11px; color: #666; margin-top: 4px; word-break: break-all;">
+                <span id="redirects-compact">${compactText}</span>
+                <span id="redirects-more" style="cursor: pointer; color: #0056b3; margin-left: 4px;">+${hiddenCount} more</span>
+            </div>
+            <div id="redirects-full" style="display: none; max-height: 150px; overflow-y: auto; margin-top: 6px; padding: 6px 8px; background: #f8f9fa; border-radius: 4px; font-size: 11px; color: #666;">
+                ${redirect_chain.map(r => `<div style="margin-bottom: 3px; word-break: break-all;">&rarr; ${r.url}</div>`).join('')}
+            </div>
+            <button id="redirects-toggle-btn" style="margin-top: 6px; padding: 3px 10px; border: 1px solid #ddd; border-radius: 4px; background: #f8f9fa; font-size: 10px; cursor: pointer; color: #333; font-weight: 600;">Show full path</button>
+          </div>`;
+      } else {
+          redirectsHtml = `
+          <div class="redirects" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #eee;">
+            <small style="font-weight: 600; color: #555;">Redirect Path:</small>
+            <div style="font-size: 11px; color: #666; margin-top: 4px; word-break: break-all;">
+                ${compactText}
+            </div>
+          </div>`;
+      }
   }
 
   let screenshotHtml = '';
@@ -191,7 +219,7 @@ function updatePopupWithResult(data) {
 
   function getBadgeColor(reason) {
       if (reason.includes("Punycode")) return "red";
-      if (reason.includes("Redirect Velocity") || reason.includes("Cross-Domain")) return "orange";
+      if (reason.includes("Excessive Redirect Chain") || reason.includes("Cross-Domain")) return "orange";
       if (reason.includes("Typosquatting") || reason.includes("Synergy")) return "red";
       if (reason.includes("Newly Registered")) return "orange";
       return "gray";
@@ -264,6 +292,27 @@ function updatePopupWithResult(data) {
                    copyBtn.innerHTML = originalHtml;
                }, 1500);
            }
+           return;
+      }
+
+      const toggleBtn = e.target.closest('#redirects-toggle-btn');
+      const moreLink = e.target.closest('#redirects-more');
+      if (toggleBtn || moreLink) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          const fullView = shadowRoot.getElementById('redirects-full');
+          const compactView = shadowRoot.getElementById('redirects-compact');
+          const moreEl = shadowRoot.getElementById('redirects-more');
+          const btn = shadowRoot.getElementById('redirects-toggle-btn');
+          if (!fullView) return;
+          
+          const isExpanded = fullView.style.display === 'block';
+          fullView.style.display = isExpanded ? 'none' : 'block';
+          if (compactView) compactView.style.display = isExpanded ? 'inline' : 'none';
+          if (moreEl) moreEl.style.display = isExpanded ? 'inline' : 'inline';
+          if (btn) btn.textContent = isExpanded ? 'Show full path' : 'Collapse path';
+          return;
       }
   });
 }
