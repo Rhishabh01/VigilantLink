@@ -1,6 +1,12 @@
 // Service Worker for API communication
 
-const BACKEND_URL = "http://127.0.0.1:8000/analyze"; // Update for production
+async function getBackendUrl() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(["backendUrl"], (result) => {
+      resolve(result.backendUrl || "http://127.0.0.1:8000/analyze");
+    });
+  });
+}
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "analyze_link") {
@@ -14,7 +20,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 async function analyzeLink(url) {
   try {
-    const response = await fetch(BACKEND_URL, {
+    const backendUrl = await getBackendUrl();
+    const response = await fetch(backendUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"

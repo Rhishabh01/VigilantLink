@@ -9,11 +9,12 @@ const PRESET_SITES = [
 
 // Absolute source of truth from chrome.storage.local
 async function getSettings() {
-  const data = await chrome.storage.local.get(['globalEnabled', 'disabledSites', 'customSites']);
+  const data = await chrome.storage.local.get(['globalEnabled', 'disabledSites', 'customSites', 'backendUrl']);
   return {
     globalEnabled: data.globalEnabled !== false, // Default true
     disabledSites: data.disabledSites || [],
-    customSites: data.customSites || []
+    customSites: data.customSites || [],
+    backendUrl: data.backendUrl || "http://127.0.0.1:8000/analyze"
   };
 }
 
@@ -209,6 +210,22 @@ document.addEventListener('click', async (e) => {
     disabledSites = disabledSites.filter(d => d !== domain);
     await chrome.storage.local.set({ customSites, disabledSites });
     updateToggles();
+  } else if (e.target.id === 'settings-btn') {
+    const panel = document.getElementById('settings-panel');
+    const isVisible = panel.style.display === 'block';
+    panel.style.display = isVisible ? 'none' : 'block';
+    
+    if (!isVisible) {
+      const { backendUrl } = await getSettings();
+      document.getElementById('backend-url-input').value = backendUrl;
+    }
+  } else if (e.target.id === 'save-settings-btn') {
+    const backendUrl = document.getElementById('backend-url-input').value.trim();
+    if (backendUrl) {
+      await chrome.storage.local.set({ backendUrl });
+      document.getElementById('settings-panel').style.display = 'none';
+      alert('Settings saved!');
+    }
   }
 });
 

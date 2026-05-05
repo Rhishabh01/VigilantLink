@@ -7,20 +7,21 @@ import asyncwhois
 import logging
 import asyncio
 
+from app.core.constants import (
+    SUSPICIOUS_TLDS, HIGH_RISK_KEYWORDS, HIGH_VALUE_TARGETS, SUSPICIOUS_KEYWORDS,
+    NEW_DOMAIN_THRESHOLD_DAYS, DEFAULT_DOMAIN_AGE_DAYS, TOTAL_VENDORS_COUNT
+)
+
 logger = logging.getLogger(__name__)
 
-SUSPICIOUS_TLDS = ['.top', '.xyz', '.biz', '.zip']
-HIGH_RISK_KEYWORDS = ['verify', 'login', 'bank', 'secure', 'account']
-HIGH_VALUE_TARGETS = ['google', 'amazon', 'paypal', 'github', 'microsoft', 'apple']
-
 def levenshtein_distance(s1: str, s2: str) -> int:
-    """Calculates the Levenshtein distance between two strings."""
+    """Calculates the Levenshtein distance between two strings using iterative Wagner-Fischer."""
     if len(s1) < len(s2):
-        return levenshtein_distance(s2, s1)
+        s1, s2 = s2, s1
     if len(s2) == 0:
         return len(s1)
 
-    previous_row = range(len(s2) + 1)
+    previous_row = list(range(len(s2) + 1))
     for i, c1 in enumerate(s1):
         current_row = [i + 1]
         for j, c2 in enumerate(s2):
@@ -44,18 +45,18 @@ async def get_domain_age(domain: str) -> int:
             )
         except asyncio.TimeoutError:
             logger.warning(f"WHOIS lookup timed out for {domain}")
-            return 3000
+            return DEFAULT_DOMAIN_AGE_DAYS
 
         creation_date = parsed_dict.get('created') or parsed_dict.get('creation_date')
         if not creation_date:
-            return 3000
+            return DEFAULT_DOMAIN_AGE_DAYS
 
         if isinstance(creation_date, list):
             creation_date = creation_date[0]
 
         if isinstance(creation_date, str):
             logger.warning(f"WHOIS returned string date for {domain}, cannot parse reliably")
-            return 3000
+            return DEFAULT_DOMAIN_AGE_DAYS
 
         if isinstance(creation_date, datetime.datetime):
             now = datetime.datetime.now(datetime.timezone.utc)
@@ -68,9 +69,9 @@ async def get_domain_age(domain: str) -> int:
     except Exception as e:
         logger.warning(f"WHOIS lookup failed for {domain}: {e}")
 
-    return 3000
+    return DEFAULT_DOMAIN_AGE_DAYS
 
-async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
+async def fetch_security_vendor_flags(domain: str) -> Tuple[int, int]:
     """
     Fetches vendor flags from VirusTotal API v3 with 3-second timeout.
     Returns (malicious_flags, total_vendors).
@@ -78,7 +79,7 @@ async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
     """
     vt_key = os.getenv("VIRUSTOTAL_API_KEY")
     if not vt_key:
-        return 0, 70
+        return 0, TOTAL_VENDORS_COUNT
 
     url = f"https://www.virustotal.com/api/v3/domains/{domain}"
     headers = {
@@ -92,12 +93,12 @@ async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
             response = await client.get(url, headers=headers)
 
             if response.status_code == 429:
-                logger.warning(f"VirusTotal rate limit hit for {domain}")
-                return 0, 70
+                logger.warning(f"Security Vendor rate limit hit for {domain}")
+                return 0, TOTAL_VENDORS_COUNT
 
             if response.status_code != 200:
-                logger.warning(f"VirusTotal API returned {response.status_code} for {domain}")
-                return 0, 70
+                logger.warning(f"Security Vendor API returned {response.status_code} for {domain}")
+                return 0, TOTAL_VENDORS_COUNT
 
             data = response.json()
             stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
@@ -107,16 +108,16 @@ async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
             return (malicious + suspicious), total
 
     except httpx.TimeoutException:
-        logger.warning(f"VirusTotal request timed out for {domain}")
+        logger.warning(f"Security Vendor request timed out for {domain}")
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 429:
-            logger.warning(f"VirusTotal rate limit hit for {domain}")
+            logger.warning(f"Security Vendor rate limit hit for {domain}")
         else:
-            logger.error(f"VirusTotal HTTP error for {domain}: {e}")
+            logger.error(f"Security Vendor HTTP error for {domain}: {e}")
     except Exception as e:
-        logger.error(f"VirusTotal fetch failed for {domain}: {e}")
+        logger.error(f"Security Vendor fetch failed for {domain}: {e}")
 
-    return 0, 70
+    return 0, TOTAL_VENDORS_COUNT
 
 async def scan_url(url: str) -> Dict[str, Any]:
     """
@@ -137,7 +138,7 @@ async def scan_url(url: str) -> Dict[str, Any]:
     
     age_days, vt_results = await asyncio.gather(
         get_domain_age(root_domain),
-        fetch_virustotal_flags(root_domain)
+        fetch_security_vendor_flags(root_domain)
     )
     vendor_flags, total_vendors = vt_results
     
@@ -166,8 +167,6 @@ async def scan_url(url: str) -> Dict[str, Any]:
     # Check for homograph/Punycode
     punycode_detected = "xn--" in domain or "xn--" in domain
     
-    suspicious_keywords = ["free", "login", "update", "verify", "secure", "account"]
-    
     threat_type = None
     if vendor_flags > 0:
         threat_type = f"Flagged by {vendor_flags} Security Vendors"
@@ -175,9 +174,9 @@ async def scan_url(url: str) -> Dict[str, Any]:
         threat_type = "Typosquatting Detected (High Value Target)"
     elif synergy_detected:
         threat_type = synergy_reason
-    elif any(keyword in root_domain for keyword in suspicious_keywords) and root_domain not in [f"{t}.com" for t in HIGH_VALUE_TARGETS]:
+    elif any(keyword in root_domain for keyword in SUSPICIOUS_KEYWORDS) and root_domain not in [f"{t}.com" for t in HIGH_VALUE_TARGETS]:
         threat_type = "Suspicious Keywords in Domain"
-    elif age_days < 30:
+    elif age_days < NEW_DOMAIN_THRESHOLD_DAYS:
         threat_type = "Newly Registered Domain"
     
     return {

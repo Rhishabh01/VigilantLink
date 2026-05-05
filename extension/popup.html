@@ -243,8 +243,14 @@
   <div class="header">
     <div class="logo">VL</div>
     <h1>VigilantLink</h1>
+    <div id="settings-btn" style="margin-left: auto; cursor: pointer; font-size: 16px;" title="Settings">⚙️</div>
   </div>
   <div class="content">
+    <div id="settings-panel" style="display: none; background: #f8f9fa; padding: 12px; border-radius: 6px; margin-bottom: 16px; border: 1px solid #ddd;">
+      <h3 style="font-size: 12px; color: #666; margin-bottom: 8px; text-transform: uppercase;">Backend Configuration</h3>
+      <input type="text" id="backend-url-input" placeholder="http://127.0.0.1:8000/analyze" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; margin-bottom: 8px;">
+      <button id="save-settings-btn" style="width: 100%; padding: 6px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Save Settings</button>
+    </div>
     <div class="current-site">
       <div class="label" style="display: flex; justify-content: space-between; align-items: center;">
         <span>Current Site</span>

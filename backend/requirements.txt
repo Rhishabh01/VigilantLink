@@ -6,3 +6,5 @@ python-dotenv==1.0.1
 pydantic==2.6.4
 asyncwhois==1.1.2
 cachetools>=5.0.0
+slowapi==0.1.9
+Pillow==10.3.0
