@@ -3,7 +3,8 @@
 # Environments
 venv/
 env/
-.env
+backend/venv/
+backend/env/
 
 # Python
 __pycache__/
@@ -16,7 +17,6 @@ develop-eggs/
 dist/
 downloads/
 eggs/
-.eggs/
 lib/
 lib64/
 parts/
@@ -28,12 +28,29 @@ share/python-wheels/
 .installed.cfg
 *.egg
 
+# Environment variables (contains API keys)
+.env
+backend/.env
+
+# Test files (generated during development)
+backend/test_*.py
+backend/create_icons.py
+backend/test_suite.py
+
 # Playwright
 test-results/
+screenshots/
+
+# Logs
+*.log
+logs/
 
 # IDEs
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
 # OS generated files
 .DS_Store
@@ -43,3 +60,8 @@ test-results/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

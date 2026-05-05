@@ -32,104 +32,127 @@ def levenshtein_distance(s1: str, s2: str) -> int:
 
 async def get_domain_age(domain: str) -> int:
     """
-    Real WHOIS logic using asyncwhois. 
+    Real WHOIS logic using asyncwhois with 3-second timeout.
     Returns the age of the domain in days.
     """
     try:
-        _, parsed_dict = await asyncwhois.aio_whois(domain)
-        creation_date = parsed_dict.get('created')
+        try:
+            _, parsed_dict = await asyncio.wait_for(
+                asyncwhois.aio_whois(domain),
+                timeout=3.0
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"WHOIS lookup timed out for {domain}")
+            return 3000
+
+        creation_date = parsed_dict.get('created') or parsed_dict.get('creation_date')
         if not creation_date:
-            return 3000 # Assume mature if we can't find it
-            
+            return 3000
+
         if isinstance(creation_date, list):
             creation_date = creation_date[0]
-            
+
         if isinstance(creation_date, str):
-            return 3000 
-            
+            logger.warning(f"WHOIS returned string date for {domain}, cannot parse reliably")
+            return 3000
+
         if isinstance(creation_date, datetime.datetime):
             now = datetime.datetime.now(datetime.timezone.utc)
             if creation_date.tzinfo is None:
                 creation_date = creation_date.replace(tzinfo=datetime.timezone.utc)
-                
+
             age_timedelta = now - creation_date
             return max(0, age_timedelta.days)
-            
+
     except Exception as e:
         logger.warning(f"WHOIS lookup failed for {domain}: {e}")
-        
-    return 3000 # Default to mature domain if WHOIS fails
+
+    return 3000
 
 async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
     """
-    Fetches vendor flags from VirusTotal API v3.
+    Fetches vendor flags from VirusTotal API v3 with 3-second timeout.
     Returns (malicious_flags, total_vendors).
+    Handles rate limits (429) by returning 0 flags.
     """
     vt_key = os.getenv("VIRUSTOTAL_API_KEY")
     if not vt_key:
-        return 0, 70 # Default dummy values if no key is provided
-        
+        return 0, 70
+
     url = f"https://www.virustotal.com/api/v3/domains/{domain}"
     headers = {
         "accept": "application/json",
         "x-apikey": vt_key
     }
-    
+
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        timeout = httpx.Timeout(3.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.get(url, headers=headers)
-            if response.status_code == 200:
-                data = response.json()
-                stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
-                malicious = stats.get("malicious", 0)
-                suspicious = stats.get("suspicious", 0)
-                total = sum(stats.values())
-                return (malicious + suspicious), total
-            else:
+
+            if response.status_code == 429:
+                logger.warning(f"VirusTotal rate limit hit for {domain}")
+                return 0, 70
+
+            if response.status_code != 200:
                 logger.warning(f"VirusTotal API returned {response.status_code} for {domain}")
+                return 0, 70
+
+            data = response.json()
+            stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
+            malicious = stats.get("malicious", 0)
+            suspicious = stats.get("suspicious", 0)
+            total = sum(stats.values())
+            return (malicious + suspicious), total
+
+    except httpx.TimeoutException:
+        logger.warning(f"VirusTotal request timed out for {domain}")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429:
+            logger.warning(f"VirusTotal rate limit hit for {domain}")
+        else:
+            logger.error(f"VirusTotal HTTP error for {domain}: {e}")
     except Exception as e:
         logger.error(f"VirusTotal fetch failed for {domain}: {e}")
-        
+
     return 0, 70
 
 async def scan_url(url: str) -> Dict[str, Any]:
     """
     Scans the URL for typosquatting, age, and suspicious keywords.
+    Uses concurrent calls for WHOIS and VirusTotal.
     """
     parsed = urllib.parse.urlparse(url)
     domain = parsed.netloc.lower()
-    
-    # Strip port if present
+
     if ':' in domain:
         domain = domain.split(':')[0]
-    
-    # Simple root domain extraction (e.g., www.amazon.com -> amazon.com)
+
     parts = domain.split('.')
     if len(parts) > 2:
         root_domain = f"{parts[-2]}.{parts[-1]}"
     else:
         root_domain = domain
 
-    # Await both external API calls concurrently
     age_days, vt_results = await asyncio.gather(
         get_domain_age(root_domain),
         fetch_virustotal_flags(root_domain)
     )
     vendor_flags, total_vendors = vt_results
-    
+
     high_value_targets = ["google.com", "amazon.com", "microsoft.com", "apple.com", "facebook.com", "paypal.com"]
-    
+
     typosquatting_detected = False
     for target in high_value_targets:
         if root_domain == target:
-            continue # Real domain
+            continue
         dist = levenshtein_distance(root_domain, target)
-        if dist == 1: # Distance of 1 (e.g. amäzon.com)
+        if dist == 1:
             typosquatting_detected = True
             break
-            
+
     suspicious_keywords = ["free", "login", "update", "verify", "secure", "account"]
-    
+
     threat_type = None
     if vendor_flags > 0:
         threat_type = f"Flagged by {vendor_flags} Security Vendors"
@@ -139,7 +162,7 @@ async def scan_url(url: str) -> Dict[str, Any]:
         threat_type = "Suspicious Keywords in Domain"
     elif age_days < 30:
         threat_type = "Newly Registered Domain"
-        
+
     return {
         "domain_age_days": age_days,
         "typosquatting_detected": typosquatting_detected,
