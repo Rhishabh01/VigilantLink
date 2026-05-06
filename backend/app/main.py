@@ -18,11 +18,20 @@ def suppress_connection_reset():
 suppress_connection_reset()
 
 from .models import AnalyzeRequest, AnalyzeResponse, RedirectHop, SecurityReport
+from .services.metadata_fetcher import fetch_metadata
 from .services.browser_pool import browser_pool
 from .services.tracer import trace_url
 from .services.scanner import scan_url, SUSPICIOUS_TLDS, HIGH_RISK_KEYWORDS
 from .services.cache_manager import cache_manager
 from urllib.parse import urlparse
+from .core.constants import (
+    VERDICT_RED_THRESHOLD, VERDICT_YELLOW_THRESHOLD, PUNYCODE_MIN_SCORE,
+    BRAND_PENALTY_SCORE, SYNERGY_PENALTY_SCORE, REDIRECT_CHAIN_MAJOR_PENALTY,
+    REDIRECT_CHAIN_MINOR_PENALTY, VENDOR_FLAG_PENALTY, NEWLY_REGISTERED_PENALTY,
+    RECENTLY_REGISTERED_PENALTY, TYPOSQUATTING_PENALTY, NEWLY_REGISTERED_DAYS,
+    RECENTLY_REGISTERED_DAYS, MAX_REDIRECT_HOPS_FREE, SEVERE_VENDOR_FLAGS_THRESHOLD,
+    DEFAULT_DOMAIN_AGE_DAYS, TOTAL_VENDORS_COUNT
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +77,9 @@ def calculate_risk_score(hops, scan_data, final_url):
         if redirect_score > 0:
             reasons.append(f"Excessive Redirect Chain (+{redirect_score})")
     
-    # 6. VirusTotal Flags
+    # 6. VirusTotal Flags (Ignore 1 flag as it's often a false positive)
     vendor_flags = scan_data.get("vendor_flags", 0)
-    if vendor_flags > 0:
+    if vendor_flags >= 2:
         risk_score += 40
         reasons.append(f"Flagged by {vendor_flags} Security Vendors")
     
@@ -143,38 +152,52 @@ async def analyze_link(request: AnalyzeRequest):
     if cached_result:
         return cached_result
 
+    import time
+    start_time = time.time()
+    
     try:
         # 2. Trace Redirects
+        trace_start = time.time()
         trace_result = await trace_url(url_str)
         final_url = trace_result["final_url"]
         hops = trace_result["hops"]
+        trace_duration = time.time() - trace_start
+        print(f"DEBUG: Redirect trace took {trace_duration:.2f}s")
 
-        # 3. Security Scan with fallback for resilience
-        try:
-            scan_data = await asyncio.wait_for(
-                scan_url(final_url),
-                timeout=10.0
-            )
-        except asyncio.TimeoutError:
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Security scan timed out for {final_url}, using fallback data")
-            scan_data = {
-                "domain_age_days": 3000,
-                "typosquatting_detected": False,
-                "threat_type": None,
-                "vendor_flags": 0,
-                "total_vendors": 70
-            }
-        except Exception as e:
-            logger = logging.getLogger(__name__)
-            logger.error(f"Security scan failed for {final_url}: {e}, using fallback data")
-            scan_data = {
-                "domain_age_days": 3000,
-                "typosquatting_detected": False,
-                "threat_type": None,
-                "vendor_flags": 0,
-                "total_vendors": 70
-            }
+        # 3. Metadata Fetch
+        meta_start = time.time()
+        metadata = await fetch_metadata(final_url)
+        meta_duration = time.time() - meta_start
+        print(f"DEBUG: Metadata fetch took {meta_duration:.2f}s")
+        
+        # 4. Security Scan & Screenshot
+        parallel_start = time.time()
+        async def safe_scan():
+            try:
+                return await asyncio.wait_for(scan_url(final_url), timeout=8.0)
+            except Exception as e:
+                logger.warning(f"Security scan failed or timed out: {e}")
+                return {
+                    "domain_age_days": DEFAULT_DOMAIN_AGE_DAYS,
+                    "typosquatting_detected": False,
+                    "threat_type": None,
+                    "vendor_flags": 0,
+                    "total_vendors": TOTAL_VENDORS_COUNT
+                }
+
+        scan_task = safe_scan()
+        
+        screenshot_base64 = ""
+        if not metadata or not metadata.get("image_url"):
+            print("DEBUG: No metadata image, falling back to screenshot...")
+            screenshot_task = browser_pool.capture_screenshot(final_url)
+            scan_data, screenshot_base64 = await asyncio.gather(scan_task, screenshot_task)
+        else:
+            print("DEBUG: Using metadata image, skipping screenshot.")
+            scan_data = await scan_task
+            
+        parallel_duration = time.time() - parallel_start
+        print(f"DEBUG: Parallel stage (scan+shot) took {parallel_duration:.2f}s")
 
         # --- Weighted Risk Scorer ---
         risk_score, verdict, is_safe, reasons = calculate_risk_score(hops, scan_data, final_url)
@@ -184,28 +207,30 @@ async def analyze_link(request: AnalyzeRequest):
             verdict=verdict,
             threat_type=scan_data.get("threat_type"),
             vendor_flags=scan_data.get("vendor_flags", 0),
-            total_vendors=scan_data.get("total_vendors", 70),
+            total_vendors=scan_data.get("total_vendors", TOTAL_VENDORS_COUNT),
             domain_age_days=scan_data.get("domain_age_days"),
             risk_score=risk_score,
-            suspicious_redirects=len(hops) > 3,
+            suspicious_redirects=len(hops) > MAX_REDIRECT_HOPS_FREE,
             typosquatting_detected=scan_data.get("typosquatting_detected", False),
             reasons=reasons
         )
-
-        # 4. Capture Screenshot via Browser Pool
-        screenshot_base64 = await browser_pool.capture_screenshot(final_url)
 
         response = AnalyzeResponse(
             original_url=url_str,
             final_url=final_url,
             redirect_chain=[RedirectHop(**hop) for hop in hops],
             screenshot_base64=screenshot_base64,
-            security=security_report
+            security=security_report,
+            title=metadata.get("title") if metadata else None,
+            description=metadata.get("description") if metadata else None,
+            preview_image_url=metadata.get("image_url") if metadata else None
         )
 
         # 5. Save to Cache
         cache_manager.set(url_str, response.model_dump())
 
+        total_duration = time.time() - start_time
+        print(f"DEBUG: Total analysis for {url_str} took {total_duration:.2f}s")
         return response
 
     except Exception as e:

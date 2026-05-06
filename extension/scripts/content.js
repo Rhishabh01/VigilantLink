@@ -469,7 +469,7 @@ function createForensicSection(reasons) {
 function updatePopupWithResult(data) {
   if (!currentPopupContent) return;
 
-  const { original_url, final_url, redirect_chain, screenshot_base64, security } = data;
+  const { original_url, final_url, redirect_chain, screenshot_base64, security, title, description, preview_image_url } = data;
 
   currentPopupContent.textContent = '';
 
@@ -498,6 +498,28 @@ function updatePopupWithResult(data) {
 
   const warningBox = createWarningBox(verdictClass, security.threat_type);
   if (warningBox) bodyDiv.appendChild(warningBox);
+
+  // Metadata Section (Title & Description)
+  if (title || description) {
+    const metaSection = document.createElement('div');
+    metaSection.className = 'metadata-section';
+    
+    if (title) {
+      const titleEl = document.createElement('div');
+      titleEl.className = 'metadata-title';
+      titleEl.textContent = title;
+      metaSection.appendChild(titleEl);
+    }
+    
+    if (description) {
+      const descEl = document.createElement('div');
+      descEl.className = 'metadata-description';
+      descEl.textContent = description;
+      metaSection.appendChild(descEl);
+    }
+    
+    bodyDiv.appendChild(metaSection);
+  }
 
   const urlDestDiv = document.createElement('div');
   urlDestDiv.className = 'url-dest';
@@ -569,9 +591,10 @@ function updatePopupWithResult(data) {
   const screenshotContainer = document.createElement('div');
   screenshotContainer.className = 'screenshot-container';
 
-  if (screenshot_base64) {
+  const displayImage = screenshot_base64 || preview_image_url;
+  if (displayImage) {
     const img = document.createElement('img');
-    img.src = screenshot_base64;
+    img.src = displayImage;
     img.alt = `Preview of ${final_url}`;
     screenshotContainer.appendChild(img);
   } else {
