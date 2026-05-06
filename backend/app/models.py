@@ -26,3 +26,6 @@ class AnalyzeResponse(BaseModel):
     redirect_chain: List[RedirectHop]
     screenshot_base64: str
     security: SecurityReport
+    title: Optional[str] = None
+    description: Optional[str] = None
+    preview_image_url: Optional[str] = None
