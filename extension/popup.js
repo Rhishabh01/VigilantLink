@@ -89,19 +89,33 @@ async function updateToggles() {
 function renderPresetList(disabledSites) {
   const listEl = document.getElementById('preset-list');
   if (!listEl) return;
-  
-  listEl.innerHTML = '';
+
+  listEl.textContent = '';
   PRESET_SITES.forEach(site => {
     const isEnabled = !disabledSites.includes(site.domain);
     const item = document.createElement('div');
     item.className = 'preset-item';
-    item.innerHTML = `
-      <span class="site-name">${site.name}</span>
-      <label class="toggle">
-        <input type="checkbox" class="site-list-toggle" data-domain="${site.domain}" ${isEnabled ? 'checked' : ''}>
-        <span class="slider"></span>
-      </label>
-    `;
+
+    const siteName = document.createElement('span');
+    siteName.className = 'site-name';
+    siteName.textContent = site.name;
+    item.appendChild(siteName);
+
+    const labelEl = document.createElement('label');
+    labelEl.className = 'toggle';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'site-list-toggle';
+    checkbox.dataset.domain = site.domain;
+    checkbox.checked = isEnabled;
+    labelEl.appendChild(checkbox);
+
+    const sliderSpan = document.createElement('span');
+    sliderSpan.className = 'slider';
+    labelEl.appendChild(sliderSpan);
+
+    item.appendChild(labelEl);
     listEl.appendChild(item);
   });
 }
@@ -109,30 +123,69 @@ function renderPresetList(disabledSites) {
 function renderCustomList(customSites, disabledSites) {
   const listEl = document.getElementById('custom-list');
   if (!listEl) return;
-  
+
   if (customSites.length === 0) {
-    listEl.innerHTML = '<div style="font-size: 11px; color: #888; text-align: center; padding: 8px;">No custom sites added</div>';
+    listEl.textContent = '';
+    const emptyDiv = document.createElement('div');
+    emptyDiv.style.fontSize = '11px';
+    emptyDiv.style.color = '#888';
+    emptyDiv.style.textAlign = 'center';
+    emptyDiv.style.padding = '8px';
+    emptyDiv.textContent = 'No custom sites added';
+    listEl.appendChild(emptyDiv);
     return;
   }
 
-  listEl.innerHTML = '';
+  listEl.textContent = '';
   customSites.forEach((site, index) => {
     const isEnabled = !disabledSites.includes(site.domain);
     const item = document.createElement('div');
     item.className = 'custom-site-item';
-    item.innerHTML = `
-      <div class="site-info">
-        <div class="site-name">${site.name}</div>
-        <div class="site-domain">${site.domain}</div>
-      </div>
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <label class="toggle">
-          <input type="checkbox" class="site-list-toggle" data-domain="${site.domain}" ${isEnabled ? 'checked' : ''}>
-          <span class="slider"></span>
-        </label>
-        <span class="remove" data-index="${index}" title="Remove">&times;</span>
-      </div>
-    `;
+
+    const siteInfoDiv = document.createElement('div');
+    siteInfoDiv.className = 'site-info';
+
+    const nameDiv = document.createElement('div');
+    nameDiv.className = 'site-name';
+    nameDiv.textContent = site.name;
+    siteInfoDiv.appendChild(nameDiv);
+
+    const domainDiv = document.createElement('div');
+    domainDiv.className = 'site-domain';
+    domainDiv.textContent = site.domain;
+    siteInfoDiv.appendChild(domainDiv);
+
+    item.appendChild(siteInfoDiv);
+
+    const controlsDiv = document.createElement('div');
+    controlsDiv.style.display = 'flex';
+    controlsDiv.style.alignItems = 'center';
+    controlsDiv.style.gap = '8px';
+
+    const labelEl = document.createElement('label');
+    labelEl.className = 'toggle';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'site-list-toggle';
+    checkbox.dataset.domain = site.domain;
+    checkbox.checked = isEnabled;
+    labelEl.appendChild(checkbox);
+
+    const sliderSpan = document.createElement('span');
+    sliderSpan.className = 'slider';
+    labelEl.appendChild(sliderSpan);
+
+    controlsDiv.appendChild(labelEl);
+
+    const removeBtn = document.createElement('span');
+    removeBtn.className = 'remove';
+    removeBtn.dataset.index = index;
+    removeBtn.title = 'Remove';
+    removeBtn.textContent = '×';
+    controlsDiv.appendChild(removeBtn);
+
+    item.appendChild(controlsDiv);
     listEl.appendChild(item);
   });
 }
