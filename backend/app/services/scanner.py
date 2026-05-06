@@ -40,7 +40,7 @@ async def get_domain_age(domain: str) -> int:
         try:
             _, parsed_dict = await asyncio.wait_for(
                 asyncwhois.aio_whois(domain),
-                timeout=3.0
+                timeout=1.5
             )
         except asyncio.TimeoutError:
             logger.warning(f"WHOIS lookup timed out for {domain}")
@@ -87,7 +87,7 @@ async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
     }
 
     try:
-        timeout = httpx.Timeout(3.0)
+        timeout = httpx.Timeout(1.5)
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.get(url, headers=headers)
 
@@ -169,7 +169,7 @@ async def scan_url(url: str) -> Dict[str, Any]:
     suspicious_keywords = ["free", "login", "update", "verify", "secure", "account"]
     
     threat_type = None
-    if vendor_flags > 0:
+    if vendor_flags >= 2:
         threat_type = f"Flagged by {vendor_flags} Security Vendors"
     elif typosquatting_detected:
         threat_type = "Typosquatting Detected (High Value Target)"

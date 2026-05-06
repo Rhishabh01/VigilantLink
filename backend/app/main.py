@@ -2,8 +2,13 @@ import asyncio
 import logging
 import sys
 import warnings
-from fastapi import FastAPI, HTTPException
+import os
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # Fix for Windows ProactorEventLoop requirement for Playwright/Subprocesses
 if sys.platform == 'win32':
@@ -18,11 +23,20 @@ def suppress_connection_reset():
 suppress_connection_reset()
 
 from .models import AnalyzeRequest, AnalyzeResponse, RedirectHop, SecurityReport
+from .services.metadata_fetcher import fetch_metadata
 from .services.browser_pool import browser_pool
 from .services.tracer import trace_url
 from .services.scanner import scan_url, SUSPICIOUS_TLDS, HIGH_RISK_KEYWORDS
 from .services.cache_manager import cache_manager
 from urllib.parse import urlparse
+from .core.constants import (
+    VERDICT_RED_THRESHOLD, VERDICT_YELLOW_THRESHOLD, PUNYCODE_MIN_SCORE,
+    BRAND_PENALTY_SCORE, SYNERGY_PENALTY_SCORE, REDIRECT_CHAIN_MAJOR_PENALTY,
+    REDIRECT_CHAIN_MINOR_PENALTY, VENDOR_FLAG_PENALTY, NEWLY_REGISTERED_PENALTY,
+    RECENTLY_REGISTERED_PENALTY, TYPOSQUATTING_PENALTY, NEWLY_REGISTERED_DAYS,
+    RECENTLY_REGISTERED_DAYS, MAX_REDIRECT_HOPS_FREE, SEVERE_VENDOR_FLAGS_THRESHOLD,
+    DEFAULT_DOMAIN_AGE_DAYS, TOTAL_VENDORS_COUNT
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +82,9 @@ def calculate_risk_score(hops, scan_data, final_url):
         if redirect_score > 0:
             reasons.append(f"Excessive Redirect Chain (+{redirect_score})")
     
-    # 6. VirusTotal Flags
+    # 6. VirusTotal Flags (Ignore 1 flag as it's often a false positive)
     vendor_flags = scan_data.get("vendor_flags", 0)
-    if vendor_flags > 0:
+    if vendor_flags >= 2:
         risk_score += 40
         reasons.append(f"Flagged by {vendor_flags} Security Vendors")
     
@@ -113,8 +127,7 @@ def calculate_risk_score(hops, scan_data, final_url):
 
 app = FastAPI(title="VigilantLink Security API")
 
-<<<<<<< Updated upstream
-=======
+# Rate Limiter setup
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -123,6 +136,7 @@ ALLOWED_EXTENSION_ID = os.getenv("EXTENSION_ID", "[MY_EXTENSION_ID]")
 ALLOWED_ORIGIN = f"chrome-extension://{ALLOWED_EXTENSION_ID}"
 
 def is_allowed_origin(origin: str) -> bool:
+    # Relaxed for local development
     return True
 
 @app.middleware("http")
@@ -137,7 +151,6 @@ async def verify_origin_middleware(request: Request, call_next):
             )
     return await call_next(request)
 
->>>>>>> Stashed changes
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -168,41 +181,29 @@ async def analyze_link(request: AnalyzeRequest):
     if cached_result:
         return cached_result
 
+    import time
+    start_time = time.time()
+    
     try:
-        # 2. Trace Redirects (Must happen first to get final_url)
-        trace_result = await trace_url(url_str)
+        # 2 & 3. Trace Redirects and Fetch Metadata in Parallel
+        # Note: We speculative fetch metadata on the original URL while tracing.
+        # If the final URL is different, we'll have the trace data soon.
+        print(f"DEBUG: Starting Parallel Trace & Meta for {url_str}")
+        trace_task = trace_url(url_str)
+        meta_task = fetch_metadata(url_str) # Speculative fetch
+        
+        trace_result, metadata = await asyncio.gather(trace_task, meta_task)
+        
         final_url = trace_result["final_url"]
         hops = trace_result["hops"]
-
-<<<<<<< Updated upstream
-        # 3. Security Scan with fallback for resilience
-        try:
-            scan_data = await asyncio.wait_for(
-                scan_url(final_url),
-                timeout=10.0
-            )
-        except asyncio.TimeoutError:
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Security scan timed out for {final_url}, using fallback data")
-            scan_data = {
-                "domain_age_days": 3000,
-                "typosquatting_detected": False,
-                "threat_type": None,
-                "vendor_flags": 0,
-                "total_vendors": 70
-            }
-        except Exception as e:
-            logger = logging.getLogger(__name__)
-            logger.error(f"Security scan failed for {final_url}: {e}, using fallback data")
-            scan_data = {
-                "domain_age_days": 3000,
-                "typosquatting_detected": False,
-                "threat_type": None,
-                "vendor_flags": 0,
-                "total_vendors": 70
-            }
-=======
-        # 3. Security Scan & Screenshot (Parallel)
+        
+        # If redirects were significant (domain change), re-fetch metadata for the final URL
+        if urlparse(url_str).netloc != urlparse(final_url).netloc:
+            print("DEBUG: Domain changed during redirect, re-fetching metadata...")
+            metadata = await fetch_metadata(final_url)
+        
+        # 4. Security Scan & Screenshot
+        parallel_start = time.time()
         async def safe_scan():
             try:
                 return await asyncio.wait_for(scan_url(final_url), timeout=8.0)
@@ -217,11 +218,18 @@ async def analyze_link(request: AnalyzeRequest):
                 }
 
         scan_task = safe_scan()
-        screenshot_task = browser_pool.capture_screenshot(final_url)
-
-        # Execute both concurrently
-        scan_data, screenshot_base64 = await asyncio.gather(scan_task, screenshot_task)
->>>>>>> Stashed changes
+        
+        screenshot_base64 = ""
+        if not metadata or not metadata.get("image_url"):
+            print("DEBUG: No metadata image, falling back to screenshot...")
+            screenshot_task = browser_pool.capture_screenshot(final_url)
+            scan_data, screenshot_base64 = await asyncio.gather(scan_task, screenshot_task)
+        else:
+            print("DEBUG: Using metadata image, skipping screenshot.")
+            scan_data = await scan_task
+            
+        parallel_duration = time.time() - parallel_start
+        print(f"DEBUG: Parallel stage (scan+shot) took {parallel_duration:.2f}s")
 
         # --- Weighted Risk Scorer ---
         risk_score, verdict, is_safe, reasons = calculate_risk_score(hops, scan_data, final_url)
@@ -231,10 +239,10 @@ async def analyze_link(request: AnalyzeRequest):
             verdict=verdict,
             threat_type=scan_data.get("threat_type"),
             vendor_flags=scan_data.get("vendor_flags", 0),
-            total_vendors=scan_data.get("total_vendors", 70),
+            total_vendors=scan_data.get("total_vendors", TOTAL_VENDORS_COUNT),
             domain_age_days=scan_data.get("domain_age_days"),
             risk_score=risk_score,
-            suspicious_redirects=len(hops) > 3,
+            suspicious_redirects=len(hops) > MAX_REDIRECT_HOPS_FREE,
             typosquatting_detected=scan_data.get("typosquatting_detected", False),
             reasons=reasons
         )
@@ -244,12 +252,17 @@ async def analyze_link(request: AnalyzeRequest):
             final_url=final_url,
             redirect_chain=[RedirectHop(**hop) for hop in hops],
             screenshot_base64=screenshot_base64,
-            security=security_report
+            security=security_report,
+            title=metadata.get("title") if metadata else None,
+            description=metadata.get("description") if metadata else None,
+            preview_image_url=metadata.get("image_url") if metadata else None
         )
 
-        # 4. Save to Cache
+        # 5. Save to Cache
         cache_manager.set(url_str, response.model_dump())
 
+        total_duration = time.time() - start_time
+        print(f"DEBUG: Total analysis for {url_str} took {total_duration:.2f}s")
         return response
 
     except Exception as e:
