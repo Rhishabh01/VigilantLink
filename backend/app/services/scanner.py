@@ -1,18 +1,26 @@
+"""
+Scanner: Heuristic analysis engine + external scan orchestration.
+
+Tier 1 (CPU): Pure heuristics — typosquatting, punycode, TLD/keyword synergy.
+Tier 2 (Network): RDAP + VirusTotal in parallel (asyncwhois removed).
+"""
+
+import asyncio
+import logging
 import os
 import urllib.parse
-from typing import Dict, Any, Tuple
-import datetime
+from typing import Any, Dict, Optional, Tuple
+
 import httpx
-import asyncwhois
-import logging
-import asyncio
+
+from ..core.constants import (
+    HIGH_RISK_KEYWORDS, HIGH_VALUE_TARGETS, SUSPICIOUS_KEYWORDS,
+    SUSPICIOUS_TLDS, DEFAULT_DOMAIN_AGE_DAYS, TOTAL_VENDORS_COUNT,
+)
+from .rdap_client import fetch_domain_age_rdap
 
 logger = logging.getLogger(__name__)
 
-SUSPICIOUS_TLDS = ['.top', '.xyz', '.biz', '.zip']
-HIGH_RISK_KEYWORDS = ['verify', 'login', 'bank', 'secure', 'account']
-HIGH_VALUE_TARGETS = ['google', 'amazon', 'paypal', 'github', 'microsoft', 'apple']
-SUSPICIOUS_KEYWORDS = ["free", "login", "update", "verify", "secure", "account"]
 
 def levenshtein_distance(s1: str, s2: str) -> int:
     """Calculates the Levenshtein distance between two strings."""
@@ -98,48 +106,8 @@ def run_heuristics(url: str) -> Dict[str, Any]:
 
 
 # ============================================================
-# TIER 2: External network lookups — async, slower
+# TIER 2: External network lookups — async, non-blocking
 # ============================================================
-
-async def get_domain_age(domain: str) -> int:
-    """
-    Real WHOIS logic using asyncwhois.
-    Returns the age of the domain in days.
-    Timeout: 1.5s — fast-fail on slow registrars.
-    """
-    try:
-        try:
-            _, parsed_dict = await asyncio.wait_for(
-                asyncwhois.aio_whois(domain),
-                timeout=1.5
-            )
-        except asyncio.TimeoutError:
-            logger.warning(f"WHOIS lookup timed out for {domain}")
-            return 3000
-
-        creation_date = parsed_dict.get('created') or parsed_dict.get('creation_date')
-        if not creation_date:
-            return 3000
-
-        if isinstance(creation_date, list):
-            creation_date = creation_date[0]
-
-        if isinstance(creation_date, str):
-            logger.warning(f"WHOIS returned string date for {domain}, cannot parse reliably")
-            return 3000
-
-        if isinstance(creation_date, datetime.datetime):
-            now = datetime.datetime.now(datetime.timezone.utc)
-            if creation_date.tzinfo is None:
-                creation_date = creation_date.replace(tzinfo=datetime.timezone.utc)
-
-            age_timedelta = now - creation_date
-            return max(0, age_timedelta.days)
-
-    except Exception as e:
-        logger.warning(f"WHOIS lookup failed for {domain}: {e}")
-
-    return 3000
 
 async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
     """
@@ -192,17 +160,42 @@ async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
 
 async def run_external_scans(domain: str) -> Dict[str, Any]:
     """
-    Tier 2: Run WHOIS + VirusTotal in parallel.
+    Tier 2: Run RDAP + VirusTotal in parallel.
     Returns external scan data for risk scoring.
+
+    RDAP replaces the previous blocking asyncwhois WHOIS lookup.
     """
-    age_days, vt_results = await asyncio.gather(
-        get_domain_age(domain),
-        fetch_virustotal_flags(domain)
-    )
+    rdap_timed_out = False
+    vt_timed_out = False
+
+    async def _safe_rdap() -> int:
+        nonlocal rdap_timed_out
+        try:
+            return await asyncio.wait_for(
+                fetch_domain_age_rdap(domain), timeout=0.8
+            )
+        except asyncio.TimeoutError:
+            rdap_timed_out = True
+            return DEFAULT_DOMAIN_AGE_DAYS
+        except Exception as e:
+            logger.warning(f"RDAP fallback for {domain}: {e}")
+            return DEFAULT_DOMAIN_AGE_DAYS
+
+    async def _safe_vt() -> Tuple[int, int]:
+        nonlocal vt_timed_out
+        try:
+            return await asyncio.wait_for(
+                fetch_virustotal_flags(domain), timeout=1.5
+            )
+        except asyncio.TimeoutError:
+            vt_timed_out = True
+            return 0, TOTAL_VENDORS_COUNT
+
+    age_days, vt_results = await asyncio.gather(_safe_rdap(), _safe_vt())
     vendor_flags, total_vendors = vt_results
 
     # Determine threat type from external data
-    threat_type = None
+    threat_type: Optional[str] = None
     if vendor_flags >= 2:
         threat_type = f"Flagged by {vendor_flags} Security Vendors"
     elif age_days < 30:
@@ -213,6 +206,8 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         "vendor_flags": vendor_flags,
         "total_vendors": total_vendors,
         "threat_type": threat_type,
+        "rdap_timed_out": rdap_timed_out,
+        "vt_timed_out": vt_timed_out,
     }
 
 

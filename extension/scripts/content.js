@@ -374,7 +374,7 @@ function createRedirectsSection(redirectChain) {
 
   const maxCompact = 3;
   const showUrls = redirectChain.slice(0, maxCompact).map(r => {
-    try { return new URL(r.url).hostname; } catch { return r.url; }
+    try { return new URL(r.u).hostname; } catch { return r.u; }
   });
   const hiddenCount = redirectChain.length - maxCompact;
   const compactText = showUrls.join(' → ');
@@ -430,7 +430,7 @@ function createRedirectsSection(redirectChain) {
       const arrow = document.createElement('span');
       arrow.innerHTML = '&rarr; ';
       urlDiv.appendChild(arrow);
-      const urlText = document.createTextNode(r.url);
+      const urlText = document.createTextNode(r.u);
       urlDiv.appendChild(urlText);
       fullDiv.appendChild(urlDiv);
     });
@@ -486,12 +486,12 @@ function createForensicSection(reasons) {
 function updatePopupWithResult(data) {
   if (!currentPopupContent) return;
 
-  const { original_url, final_url, redirect_chain, screenshot_base64, security, title, description, preview_image_url } = data;
+  const { url: original_url, furl: final_url, hops: redirect_chain, ss: screenshot_base64, sec: security, t: title, d: description, img: preview_image_url } = data;
 
   currentPopupContent.textContent = '';
 
-  let verdictClass = security.verdict;
-  let verdictText = security.is_safe ? 'Safe' : 'Suspicious';
+  let verdictClass = security.v;
+  let verdictText = security.safe ? 'Safe' : 'Suspicious';
   if (verdictClass === 'red') verdictText = 'Dangerous';
 
   const headerDiv = document.createElement('div');
@@ -499,7 +499,7 @@ function updatePopupWithResult(data) {
 
   const logoDiv = document.createElement('div');
   logoDiv.className = 'logo';
-  logoDiv.textContent = `VigilantLink Score: ${security.risk_score}/100`;
+  logoDiv.textContent = `VigilantLink Score: ${security.rs}/100`;
   logoDiv.style.fontSize = '14px';
   headerDiv.appendChild(logoDiv);
 
@@ -513,7 +513,7 @@ function updatePopupWithResult(data) {
   const bodyDiv = document.createElement('div');
   bodyDiv.className = 'body';
 
-  const warningBox = createWarningBox(verdictClass, security.threat_type);
+  const warningBox = createWarningBox(verdictClass, security.tt);
   if (warningBox) bodyDiv.appendChild(warningBox);
 
   // Metadata Section (Title & Description)
@@ -633,7 +633,7 @@ function updatePopupWithResult(data) {
   const infoDiv = document.createElement('div');
   infoDiv.className = 'info';
 
-  const forensicSection = createForensicSection(security.reasons);
+  const forensicSection = createForensicSection(security.r);
   if (forensicSection) infoDiv.appendChild(forensicSection);
 
   const redirectsSection = createRedirectsSection(redirect_chain);
@@ -652,7 +652,7 @@ function updatePopupWithResult(data) {
 function mergeDeepScanResult(data) {
   if (!currentPopupContent || !currentPopupShadowRoot) return;
 
-  const security = data.security;
+  const security = data.sec;
   if (!security) return;
 
   // Update header badge and color
@@ -661,22 +661,22 @@ function mergeDeepScanResult(data) {
   const logo = currentPopupShadowRoot.querySelector('.logo');
 
   if (header && badge && logo) {
-    const verdictClass = security.verdict;
-    let verdictText = security.is_safe ? 'Safe' : 'Suspicious';
+    const verdictClass = security.v;
+    let verdictText = security.safe ? 'Safe' : 'Suspicious';
     if (verdictClass === 'red') verdictText = 'Dangerous';
 
     // Remove old header classes and apply new
     header.className = `header ${verdictClass}-header`;
     badge.className = `badge ${verdictClass}`;
     badge.textContent = verdictText;
-    logo.textContent = `VigilantLink Score: ${security.risk_score}/100`;
+    logo.textContent = `VigilantLink Score: ${security.rs}/100`;
   }
 
   // Update or add warning box
   const body = currentPopupShadowRoot.querySelector('.body');
   if (body) {
     const existingWarning = currentPopupShadowRoot.querySelector('.warning-box');
-    const newWarning = createWarningBox(security.verdict, security.threat_type);
+    const newWarning = createWarningBox(security.v, security.tt);
 
     if (existingWarning && newWarning) {
       existingWarning.replaceWith(newWarning);
@@ -688,20 +688,20 @@ function mergeDeepScanResult(data) {
 
     // Update or add forensic section
     const existingInfo = currentPopupShadowRoot.querySelector('.info');
-    if (existingInfo && security.reasons && security.reasons.length > 0) {
+    if (existingInfo && security.r && security.r.length > 0) {
       existingInfo.textContent = '';
-      const forensicSection = createForensicSection(security.reasons);
+      const forensicSection = createForensicSection(security.r);
       if (forensicSection) existingInfo.appendChild(forensicSection);
     }
   }
 
   // Update screenshot if Phase 3 provided one
-  if (data.screenshot_base64) {
+  if (data.ss) {
     const container = currentPopupShadowRoot.querySelector('.screenshot-container');
     if (container) {
       container.textContent = '';
       const img = document.createElement('img');
-      img.src = data.screenshot_base64;
+      img.src = data.ss;
       img.alt = 'Site preview';
       container.appendChild(img);
     }

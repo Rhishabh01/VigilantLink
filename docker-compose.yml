@@ -10,7 +10,23 @@ services:
       - "8000:8000"
     env_file:
       - ./backend/.env
+    depends_on:
+      - redis
+    environment:
+      - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./backend:/app
     # IPC host is recommended for Playwright to avoid shared memory issues
     ipc: host
+
+  redis:
+    image: redis:7-alpine
+    container_name: vigilantlink-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+
+volumes:
+  redis_data:
