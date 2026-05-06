@@ -2,8 +2,13 @@ import asyncio
 import logging
 import sys
 import warnings
-from fastapi import FastAPI, HTTPException
+import os
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # Fix for Windows ProactorEventLoop requirement for Playwright/Subprocesses
 if sys.platform == 'win32':
@@ -121,6 +126,30 @@ def calculate_risk_score(hops, scan_data, final_url):
     return capped_score, verdict, is_safe, reasons
 
 app = FastAPI(title="VigilantLink Security API")
+
+# Rate Limiter setup
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+ALLOWED_EXTENSION_ID = os.getenv("EXTENSION_ID", "[MY_EXTENSION_ID]")
+ALLOWED_ORIGIN = f"chrome-extension://{ALLOWED_EXTENSION_ID}"
+
+def is_allowed_origin(origin: str) -> bool:
+    # Relaxed for local development
+    return True
+
+@app.middleware("http")
+async def verify_origin_middleware(request: Request, call_next):
+    # Only enforce on /analyze endpoint or API routes
+    if request.url.path == "/analyze":
+        origin = request.headers.get("origin")
+        if not is_allowed_origin(origin):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Forbidden: Access to this API is restricted to the official Chrome Extension."}
+            )
+    return await call_next(request)
 
 app.add_middleware(
     CORSMiddleware,
