@@ -156,19 +156,22 @@ async def analyze_link(request: AnalyzeRequest):
     start_time = time.time()
     
     try:
-        # 2. Trace Redirects
-        trace_start = time.time()
-        trace_result = await trace_url(url_str)
+        # 2 & 3. Trace Redirects and Fetch Metadata in Parallel
+        # Note: We speculative fetch metadata on the original URL while tracing.
+        # If the final URL is different, we'll have the trace data soon.
+        print(f"DEBUG: Starting Parallel Trace & Meta for {url_str}")
+        trace_task = trace_url(url_str)
+        meta_task = fetch_metadata(url_str) # Speculative fetch
+        
+        trace_result, metadata = await asyncio.gather(trace_task, meta_task)
+        
         final_url = trace_result["final_url"]
         hops = trace_result["hops"]
-        trace_duration = time.time() - trace_start
-        print(f"DEBUG: Redirect trace took {trace_duration:.2f}s")
-
-        # 3. Metadata Fetch
-        meta_start = time.time()
-        metadata = await fetch_metadata(final_url)
-        meta_duration = time.time() - meta_start
-        print(f"DEBUG: Metadata fetch took {meta_duration:.2f}s")
+        
+        # If redirects were significant (domain change), re-fetch metadata for the final URL
+        if urlparse(url_str).netloc != urlparse(final_url).netloc:
+            print("DEBUG: Domain changed during redirect, re-fetching metadata...")
+            metadata = await fetch_metadata(final_url)
         
         # 4. Security Scan & Screenshot
         parallel_start = time.time()
