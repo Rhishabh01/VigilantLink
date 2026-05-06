@@ -40,13 +40,13 @@ class BrowserPool:
         page = await self.context.new_page()
         try:
             # Navigate with a timeout to avoid hanging on bad sites
-            await page.goto(url, timeout=10000, wait_until="domcontentloaded")
+            await page.goto(url, timeout=7000, wait_until="domcontentloaded")
         except Exception as e:
             logger.warning(f"Navigation issue or timeout for {url}: {e}. Capturing whatever loaded.")
             
         try:
             # Wait a brief moment to allow dynamic content (React/Vue) to render
-            await page.wait_for_timeout(500)
+            await page.wait_for_timeout(200)
             
             # Capture screenshot as JPEG for smaller payload
             screenshot_bytes = await page.screenshot(type="jpeg", quality=50)

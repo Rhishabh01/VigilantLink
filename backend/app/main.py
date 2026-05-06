@@ -113,6 +113,31 @@ def calculate_risk_score(hops, scan_data, final_url):
 
 app = FastAPI(title="VigilantLink Security API")
 
+<<<<<<< Updated upstream
+=======
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+ALLOWED_EXTENSION_ID = os.getenv("EXTENSION_ID", "[MY_EXTENSION_ID]")
+ALLOWED_ORIGIN = f"chrome-extension://{ALLOWED_EXTENSION_ID}"
+
+def is_allowed_origin(origin: str) -> bool:
+    return True
+
+@app.middleware("http")
+async def verify_origin_middleware(request: Request, call_next):
+    # Only enforce on /analyze endpoint or API routes
+    if request.url.path == "/analyze":
+        origin = request.headers.get("origin")
+        if not is_allowed_origin(origin):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Forbidden: Access to this API is restricted to the official Chrome Extension."}
+            )
+    return await call_next(request)
+
+>>>>>>> Stashed changes
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -144,11 +169,12 @@ async def analyze_link(request: AnalyzeRequest):
         return cached_result
 
     try:
-        # 2. Trace Redirects
+        # 2. Trace Redirects (Must happen first to get final_url)
         trace_result = await trace_url(url_str)
         final_url = trace_result["final_url"]
         hops = trace_result["hops"]
 
+<<<<<<< Updated upstream
         # 3. Security Scan with fallback for resilience
         try:
             scan_data = await asyncio.wait_for(
@@ -175,6 +201,27 @@ async def analyze_link(request: AnalyzeRequest):
                 "vendor_flags": 0,
                 "total_vendors": 70
             }
+=======
+        # 3. Security Scan & Screenshot (Parallel)
+        async def safe_scan():
+            try:
+                return await asyncio.wait_for(scan_url(final_url), timeout=8.0)
+            except Exception as e:
+                logger.warning(f"Security scan failed or timed out: {e}")
+                return {
+                    "domain_age_days": DEFAULT_DOMAIN_AGE_DAYS,
+                    "typosquatting_detected": False,
+                    "threat_type": None,
+                    "vendor_flags": 0,
+                    "total_vendors": TOTAL_VENDORS_COUNT
+                }
+
+        scan_task = safe_scan()
+        screenshot_task = browser_pool.capture_screenshot(final_url)
+
+        # Execute both concurrently
+        scan_data, screenshot_base64 = await asyncio.gather(scan_task, screenshot_task)
+>>>>>>> Stashed changes
 
         # --- Weighted Risk Scorer ---
         risk_score, verdict, is_safe, reasons = calculate_risk_score(hops, scan_data, final_url)
@@ -192,9 +239,6 @@ async def analyze_link(request: AnalyzeRequest):
             reasons=reasons
         )
 
-        # 4. Capture Screenshot via Browser Pool
-        screenshot_base64 = await browser_pool.capture_screenshot(final_url)
-
         response = AnalyzeResponse(
             original_url=url_str,
             final_url=final_url,
@@ -203,7 +247,7 @@ async def analyze_link(request: AnalyzeRequest):
             security=security_report
         )
 
-        # 5. Save to Cache
+        # 4. Save to Cache
         cache_manager.set(url_str, response.model_dump())
 
         return response
