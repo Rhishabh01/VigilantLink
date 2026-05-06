@@ -17,7 +17,7 @@ async def fetch_metadata(url: str):
     }
 
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=5.0) as client:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=1.5) as client:
             # We only need the start of the file for metadata
             # Using a stream to avoid downloading huge files (PDFs, Videos)
             async with client.stream("GET", url, headers=headers) as response:
@@ -41,25 +41,25 @@ async def fetch_metadata(url: str):
                 
                 # Extract basic info
                 title = (
-                    soup.find("meta", property="og:title") or 
-                    soup.find("meta", name="twitter:title") or 
+                    soup.find("meta", attrs={"property": "og:title"}) or 
+                    soup.find("meta", attrs={"name": "twitter:title"}) or 
                     soup.title
                 )
                 if title:
                     title = title.get("content", title.string) if hasattr(title, "get") else title.string
                 
                 description = (
-                    soup.find("meta", property="og:description") or 
-                    soup.find("meta", name="twitter:description") or 
-                    soup.find("meta", name="description")
+                    soup.find("meta", attrs={"property": "og:description"}) or 
+                    soup.find("meta", attrs={"name": "twitter:description"}) or 
+                    soup.find("meta", attrs={"name": "description"})
                 )
                 if description:
                     description = description.get("content", "")
                 
                 image = (
-                    soup.find("meta", property="og:image") or 
-                    soup.find("meta", name="twitter:image") or 
-                    soup.find("link", rel="image_src")
+                    soup.find("meta", attrs={"property": "og:image"}) or 
+                    soup.find("meta", attrs={"name": "twitter:image"}) or 
+                    soup.find("link", attrs={"rel": "image_src"})
                 )
                 if image:
                     image_url = image.get("content", "") or image.get("href", "")

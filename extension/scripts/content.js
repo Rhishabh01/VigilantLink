@@ -7,9 +7,10 @@ let closeTimer = null;
 let currentPopupContainer = null;
 let currentPopupShadowRoot = null;
 let currentPopupContent = null;
-const HOVER_DELAY_MS = 400;
+const HOVER_DELAY_MS = 100;
 let mutationObserver = null;
 const processedLinks = new WeakSet();
+let currentAnalysisUrl = null;
 
 // Debounce utility - prevents excessive function calls
 function debounce(func, wait) {
@@ -167,8 +168,11 @@ async function handleLinkMouseEnter(event) {
 
     showLoadingPopup(x, y);
 
+    currentAnalysisUrl = url;
+
     try {
       chrome.runtime.sendMessage({ action: 'analyze_link', url }, (response) => {
+        if (currentAnalysisUrl !== url) return; // Stale response
         if (response && response.success) {
           updatePopupWithResult(response.data);
         } else {
@@ -187,6 +191,12 @@ function handleLinkMouseLeave(event) {
     hoverTimer = null;
   }
   hoverTargetUrl = null;
+  currentAnalysisUrl = null;
+
+  // Cancel in-flight backend request
+  try {
+    chrome.runtime.sendMessage({ action: 'cancel_analysis' });
+  } catch (e) { /* context may be invalid */ }
 }
 
 // Global event delegation on document body - catches all link hovers
@@ -227,19 +237,26 @@ document.addEventListener('click', (event) => {
   }
 });
 
-// Listen for messages from popup
+// Listen for messages from popup and background worker
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'settings_updated') {
-    // Close any open popup when settings change
     closePopup();
   } else if (message.action === 'set_override') {
-    // Set a temporary override for this tab
     window.sessionStorage.setItem('vigilantlink_override', message.enabled ? 'enabled' : 'disabled');
     closePopup();
     sendResponse({ success: true });
   } else if (message.action === 'get_override') {
-    // Send the current override back to the popup
     sendResponse({ override: window.sessionStorage.getItem('vigilantlink_override') });
+  } else if (message.action === 'phase1_result') {
+    // Progressive update: Phase 1 instant result
+    if (currentPopupContent && currentAnalysisUrl) {
+      updatePopupWithResult(message.data);
+    }
+  } else if (message.action === 'phase2_result') {
+    // Progressive update: Phase 2 deep scan result
+    if (currentPopupContent && currentAnalysisUrl) {
+      mergeDeepScanResult(message.data);
+    }
   }
 });
 
@@ -626,6 +643,69 @@ function updatePopupWithResult(data) {
   currentPopupContent.appendChild(bodyDiv);
 
   attachPopupEventHandlers(final_url);
+}
+
+/**
+ * Merges Phase 2 deep scan results into the existing popup.
+ * Updates badge color, risk score, and forensic details with smooth transitions.
+ */
+function mergeDeepScanResult(data) {
+  if (!currentPopupContent || !currentPopupShadowRoot) return;
+
+  const security = data.security;
+  if (!security) return;
+
+  // Update header badge and color
+  const header = currentPopupShadowRoot.querySelector('.header');
+  const badge = currentPopupShadowRoot.querySelector('.badge');
+  const logo = currentPopupShadowRoot.querySelector('.logo');
+
+  if (header && badge && logo) {
+    const verdictClass = security.verdict;
+    let verdictText = security.is_safe ? 'Safe' : 'Suspicious';
+    if (verdictClass === 'red') verdictText = 'Dangerous';
+
+    // Remove old header classes and apply new
+    header.className = `header ${verdictClass}-header`;
+    badge.className = `badge ${verdictClass}`;
+    badge.textContent = verdictText;
+    logo.textContent = `VigilantLink Score: ${security.risk_score}/100`;
+  }
+
+  // Update or add warning box
+  const body = currentPopupShadowRoot.querySelector('.body');
+  if (body) {
+    const existingWarning = currentPopupShadowRoot.querySelector('.warning-box');
+    const newWarning = createWarningBox(security.verdict, security.threat_type);
+
+    if (existingWarning && newWarning) {
+      existingWarning.replaceWith(newWarning);
+    } else if (!existingWarning && newWarning) {
+      body.insertBefore(newWarning, body.firstChild);
+    } else if (existingWarning && !newWarning) {
+      existingWarning.remove();
+    }
+
+    // Update or add forensic section
+    const existingInfo = currentPopupShadowRoot.querySelector('.info');
+    if (existingInfo && security.reasons && security.reasons.length > 0) {
+      existingInfo.textContent = '';
+      const forensicSection = createForensicSection(security.reasons);
+      if (forensicSection) existingInfo.appendChild(forensicSection);
+    }
+  }
+
+  // Update screenshot if Phase 3 provided one
+  if (data.screenshot_base64) {
+    const container = currentPopupShadowRoot.querySelector('.screenshot-container');
+    if (container) {
+      container.textContent = '';
+      const img = document.createElement('img');
+      img.src = data.screenshot_base64;
+      img.alt = 'Site preview';
+      container.appendChild(img);
+    }
+  }
 }
 
 function attachPopupEventHandlers(finalUrl) {
