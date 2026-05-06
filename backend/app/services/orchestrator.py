@@ -1,79 +1,166 @@
 """
-Orchestrator: Tiered parallel execution engine for VigilantLink.
+Orchestrator: Deterministic tiered execution engine for VigilantLink.
 
 Phase 1 (≤500ms): URL parsing + heuristics + redirect trace + metadata fetch
-Phase 2 (~2s):     VirusTotal + WHOIS domain age → final risk score
-Phase 3 (optional): Playwright screenshot fallback (background enrichment)
+Phase 2 (~2s):     RDAP + VirusTotal → final weighted risk score
+Phase 3 (optional): Playwright screenshot (shielded, semaphore-gated)
+
+Key patterns:
+  - asyncio.TaskGroup for structured concurrency (Python 3.11+)
+  - Request collapsing via RequestCollapser (deduplicate concurrent hovers)
+  - asyncio.shield() for Phase 3 so screenshots survive request cancellation
+  - Uncertainty penalty when external sources timeout
+  - URL normalization for cache deduplication
 """
 
 import asyncio
+import logging
+import socket
 import time
 import uuid
-import logging
-from urllib.parse import urlparse
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from .tracer import trace_url
 from .metadata_fetcher import fetch_metadata
 from .scanner import run_heuristics, run_external_scans
-from .browser_pool import browser_pool
-from .cache_manager import cache_manager
 from ..core.constants import (
     VERDICT_RED_THRESHOLD, VERDICT_YELLOW_THRESHOLD, PUNYCODE_MIN_SCORE,
     MAX_REDIRECT_HOPS_FREE, SEVERE_VENDOR_FLAGS_THRESHOLD,
-    DEFAULT_DOMAIN_AGE_DAYS, TOTAL_VENDORS_COUNT
+    DEFAULT_DOMAIN_AGE_DAYS, TOTAL_VENDORS_COUNT,
+    BRAND_PENALTY_SCORE, SYNERGY_PENALTY_SCORE, TYPOSQUATTING_PENALTY,
+    REDIRECT_CHAIN_MAJOR_PENALTY, REDIRECT_CHAIN_MINOR_PENALTY,
+    VENDOR_FLAG_PENALTY, NEWLY_REGISTERED_PENALTY, RECENTLY_REGISTERED_PENALTY,
+    WEIGHT_HEURISTIC, WEIGHT_RDAP_AGE, WEIGHT_VT, WEIGHT_REDIRECT_DEPTH,
+    UNCERTAINTY_PENALTY, TRACKING_PARAMS,
 )
 
 logger = logging.getLogger(__name__)
 
 
+# ============================================================
+# Utilities
+# ============================================================
+
 def generate_request_id() -> str:
     return uuid.uuid4().hex[:12]
 
+async def check_dns(domain: str) -> bool:
+    """Non-blocking DNS resolution check."""
+    loop = asyncio.get_running_loop()
+    try:
+        await loop.getaddrinfo(domain, None, family=socket.AF_INET)
+        return True
+    except Exception:
+        return False
 
-def compute_heuristic_score(heuristics: Dict, hops: list, final_url: str) -> tuple:
+def normalize_url(raw: str) -> str:
     """
-    Compute risk score using ONLY heuristic data (no external APIs).
+    Canonical URL form for cache deduplication.
+    - Lowercase scheme + host
+    - Strip trailing slash (keep root /)
+    - Sort query params
+    - Strip tracking params (utm_*, fbclid, gclid, etc.)
+    - Strip fragment
+    """
+    p = urlparse(raw)
+    qs = parse_qs(p.query, keep_blank_values=True)
+    # Remove tracking parameters
+    filtered = {k: v for k, v in qs.items() if k.lower() not in TRACKING_PARAMS}
+    sorted_qs = urlencode(sorted(filtered.items()), doseq=True)
+    return urlunparse((
+        p.scheme.lower(),
+        p.netloc.lower(),
+        p.path.rstrip("/") or "/",
+        p.params,
+        sorted_qs,
+        "",  # strip fragment
+    ))
+
+
+# ============================================================
+# Scoring: Weighted formula S = Σ(wi · ci) + U
+# ============================================================
+
+def _apply_uncertainty(
+    base_score: int,
+    rdap_uncertain: bool,
+    vt_uncertain: bool,
+) -> int:
+    """
+    Apply uncertainty penalty when external sources timeout.
+    Formula: U = UNCERTAINTY_PENALTY × (timed_out_sources / total_sources)
+    """
+    timed_out = int(rdap_uncertain) + int(vt_uncertain)
+    penalty = round(UNCERTAINTY_PENALTY * (timed_out / 2))
+    return min(base_score + penalty, 100)
+
+
+def compute_heuristic_score(
+    heuristics: Dict[str, Any], hops: List[Dict[str, Any]], final_url: str,
+    dns_resolves: bool, has_metadata: bool
+) -> Tuple[int, str, bool, List[str]]:
+    """
+    Phase 1 Preliminary Score — uses ONLY local CPU heuristics.
+    User sees this within 500ms of hover. No external API data.
+
     Returns (score, verdict, is_safe, reasons).
-    Used for Phase 1 instant response.
     """
-    risk_score = 0
-    reasons = []
+    risk_score: int = 0
+    reasons: List[str] = []
 
-    # 1. Brand Protection (Levenshtein)
+    # NEW: DNS Failure (CRITICAL)
+    if not dns_resolves:
+        risk_score += 40
+        reasons.append("Domain does not resolve (suspicious)")
+
+    # NEW: Metadata Failure
+    if not has_metadata:
+        risk_score += 10
+        reasons.append("No metadata available")
+
+    # NEW: Suspicious TLD Detection
+    domain_lower = urlparse(final_url).netloc.lower()
+    for tld in ["zip", "click", "top", "xyz"]:
+        if domain_lower.endswith(f".{tld}"):
+            risk_score += 15
+            reasons.append(f"Suspicious TLD: .{tld}")
+            break
+
+    # Signal 1: Brand impersonation (Levenshtein distance = 1)
     if heuristics.get("brand_penalty_reason"):
-        risk_score += 50
+        risk_score += round(WEIGHT_HEURISTIC * BRAND_PENALTY_SCORE)
         reasons.append(heuristics["brand_penalty_reason"])
 
-    # 2. Homograph / Punycode detection
+    # Signal 2: Punycode / Homograph (hard floor)
     punycode_detected = heuristics.get("punycode_detected", False)
     if punycode_detected or "xn--" in final_url or any("xn--" in hop["url"] for hop in hops):
         risk_score = max(risk_score, PUNYCODE_MIN_SCORE)
         if "Punycode" not in str(reasons):
             reasons.append("CRITICAL: Punycode Homograph Attack Detected")
 
-    # 3. Synergy Check (TLD + Keywords)
+    # Signal 3: TLD + Keyword synergy
     if heuristics.get("synergy_detected"):
-        risk_score += 40
+        risk_score += round(WEIGHT_HEURISTIC * SYNERGY_PENALTY_SCORE)
         reasons.append(heuristics.get("synergy_reason", "High-Risk TLD & Keyword Synergy"))
 
-    # 4. Redirect chain analysis
+    # Signal 4: Redirect chain depth
     if len(hops) > MAX_REDIRECT_HOPS_FREE:
         redirect_score = 0
         for i in range(MAX_REDIRECT_HOPS_FREE, len(hops)):
             prev_domain = urlparse(hops[i - 1]["url"]).netloc
             curr_domain = urlparse(hops[i]["url"]).netloc
             if prev_domain != curr_domain:
-                redirect_score += 20
+                redirect_score += round(WEIGHT_REDIRECT_DEPTH * REDIRECT_CHAIN_MAJOR_PENALTY)
             else:
-                redirect_score += 5
+                redirect_score += round(WEIGHT_REDIRECT_DEPTH * REDIRECT_CHAIN_MINOR_PENALTY)
         risk_score += redirect_score
         if redirect_score > 0:
             reasons.append(f"Excessive Redirect Chain (+{redirect_score})")
 
-    # 5. Typosquatting (without brand penalty overlap)
+    # Signal 5: Typosquatting (without brand penalty overlap)
     if heuristics.get("typosquatting_detected") and not heuristics.get("brand_penalty_reason"):
-        risk_score += 50
+        risk_score += round(WEIGHT_HEURISTIC * TYPOSQUATTING_PENALTY)
         reasons.append("Typosquatting Detected (High Value Target)")
 
     capped_score = min(risk_score, 100)
@@ -90,29 +177,45 @@ def compute_heuristic_score(heuristics: Dict, hops: list, final_url: str) -> tup
     return capped_score, verdict, is_safe, reasons
 
 
-def compute_final_score(heuristics: Dict, external: Dict, hops: list, final_url: str) -> tuple:
+def compute_final_score(
+    heuristics: Dict[str, Any],
+    external: Dict[str, Any],
+    hops: List[Dict[str, Any]],
+    final_url: str,
+    dns_resolves: bool,
+    has_metadata: bool,
+) -> Tuple[int, str, bool, List[str]]:
     """
-    Compute the full risk score combining heuristics + external scan data.
+    Phase 2 Final Score — heuristics + RDAP + VirusTotal + uncertainty penalty.
+
     Returns (score, verdict, is_safe, reasons).
-    Used for Phase 2 complete response.
     """
-    # Start with heuristic score
-    risk_score, _, _, reasons = compute_heuristic_score(heuristics, hops, final_url)
+    # Start with heuristic base score
+    risk_score, _, _, reasons = compute_heuristic_score(heuristics, hops, final_url, dns_resolves, has_metadata)
 
-    # 6. VirusTotal Flags (ignore 1 flag — common false positive)
+    # Phase 2 Signal: VirusTotal flags (Fixed to check >= 1)
     vendor_flags = external.get("vendor_flags", 0)
-    if vendor_flags >= 2:
-        risk_score += 40
-        reasons.append(f"Flagged by {vendor_flags} Security Vendors")
+    if vendor_flags >= 1:
+        vt_penalty = min(15 * vendor_flags, 40)
+        risk_score += round(WEIGHT_VT * vt_penalty)
+        reasons.append(f"Flagged by {vendor_flags} security vendor(s)")
 
-    # 7. Domain Age
+    # Phase 2 Signal: Domain age
     domain_age_days = external.get("domain_age_days", DEFAULT_DOMAIN_AGE_DAYS)
     if domain_age_days < 14:
-        risk_score += 40
+        risk_score += round(WEIGHT_RDAP_AGE * NEWLY_REGISTERED_PENALTY)
         reasons.append("Newly Registered Domain (<14 days)")
     elif domain_age_days <= 90:
-        risk_score += 20
+        risk_score += round(WEIGHT_RDAP_AGE * RECENTLY_REGISTERED_PENALTY)
         reasons.append("Recently Registered Domain (<90 days)")
+
+    # Uncertainty penalty for timed-out sources
+    rdap_uncertain = external.get("rdap_timed_out", False)
+    vt_uncertain = external.get("vt_timed_out", False)
+    risk_score = _apply_uncertainty(risk_score, rdap_uncertain, vt_uncertain)
+    if rdap_uncertain or vt_uncertain:
+        timed_out_count = int(rdap_uncertain) + int(vt_uncertain)
+        reasons.append(f"Uncertainty penalty (+{round(UNCERTAINTY_PENALTY * timed_out_count / 2)}): {timed_out_count}/2 sources timed out")
 
     capped_score = min(risk_score, 100)
 
@@ -135,35 +238,60 @@ def compute_final_score(heuristics: Dict, external: Dict, hops: list, final_url:
     return capped_score, verdict, is_safe, reasons
 
 
+# ============================================================
+# Phase 1: Instant Analysis (≤500ms)
+# ============================================================
+
 async def run_phase1(url: str) -> Dict[str, Any]:
     """
     Phase 1: Instant analysis (target ≤500ms).
     Runs redirect trace, metadata fetch, and CPU heuristics in parallel.
+    Uses asyncio.TaskGroup for structured concurrency.
     """
-    start = time.time()
+    start = time.monotonic()
 
-    # Run trace + metadata in parallel; heuristics are instant CPU
-    trace_task = trace_url(url)
-    meta_task = fetch_metadata(url)
+    # Run trace + metadata + dns in parallel
+    domain_to_check = urlparse(url).netloc
+    if ':' in domain_to_check:
+        domain_to_check = domain_to_check.split(':')[0]
+        
+    async with asyncio.TaskGroup() as tg:
+        trace_task = tg.create_task(trace_url(url))
+        meta_task = tg.create_task(fetch_metadata(url))
+        dns_task = tg.create_task(check_dns(domain_to_check))
 
-    trace_result, metadata = await asyncio.gather(trace_task, meta_task)
+    trace_result = trace_task.result()
+    metadata = meta_task.result()
+    dns_resolves = dns_task.result()
 
     final_url = trace_result["final_url"]
     hops = trace_result["hops"]
 
     # If domain changed during redirect, re-fetch metadata for final URL
-    if urlparse(url).netloc != urlparse(final_url).netloc:
-        logger.info(f"Domain changed during redirect, re-fetching metadata for {final_url}")
-        metadata = await fetch_metadata(final_url)
+    final_domain = urlparse(final_url).netloc
+    if ':' in final_domain:
+        final_domain = final_domain.split(':')[0]
+        
+    if domain_to_check != final_domain:
+        logger.info(f"Domain changed during redirect, re-fetching metadata and DNS for {final_url}")
+        async with asyncio.TaskGroup() as tg2:
+            meta_task2 = tg2.create_task(fetch_metadata(final_url))
+            dns_task2 = tg2.create_task(check_dns(final_domain))
+        metadata = meta_task2.result()
+        dns_resolves = dns_task2.result()
+        
+    has_metadata = metadata is not None
 
     # CPU heuristics — instant
     heuristics = run_heuristics(final_url)
 
-    # Compute initial score (heuristics only)
-    risk_score, verdict, is_safe, reasons = compute_heuristic_score(heuristics, hops, final_url)
+    # Compute initial score (heuristics only — preliminary)
+    risk_score, verdict, is_safe, reasons = compute_heuristic_score(
+        heuristics, hops, final_url, dns_resolves, has_metadata
+    )
 
     # Determine threat type from heuristics
-    threat_type = None
+    threat_type: Optional[str] = None
     if heuristics.get("brand_penalty_reason"):
         threat_type = "Typosquatting Detected"
     elif heuristics.get("synergy_detected"):
@@ -173,13 +301,15 @@ async def run_phase1(url: str) -> Dict[str, Any]:
     elif heuristics.get("has_suspicious_keywords"):
         threat_type = "Suspicious Keywords in Domain"
 
-    duration_ms = int((time.time() - start) * 1000)
+    duration_ms = int((time.monotonic() - start) * 1000)
 
     return {
         "final_url": final_url,
         "hops": hops,
         "metadata": metadata,
         "heuristics": heuristics,
+        "dns_resolves": dns_resolves,
+        "has_metadata": has_metadata,
         "security": {
             "is_safe": is_safe,
             "verdict": verdict,
@@ -196,12 +326,17 @@ async def run_phase1(url: str) -> Dict[str, Any]:
     }
 
 
+# ============================================================
+# Phase 2: Deep Scan (≤2s budget)
+# ============================================================
+
 async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Phase 2: Deep scan (target ≤2s).
-    Runs VirusTotal + WHOIS in parallel. Computes final risk score.
+    Phase 2: Deep scan (target ≤2s total).
+    Runs RDAP + VirusTotal in parallel. Computes final weighted risk score.
+    Includes uncertainty penalty for timed-out sources.
     """
-    start = time.time()
+    start = time.monotonic()
 
     final_url = phase1_result["final_url"]
     hops = phase1_result["hops"]
@@ -220,11 +355,15 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             "vendor_flags": 0,
             "total_vendors": TOTAL_VENDORS_COUNT,
             "threat_type": None,
+            "rdap_timed_out": True,
+            "vt_timed_out": True,
         }
 
-    # Compute final score
+    # Compute final weighted score with uncertainty
     risk_score, verdict, is_safe, reasons = compute_final_score(
-        heuristics, external, hops, final_url
+        heuristics, external, hops, final_url,
+        phase1_result.get("dns_resolves", True),
+        phase1_result.get("has_metadata", True)
     )
 
     # Determine threat type (external threats override heuristic-only threats)
@@ -232,7 +371,7 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
     if external.get("threat_type"):
         threat_type = external["threat_type"]
 
-    duration_ms = int((time.time() - start) * 1000)
+    duration_ms = int((time.monotonic() - start) * 1000)
 
     return {
         "security": {
@@ -251,8 +390,36 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def needs_screenshot(metadata: Optional[Dict], risk_score: int) -> bool:
-    """Determine if a screenshot is needed (Phase 3 trigger)."""
-    has_image = metadata and metadata.get("image_url")
-    is_suspicious = risk_score >= VERDICT_YELLOW_THRESHOLD
-    return not has_image or is_suspicious
+# ============================================================
+# Phase 3: Screenshot Gatekeeper
+# ============================================================
+
+def needs_screenshot(
+    metadata: Optional[Dict[str, Any]],
+    risk_score: int,
+    domain_age_days: Optional[int] = None,
+    vendor_flags: int = 0,
+    redirect_depth: int = 0,
+) -> bool:
+    """
+    Phase 3 gatekeeper. Returns True only when visual evidence is justified.
+
+    Conditions (any triggers screenshot):
+      1. risk_score >= 70 (high risk)
+      2. risk_score >= 40 AND domain < 90 days (medium risk + new domain)
+      3. vendor_flags >= 2 AND no OG image (flagged, no preview)
+      4. redirect_depth > 3 AND domain < 90 days (chain landing on fresh domain)
+    """
+    has_image = metadata is not None and metadata.get("image_url") is not None
+    is_new = domain_age_days is not None and domain_age_days < 90
+
+    if risk_score >= 70:
+        return True
+    if risk_score >= 40 and is_new:
+        return True
+    if vendor_flags >= 2 and not has_image:
+        return True
+    if redirect_depth > MAX_REDIRECT_HOPS_FREE and is_new:
+        return True
+
+    return False
