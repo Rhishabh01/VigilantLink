@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 SUSPICIOUS_TLDS = ['.top', '.xyz', '.biz', '.zip']
 HIGH_RISK_KEYWORDS = ['verify', 'login', 'bank', 'secure', 'account']
 HIGH_VALUE_TARGETS = ['google', 'amazon', 'paypal', 'github', 'microsoft', 'apple']
+SUSPICIOUS_KEYWORDS = ["free", "login", "update", "verify", "secure", "account"]
 
 def levenshtein_distance(s1: str, s2: str) -> int:
     """Calculates the Levenshtein distance between two strings."""
@@ -31,10 +32,80 @@ def levenshtein_distance(s1: str, s2: str) -> int:
         previous_row = current_row
     return previous_row[-1]
 
+
+# ============================================================
+# TIER 1: Pure CPU heuristics — instant, no network calls
+# ============================================================
+
+def run_heuristics(url: str) -> Dict[str, Any]:
+    """
+    Pure CPU heuristic analysis. No network calls.
+    Runs typosquatting detection, punycode check, TLD/keyword synergy.
+    Target: <1ms execution time.
+    """
+    parsed = urllib.parse.urlparse(url)
+    domain = parsed.netloc.lower()
+
+    if ':' in domain:
+        domain = domain.split(':')[0]
+
+    parts = domain.split('.')
+    if len(parts) > 2:
+        root_domain = f"{parts[-2]}.{parts[-1]}"
+    else:
+        root_domain = domain
+
+    # Brand Protection (Levenshtein)
+    typosquatting_detected = False
+    brand_penalty_reason = None
+    for target in HIGH_VALUE_TARGETS:
+        target_domain = f"{target}.com" if '.' not in target else target
+        if root_domain == target_domain:
+            continue
+        dist = levenshtein_distance(root_domain, target_domain)
+        if dist == 1:
+            typosquatting_detected = True
+            brand_penalty_reason = f"Potential Typosquatting detected (Levenshtein distance 1 from {target})"
+            break
+
+    # Synergy Check (TLD + Keywords)
+    synergy_detected = False
+    synergy_reason = None
+    tld = f".{parts[-1]}" if parts else ""
+    if tld in SUSPICIOUS_TLDS and any(kw in domain for kw in HIGH_RISK_KEYWORDS):
+        synergy_detected = True
+        synergy_reason = "High-Risk TLD & Keyword Synergy (Phishing Pattern)"
+
+    # Punycode / Homograph detection
+    punycode_detected = "xn--" in domain
+
+    # Suspicious keywords in domain
+    has_suspicious_keywords = (
+        any(kw in root_domain for kw in SUSPICIOUS_KEYWORDS)
+        and root_domain not in [f"{t}.com" for t in HIGH_VALUE_TARGETS]
+    )
+
+    return {
+        "typosquatting_detected": typosquatting_detected,
+        "brand_penalty_reason": brand_penalty_reason,
+        "synergy_detected": synergy_detected,
+        "synergy_reason": synergy_reason,
+        "punycode_detected": punycode_detected,
+        "has_suspicious_keywords": has_suspicious_keywords,
+        "root_domain": root_domain,
+        "domain": domain,
+    }
+
+
+# ============================================================
+# TIER 2: External network lookups — async, slower
+# ============================================================
+
 async def get_domain_age(domain: str) -> int:
     """
-    Real WHOIS logic using asyncwhois with 3-second timeout.
+    Real WHOIS logic using asyncwhois.
     Returns the age of the domain in days.
+    Timeout: 1.5s — fast-fail on slow registrars.
     """
     try:
         try:
@@ -72,9 +143,9 @@ async def get_domain_age(domain: str) -> int:
 
 async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
     """
-    Fetches vendor flags from VirusTotal API v3 with 3-second timeout.
+    Fetches vendor flags from VirusTotal API v3.
     Returns (malicious_flags, total_vendors).
-    Handles rate limits (429) by returning 0 flags.
+    Timeout: 1.5s — fast-fail to avoid blocking.
     """
     vt_key = os.getenv("VIRUSTOTAL_API_KEY")
     if not vt_key:
@@ -118,76 +189,50 @@ async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
 
     return 0, 70
 
-async def scan_url(url: str) -> Dict[str, Any]:
+
+async def run_external_scans(domain: str) -> Dict[str, Any]:
     """
-    Scans the URL for typosquatting, age, and suspicious keywords.
-    Uses concurrent calls for WHOIS and VirusTotal.
+    Tier 2: Run WHOIS + VirusTotal in parallel.
+    Returns external scan data for risk scoring.
     """
-    parsed = urllib.parse.urlparse(url)
-    domain = parsed.netloc.lower()
-    
-    if ':' in domain:
-        domain = domain.split(':')[0]
-    
-    parts = domain.split('.')
-    if len(parts) > 2:
-        root_domain = f"{parts[-2]}.{parts[-1]}"
-    else:
-        root_domain = domain
-    
     age_days, vt_results = await asyncio.gather(
-        get_domain_age(root_domain),
-        fetch_virustotal_flags(root_domain)
+        get_domain_age(domain),
+        fetch_virustotal_flags(domain)
     )
     vendor_flags, total_vendors = vt_results
-    
-    # Brand Protection (Levenshtein) Rule
-    typosquatting_detected = False
-    brand_penalty_reason = None
-    for target in HIGH_VALUE_TARGETS:
-        target_domain = f"{target}.com" if '.' not in target else target
-        if root_domain == target_domain:
-            continue
-        dist = levenshtein_distance(root_domain, target_domain)
-        if dist == 1:
-            typosquatting_detected = True
-            brand_penalty_reason = f"Potential Typosquatting detected (Levenshtein distance 1 from {target})"
-            break
-    
-    # Synergy Check (TLD + Keywords)
-    synergy_detected = False
-    synergy_reason = None
-    tld = f".{parts[-1]}" if parts else ""
-    path_lower = parsed.path.lower()
-    if tld in SUSPICIOUS_TLDS and any(kw in domain for kw in HIGH_RISK_KEYWORDS):
-        synergy_detected = True
-        synergy_reason = f"High-Risk TLD & Keyword Synergy (Phishing Pattern)"
-    
-    # Check for homograph/Punycode
-    punycode_detected = "xn--" in domain or "xn--" in domain
-    
-    suspicious_keywords = ["free", "login", "update", "verify", "secure", "account"]
-    
+
+    # Determine threat type from external data
     threat_type = None
     if vendor_flags >= 2:
         threat_type = f"Flagged by {vendor_flags} Security Vendors"
-    elif typosquatting_detected:
-        threat_type = "Typosquatting Detected (High Value Target)"
-    elif synergy_detected:
-        threat_type = synergy_reason
-    elif any(keyword in root_domain for keyword in suspicious_keywords) and root_domain not in [f"{t}.com" for t in HIGH_VALUE_TARGETS]:
-        threat_type = "Suspicious Keywords in Domain"
     elif age_days < 30:
         threat_type = "Newly Registered Domain"
-    
+
     return {
         "domain_age_days": age_days,
-        "typosquatting_detected": typosquatting_detected,
-        "brand_penalty_reason": brand_penalty_reason,
-        "synergy_detected": synergy_detected,
-        "synergy_reason": synergy_reason,
-        "punycode_detected": punycode_detected,
-        "threat_type": threat_type,
         "vendor_flags": vendor_flags,
-        "total_vendors": total_vendors
+        "total_vendors": total_vendors,
+        "threat_type": threat_type,
+    }
+
+
+# Legacy combined function (kept for backward compatibility)
+async def scan_url(url: str) -> Dict[str, Any]:
+    """Combined scan — runs heuristics + external scans together."""
+    heuristics = run_heuristics(url)
+    external = await run_external_scans(heuristics["root_domain"])
+
+    # Merge threat_type: heuristic threats take priority
+    threat_type = external.get("threat_type")
+    if heuristics.get("brand_penalty_reason"):
+        threat_type = "Typosquatting Detected (High Value Target)"
+    elif heuristics.get("synergy_detected"):
+        threat_type = heuristics["synergy_reason"]
+    elif heuristics.get("has_suspicious_keywords"):
+        threat_type = threat_type or "Suspicious Keywords in Domain"
+
+    return {
+        **heuristics,
+        **external,
+        "threat_type": threat_type,
     }
