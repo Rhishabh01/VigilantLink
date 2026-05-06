@@ -28,6 +28,7 @@
   padding: 10px 12px;
   background: #f8f9fa;
   border-bottom: 1px solid #eee;
+  transition: background 0.4s ease, border-color 0.4s ease;
 }
 
 .green-header { border-bottom-color: #c3e6cb; background: #f0fff4; }
@@ -47,6 +48,7 @@
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
+  transition: background-color 0.4s ease, color 0.3s ease;
 }
 
 .badge.green { background: #28a745; color: white; }

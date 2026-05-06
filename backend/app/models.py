@@ -10,7 +10,7 @@ class RedirectHop(BaseModel):
 
 class SecurityReport(BaseModel):
     is_safe: bool
-    verdict: str # "green", "yellow", "red"
+    verdict: str  # "green", "yellow", "red"
     threat_type: Optional[str] = None
     vendor_flags: int = 0
     total_vendors: int = 0
@@ -20,6 +20,30 @@ class SecurityReport(BaseModel):
     typosquatting_detected: bool = False
     reasons: List[str] = []
 
+class ProgressiveResponse(BaseModel):
+    """Response model supporting staged progressive delivery."""
+    stage: int  # 1 = instant heuristics, 2 = deep scan complete
+    request_id: str
+    original_url: str
+    final_url: Optional[str] = None
+    redirect_chain: List[RedirectHop] = []
+
+    # Metadata (stage 1)
+    title: Optional[str] = None
+    description: Optional[str] = None
+    preview_image_url: Optional[str] = None
+    favicon_url: Optional[str] = None
+
+    # Security (partial in stage 1, complete in stage 2)
+    security: SecurityReport
+
+    # Screenshot (stage 3 enrichment, usually null)
+    screenshot_base64: Optional[str] = None
+
+    # Performance metadata
+    duration_ms: int = 0
+
+# Keep legacy model for backward compatibility with cache
 class AnalyzeResponse(BaseModel):
     original_url: str
     final_url: str
