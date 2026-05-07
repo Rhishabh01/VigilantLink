@@ -30,8 +30,10 @@ from ..core.constants import (
     DEFAULT_DOMAIN_AGE_DAYS, TOTAL_VENDORS_COUNT,
     BRAND_PENALTY_SCORE, SYNERGY_PENALTY_SCORE, TYPOSQUATTING_PENALTY,
     REDIRECT_CHAIN_MAJOR_PENALTY, REDIRECT_CHAIN_MINOR_PENALTY,
-    VENDOR_FLAG_PENALTY, NEWLY_REGISTERED_PENALTY, RECENTLY_REGISTERED_PENALTY,
-    WEIGHT_HEURISTIC, WEIGHT_RDAP_AGE, WEIGHT_VT, WEIGHT_REDIRECT_DEPTH,
+    VENDOR_FLAG_PENALTY, 
+    SSL_CERT_VERY_NEW_PENALTY, SSL_CERT_NEW_PENALTY, SSL_CERT_RECENT_PENALTY, SSL_CERT_YOUNG_PENALTY,
+    SSL_CERT_VERY_NEW_DAYS, SSL_CERT_NEW_DAYS, SSL_CERT_RECENT_DAYS, SSL_CERT_YOUNG_DAYS,
+    WEIGHT_HEURISTIC, WEIGHT_SSL_AGE, WEIGHT_VT, WEIGHT_REDIRECT_DEPTH,
     UNCERTAINTY_PENALTY, TRACKING_PARAMS, PHISHING_KEYWORDS,
     TRUSTED_HOSTING_DOMAINS, SUSPICIOUS_TLDS,
     GSB_THREAT_MIN_SCORES,
@@ -86,21 +88,21 @@ def normalize_url(raw: str) -> str:
 
 def _apply_uncertainty(
     base_score: int,
-    rdap_uncertain: bool,
+    ssl_uncertain: bool,
     vt_uncertain: bool,
     gsb_uncertain: bool = False,
     is_suspicious: bool = False,
 ) -> Tuple[int, int, int]:
     """
     Revised uncertainty penalty logic.
-    Returns (total_score, rdap_penalty, security_penalty).
+    Returns (total_score, ssl_penalty, security_penalty).
     """
-    rdap_penalty = 0
+    ssl_penalty = 0
     security_penalty = 0
     
-    # RDAP timeout: +2 only if site already shows suspicious signs
-    if rdap_uncertain and (is_suspicious or base_score >= VERDICT_YELLOW_THRESHOLD):
-        rdap_penalty = 2
+    # SSL timeout: +2 only if site already shows suspicious signs
+    if ssl_uncertain and (is_suspicious or base_score >= VERDICT_YELLOW_THRESHOLD):
+        ssl_penalty = 2
         
     # Security sources (VT/GSB): +5 each only if BOTH fail OR heuristics exist OR near threshold
     if vt_uncertain or gsb_uncertain:
@@ -111,7 +113,7 @@ def _apply_uncertainty(
             if vt_uncertain: security_penalty += 5
             if gsb_uncertain: security_penalty += 5
             
-    return min(base_score + rdap_penalty + security_penalty, 100), rdap_penalty, security_penalty
+    return min(base_score + ssl_penalty + security_penalty, 100), ssl_penalty, security_penalty
 
 
 def compute_heuristic_score(
@@ -257,18 +259,12 @@ def compute_final_score(
 
     # Phase 2 Signal: VirusTotal flags
     vendor_flags = external.get("vendor_flags", 0)
-    domain_age_days = external.get("domain_age_days", DEFAULT_DOMAIN_AGE_DAYS)
-
+    gsb_threats = external.get("gsb_threats", [])
+    
     if vendor_flags >= 1:
         vt_penalty = min(15 * vendor_flags, 40)
         risk_score += round(WEIGHT_VT * vt_penalty)
         reasons.append(f"Flagged by {vendor_flags} security vendor(s)")
-        
-        # NEW: VirusTotal Weak-Signal + New Domain
-        if domain_age_days < 14:
-            if risk_score < 60:
-                risk_score = 60
-            reasons.append("New domain flagged by security vendors")
 
     # NEW: Trusted-Domain Abuse Detection
     domain_lower = urlparse(final_url).netloc.lower()
@@ -286,19 +282,44 @@ def compute_final_score(
         if risk_score < 50:
             risk_score = 50
         reasons.append("Suspicious content hosted on trusted platform")
-        # Ensure verdict is not green
         risk_score = max(risk_score, VERDICT_YELLOW_THRESHOLD + 1)
 
-    # Phase 2 Signal: Domain age
-    if domain_age_days < 14:
-        risk_score += round(WEIGHT_RDAP_AGE * NEWLY_REGISTERED_PENALTY)
-        reasons.append("Newly Registered Domain (<14 days)")
-    elif domain_age_days <= 90:
-        risk_score += round(WEIGHT_RDAP_AGE * RECENTLY_REGISTERED_PENALTY)
-        reasons.append("Recently Registered Domain (<90 days)")
+    # Phase 2 Signal: SSL Certificate age
+    cert_age = external.get("ssl_cert_age_days")
+
+    if cert_age is not None:
+        ssl_age_penalty = 0
+        if cert_age < SSL_CERT_VERY_NEW_DAYS:
+            ssl_age_penalty = SSL_CERT_VERY_NEW_PENALTY
+        elif cert_age < SSL_CERT_NEW_DAYS:
+            ssl_age_penalty = SSL_CERT_NEW_PENALTY
+        elif cert_age < SSL_CERT_RECENT_DAYS:
+            ssl_age_penalty = SSL_CERT_RECENT_PENALTY
+        elif cert_age < SSL_CERT_YOUNG_DAYS:
+            ssl_age_penalty = SSL_CERT_YOUNG_PENALTY
+            
+        if ssl_age_penalty > 0:
+            is_risky = (
+                heuristics.get("typosquatting_detected") or 
+                heuristics.get("punycode_detected") or 
+                heuristics.get("synergy_detected") or
+                vendor_flags >= 1 or
+                bool(gsb_threats)
+            )
+            
+            final_penalty = round(WEIGHT_SSL_AGE * ssl_age_penalty)
+            if not is_risky:
+                final_penalty = min(final_penalty, 10)
+            
+            risk_score += final_penalty
+            
+            if cert_age < SSL_CERT_NEW_DAYS:
+                reasons.append(f"Recently issued SSL certificate (<{cert_age + 1} days)")
+            else:
+                reasons.append(f"Young SSL certificate ({cert_age} days old)")
 
     # Uncertainty penalty for timed-out sources
-    rdap_uncertain = external.get("rdap_timed_out", False)
+    ssl_uncertain = external.get("ssl_timed_out", False)
     vt_uncertain = external.get("vt_timed_out", False)
     gsb_uncertain = external.get("gsb_timed_out", False)
     
@@ -309,18 +330,17 @@ def compute_final_score(
         heuristics.get("has_suspicious_keywords")
     )
     
-    risk_score, p_rdap, p_sec = _apply_uncertainty(
-        risk_score, rdap_uncertain, vt_uncertain, gsb_uncertain, is_susp_heur
+    risk_score, p_ssl, p_sec = _apply_uncertainty(
+        risk_score, ssl_uncertain, vt_uncertain, gsb_uncertain, is_susp_heur
     )
     
     # Store uncertainty info for filtered reason display
     uncertainty_info = None
-    if p_rdap > 0 or p_sec > 0:
-        timed_out_count = sum([rdap_uncertain, vt_uncertain, gsb_uncertain])
-        uncertainty_info = (timed_out_count, p_rdap + p_sec)
+    if p_ssl > 0 or p_sec > 0:
+        timed_out_count = sum([ssl_uncertain, vt_uncertain, gsb_uncertain])
+        uncertainty_info = (timed_out_count, p_ssl + p_sec)
 
     # Google Safe Browsing Scoring
-    gsb_threats = external.get("gsb_threats", [])
     gsb_threat_type = external.get("gsb_threat_type")
     if gsb_threats and gsb_threat_type:
         min_score = GSB_THREAT_MIN_SCORES.get(gsb_threat_type, 90)
@@ -354,12 +374,14 @@ def compute_final_score(
             heuristics.get("synergy_detected") or
             heuristics.get("has_suspicious_keywords")
         )
+        # Issue 2: Strictly hide uncertainty from safe (green) verdicts
         show_uncertainty = (
-            verdict != "green" or
-            timed_out_count >= 2 or
-            bool(gsb_threats) or
-            vendor_flags >= 1 or
-            is_suspicious_heuristics
+            verdict != "green" and (
+                timed_out_count >= 2 or
+                bool(gsb_threats) or
+                vendor_flags >= 1 or
+                is_suspicious_heuristics
+            )
         )
         if show_uncertainty:
             reasons.append(f"Uncertainty penalty (+{penalty}): {timed_out_count}/3 sources timed out")
@@ -446,7 +468,7 @@ async def run_phase1(url: str) -> Dict[str, Any]:
             "threat_type": threat_type,
             "vendor_flags": 0,
             "total_vendors": 0,
-            "domain_age_days": None,
+            "ssl_cert_age_days": None,
             "risk_score": risk_score,
             "suspicious_redirects": len(hops) > MAX_REDIRECT_HOPS_FREE,
             "typosquatting_detected": heuristics.get("typosquatting_detected", False),
@@ -482,18 +504,18 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
     except asyncio.TimeoutError:
         logger.warning(f"Phase 2 external scans timed out for {root_domain}")
         external = {
-            "domain_age_days": DEFAULT_DOMAIN_AGE_DAYS,
+            "ssl_cert_age_days": None,
             "vendor_flags": 0,
             "total_vendors": TOTAL_VENDORS_COUNT,
             "threat_type": None,
-            "rdap_timed_out": True,
+            "ssl_timed_out": True,
             "vt_timed_out": True,
             "gsb_timed_out": True,
         }
 
     # Concise structured logging for timeouts
-    if external.get("rdap_timed_out"):
-        logger.warning(f"RDAP timeout: {root_domain}")
+    if external.get("ssl_timed_out"):
+        logger.warning(f"SSL cert age timeout: {root_domain}")
     if external.get("vt_timed_out"):
         logger.warning(f"VT timeout: {root_domain}")
     if external.get("gsb_timed_out"):
@@ -524,7 +546,7 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             "threat_type": threat_type,
             "vendor_flags": external.get("vendor_flags", 0),
             "total_vendors": external.get("total_vendors", TOTAL_VENDORS_COUNT),
-            "domain_age_days": external.get("domain_age_days"),
+            "ssl_cert_age_days": external.get("ssl_cert_age_days"),
             "risk_score": risk_score,
             "suspicious_redirects": len(hops) > MAX_REDIRECT_HOPS_FREE,
             "typosquatting_detected": heuristics.get("typosquatting_detected", False),
@@ -544,7 +566,7 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
 def needs_screenshot(
     metadata: Optional[Dict[str, Any]],
     risk_score: int,
-    domain_age_days: Optional[int] = None,
+    ssl_cert_age_days: Optional[int] = None,
     vendor_flags: int = 0,
     redirect_depth: int = 0,
 ) -> bool:
@@ -558,15 +580,15 @@ def needs_screenshot(
       4. redirect_depth > 3 AND domain < 90 days (chain landing on fresh domain)
     """
     has_image = metadata is not None and metadata.get("image_url") is not None
-    is_new = domain_age_days is not None and domain_age_days < 90
+    is_new = ssl_cert_age_days is not None and ssl_cert_age_days < 90
 
     if risk_score >= 70:
         return True
-    if risk_score >= 40 and is_new:
+    if risk_score >= 40 and cert_age_days is not None and cert_age_days < 90:
         return True
     if vendor_flags >= 2 and not has_image:
         return True
-    if redirect_depth > MAX_REDIRECT_HOPS_FREE and is_new:
+    if redirect_depth > MAX_REDIRECT_HOPS_FREE and cert_age_days is not None and cert_age_days < 90:
         return True
 
     return False
