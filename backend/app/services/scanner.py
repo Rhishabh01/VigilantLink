@@ -8,7 +8,10 @@ Tier 2 (Network): RDAP + VirusTotal in parallel (asyncwhois removed).
 import asyncio
 import logging
 import os
+import ssl
+import socket
 import urllib.parse
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -17,8 +20,8 @@ from ..core.constants import (
     HIGH_RISK_KEYWORDS, HIGH_VALUE_TARGETS, SUSPICIOUS_KEYWORDS,
     SUSPICIOUS_TLDS, DEFAULT_DOMAIN_AGE_DAYS, TOTAL_VENDORS_COUNT,
     GSB_API_URL, GSB_THREAT_TYPES, GSB_THREAT_PRIORITY, GSB_TIMEOUT_S,
+    SSL_CERT_TIMEOUT_S,
 )
-from .rdap_client import fetch_domain_age_rdap
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +108,35 @@ def run_heuristics(url: str) -> Dict[str, Any]:
         "domain": domain,
     }
 
+async def fetch_ssl_cert_age(hostname: str) -> Optional[int]:
+    """
+    Asynchronously fetches SSL certificate 'notBefore' date and computes age in days.
+    Uses asyncio.open_connection for a non-blocking TLS handshake.
+    """
+    try:
+        context = ssl.create_default_context()
+        # Fully async connection + TLS handshake
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(hostname, 443, ssl=context, server_hostname=hostname),
+            timeout=SSL_CERT_TIMEOUT_S
+        )
+        
+        cert = writer.get_extra_info('peercert')
+        writer.close()
+        await writer.wait_closed()
+        
+        if not cert or 'notBefore' not in cert:
+            return None
+            
+        # Format: 'May 15 00:00:00 2024 GMT'
+        issued_date_str = cert['notBefore']
+        # Parse and ensure UTC
+        issued_date = datetime.strptime(issued_date_str, '%b %d %H:%M:%S %Y %Z').replace(tzinfo=timezone.utc)
+        age_days = (datetime.now(timezone.utc) - issued_date).days
+        return max(0, age_days)
+    except Exception:
+        # Fail gracefully: SSL issues are not always malicious
+        return None
 
 # ============================================================
 # TIER 2: External network lookups — async, non-blocking
@@ -240,23 +272,24 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
     else:
         root_domain = target_domain
 
-    rdap_timed_out = False
+    ssl_timed_out = False
     vt_timed_out = False
     gsb_timed_out = False
-
-    async def _safe_rdap() -> int:
-        nonlocal rdap_timed_out
+ 
+    async def _safe_ssl() -> Optional[int]:
+        nonlocal ssl_timed_out
         try:
             return await asyncio.wait_for(
-                fetch_domain_age_rdap(root_domain), timeout=0.8
+                fetch_ssl_cert_age(target_domain), timeout=SSL_CERT_TIMEOUT_S
             )
         except asyncio.TimeoutError:
-            rdap_timed_out = True
-            return DEFAULT_DOMAIN_AGE_DAYS
+            ssl_timed_out = True
+            logger.warning(f"SSL cert age timeout: {target_domain}")
+            return None
         except Exception as e:
-            logger.warning(f"RDAP fallback for {root_domain}: {e}")
-            return DEFAULT_DOMAIN_AGE_DAYS
-
+            logger.debug(f"SSL cert age failed for {target_domain}: {e}")
+            return None
+ 
     async def _safe_vt() -> Tuple[int, int]:
         nonlocal vt_timed_out
         try:
@@ -266,7 +299,7 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         except asyncio.TimeoutError:
             vt_timed_out = True
             return 0, TOTAL_VENDORS_COUNT
-
+ 
     async def _safe_gsb() -> List[str]:
         nonlocal gsb_timed_out
         try:
@@ -276,36 +309,36 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         except asyncio.TimeoutError:
             gsb_timed_out = True
             return []
-
-    age_days, vt_results, gsb_results = await asyncio.gather(
-        _safe_rdap(), _safe_vt(), _safe_gsb()
+ 
+    cert_age, vt_results, gsb_results = await asyncio.gather(
+        _safe_ssl(), _safe_vt(), _safe_gsb()
     )
     vendor_flags, total_vendors = vt_results
-
+ 
     gsb_threat_type: Optional[str] = None
     if gsb_results:
         for threat in GSB_THREAT_PRIORITY:
             if threat in gsb_results:
                 gsb_threat_type = threat
                 break
-
+ 
     threat_type: Optional[str] = None
     if gsb_threat_type:
         threat_type = gsb_threat_type
     elif vendor_flags >= 2:
         threat_type = f"Flagged by {vendor_flags} Security Vendors"
-    elif age_days < 30:
-        threat_type = "Newly Registered Domain"
-
+    elif cert_age is not None and cert_age < 7:
+        threat_type = "Recently Issued SSL Certificate"
+ 
     return {
-        "domain_age_days": age_days,
+        "ssl_cert_age_days": cert_age,
         "vendor_flags": vendor_flags,
         "total_vendors": total_vendors,
         "threat_type": threat_type,
         "gsb_threats": gsb_results,
         "gsb_matched": bool(gsb_results),
         "gsb_threat_type": gsb_threat_type,
-        "rdap_timed_out": rdap_timed_out,
+        "ssl_timed_out": ssl_timed_out,
         "vt_timed_out": vt_timed_out,
         "gsb_timed_out": gsb_timed_out,
     }
