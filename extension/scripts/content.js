@@ -11,6 +11,8 @@ const HOVER_DELAY_MS = 100;
 let mutationObserver = null;
 const processedLinks = new WeakSet();
 let currentAnalysisUrl = null;
+let currentRequestId = null;
+let requestSequence = 0;
 
 // Debounce utility - prevents excessive function calls
 function debounce(func, wait) {
@@ -169,11 +171,15 @@ async function handleLinkMouseEnter(event) {
     showLoadingPopup(x, y);
 
     currentAnalysisUrl = url;
+    currentRequestId = null;
+    const seq = ++requestSequence;
 
     try {
       chrome.runtime.sendMessage({ action: 'analyze_link', url }, (response) => {
         if (currentAnalysisUrl !== url) return; // Stale response
+        if (seq !== requestSequence) return; // Stale sequence
         if (response && response.success) {
+          currentRequestId = response.data.id;
           updatePopupWithResult(response.data);
         } else {
           updatePopupWithError(response?.error || 'Unknown error');
@@ -192,6 +198,7 @@ function handleLinkMouseLeave(event) {
   }
   hoverTargetUrl = null;
   currentAnalysisUrl = null;
+  ++requestSequence;
 
   // Cancel in-flight backend request
   try {
@@ -248,13 +255,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.action === 'get_override') {
     sendResponse({ override: window.sessionStorage.getItem('vigilantlink_override') });
   } else if (message.action === 'phase1_result') {
-    // Progressive update: Phase 1 instant result
-    if (currentPopupContent && currentAnalysisUrl) {
+    // Don't set currentRequestId here — it's managed by the sendMessage callback
+    // to prevent stale phase1_result from corrupting the request id
+    if (currentPopupContent && currentAnalysisUrl && message.url === currentAnalysisUrl) {
       updatePopupWithResult(message.data);
     }
   } else if (message.action === 'phase2_result') {
-    // Progressive update: Phase 2 deep scan result
-    if (currentPopupContent && currentAnalysisUrl) {
+    if (currentPopupContent && currentAnalysisUrl && message.url === currentAnalysisUrl && message.data.id === currentRequestId) {
       mergeDeepScanResult(message.data);
     }
   }
@@ -385,7 +392,7 @@ function cleanThreatExplanation(reason) {
 }
 
 function createWarningBox(verdictClass, threatType) {
-  if (verdictClass === 'green') return null;
+  if (verdictClass === 'green' || verdictClass === 'gray') return null;
 
   const warningBox = document.createElement('div');
   warningBox.className = `warning-box ${verdictClass}`;
@@ -459,7 +466,7 @@ function createRedirectsSection(redirectChain) {
       urlDiv.style.marginBottom = '3px';
       urlDiv.style.wordBreak = 'break-all';
       const arrow = document.createElement('span');
-      arrow.innerHTML = '&rarr; ';
+      arrow.appendChild(document.createTextNode('\u2192 '));
       urlDiv.appendChild(arrow);
       const urlText = document.createTextNode(r.u);
       urlDiv.appendChild(urlText);
@@ -538,7 +545,7 @@ function updatePopupWithResult(data) {
 
   const logoDiv = document.createElement('div');
   logoDiv.className = 'logo';
-  logoDiv.textContent = data.s === 1 ? 'VigilantLink: Scanning...' : `VigilantLink Score: ${security.rs}/100`;
+  logoDiv.textContent = data.s === 1 ? 'VigilantLink: Scanning...' : `Safety Score: ${100 - security.rs}/100`;
   logoDiv.style.fontSize = '14px';
   headerDiv.appendChild(logoDiv);
 
@@ -647,24 +654,27 @@ function updatePopupWithResult(data) {
   const screenshotContainer = document.createElement('div');
   screenshotContainer.className = 'screenshot-container';
 
+  const makePlaceholder = () => {
+    const d = document.createElement('div');
+    d.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
+    d.textContent = 'Preview unavailable';
+    return d;
+  };
+
+  screenshotContainer.appendChild(makePlaceholder());
+
   const displayImage = screenshot_base64 || preview_image_url;
   if (displayImage) {
     const img = document.createElement('img');
-    img.src = displayImage;
+    img.style.display = 'none';
     img.alt = `Preview of ${final_url}`;
-    screenshotContainer.appendChild(img);
-  } else {
-    const placeholderDiv = document.createElement('div');
-    placeholderDiv.style.display = 'flex';
-    placeholderDiv.style.alignItems = 'center';
-    placeholderDiv.style.justifyContent = 'center';
-    placeholderDiv.style.height = '100%';
-    placeholderDiv.style.color = '#888';
-    placeholderDiv.style.fontStyle = 'italic';
-    placeholderDiv.style.textAlign = 'center';
-    placeholderDiv.style.padding = '0 20px';
-    placeholderDiv.textContent = 'Image blocked or preview unavailable';
-    screenshotContainer.appendChild(placeholderDiv);
+    img.onload = () => {
+      screenshotContainer.textContent = '';
+      img.style.display = '';
+      screenshotContainer.appendChild(img);
+    };
+    img.onerror = () => {};
+    img.src = displayImage;
   }
 
   bodyDiv.appendChild(screenshotContainer);
@@ -719,7 +729,7 @@ function mergeDeepScanResult(data) {
     header.className = `header ${verdictClass}-header`;
     badge.className = `badge ${verdictClass}`;
     badge.textContent = verdictText;
-    logo.textContent = `VigilantLink Score: ${security.rs}/100`;
+    logo.textContent = `Safety Score: ${100 - security.rs}/100`;
   }
 
   // Update or add warning box
@@ -762,10 +772,21 @@ function mergeDeepScanResult(data) {
     const container = currentPopupShadowRoot.querySelector('.screenshot-container');
     if (container) {
       container.textContent = '';
+      const placeholderDiv = document.createElement('div');
+      placeholderDiv.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
+      placeholderDiv.textContent = 'Preview unavailable';
+      container.appendChild(placeholderDiv);
+
       const img = document.createElement('img');
-      img.src = data.ss;
+      img.style.display = 'none';
       img.alt = 'Site preview';
-      container.appendChild(img);
+      img.onload = () => {
+        container.textContent = '';
+        img.style.display = '';
+        container.appendChild(img);
+      };
+      img.onerror = () => {};
+      img.src = data.ss;
     }
   }
 }
@@ -871,59 +892,4 @@ function updatePopupWithError(errorMsg) {
   currentPopupContent.appendChild(bodyDiv);
 }
 
-// Listen for messages from popup
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'settings_updated') {
-    closePopup();
-  } else if (message.action === 'set_override') {
-    window.sessionStorage.setItem('vigilantlink_override', message.enabled ? 'enabled' : 'disabled');
-    closePopup();
-    sendResponse({ success: true });
-  } else if (message.action === 'get_override') {
-    sendResponse({ override: window.sessionStorage.getItem('vigilantlink_override') });
-  }
-});
 
-function closePopup() {
-  if (currentPopupContainer) {
-    currentPopupContainer.remove();
-    currentPopupContainer = null;
-    currentPopupShadowRoot = null;
-    currentPopupContent = null;
-  }
-}
-
-function createShadowPopup(x, y) {
-  closePopup();
-
-  let styleUrl = '';
-  try {
-    styleUrl = chrome.runtime.getURL('styles/shadow-styles.css');
-  } catch (e) {
-    console.warn('VigilantLink: Extension context invalidated. Please refresh the page.');
-    return;
-  }
-
-  const container = document.createElement('div');
-  container.style.position = 'fixed';
-  container.style.left = `${x}px`;
-  container.style.top = `${y}px`;
-  container.style.zIndex = '2147483647';
-
-  const shadowRoot = container.attachShadow({ mode: 'closed' });
-  currentPopupShadowRoot = shadowRoot;
-
-  const styleLink = document.createElement('link');
-  styleLink.rel = 'stylesheet';
-  styleLink.href = styleUrl;
-  shadowRoot.appendChild(styleLink);
-
-  const content = document.createElement('div');
-  content.className = 'vigilant-card';
-  shadowRoot.appendChild(content);
-
-  document.body.appendChild(container);
-
-  currentPopupContainer = container;
-  currentPopupContent = content;
-}
