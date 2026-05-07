@@ -19,7 +19,12 @@ from ..core.constants import MAX_CONCURRENT_SCREENSHOTS
 logger = logging.getLogger(__name__)
 
 PAGE_TIMEOUT_MS: int = 7000
-RENDER_WAIT_MS: int = 200
+RENDER_WAIT_MS: int = 500
+
+SCREENSHOT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
 
 
 class BrowserPool:
@@ -40,7 +45,6 @@ class BrowserPool:
             return
         logger.info(f"Starting BrowserPool (max_concurrent={MAX_CONCURRENT_SCREENSHOTS})")
         self._playwright = await async_playwright().start()
-        # Launch chromium; args optimized for performance/isolation in Docker
         self._browser = await self._playwright.chromium.launch(
             headless=True,
             args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"],
@@ -48,7 +52,8 @@ class BrowserPool:
         self._context = await self._browser.new_context(
             viewport={"width": 1280, "height": 720},
             device_scale_factor=1,
-            bypass_csp=True,  # Useful for strictly rendering visually
+            bypass_csp=True,
+            user_agent=SCREENSHOT_USER_AGENT,
         )
         self._started = True
 
@@ -62,9 +67,25 @@ class BrowserPool:
             await self._playwright.stop()
         self._started = False
 
+    async def _capture_one(self, url: str) -> Optional[str]:
+        page = await self._context.new_page()
+        try:
+            try:
+                await page.goto(url, timeout=PAGE_TIMEOUT_MS, wait_until="domcontentloaded")
+            except Exception as e:
+                logger.warning(
+                    f"Navigation issue or timeout for {url}: {e}. "
+                    "Capturing whatever loaded."
+                )
+            await page.wait_for_timeout(RENDER_WAIT_MS)
+            screenshot_bytes = await page.screenshot(type="jpeg", quality=50)
+            return f"data:image/jpeg;base64,{base64.b64encode(screenshot_bytes).decode('utf-8')}"
+        finally:
+            await page.close()
+
     async def capture_screenshot(self, url: str) -> Optional[str]:
         """
-        Semaphore-gated screenshot capture.
+        Semaphore-gated screenshot capture with lightweight retry.
 
         Blocks if MAX_CONCURRENT_SCREENSHOTS pages are already in use.
         Returns base64-encoded JPEG string, or None on failure.
@@ -76,32 +97,18 @@ class BrowserPool:
             raise RuntimeError("BrowserPool not started")
 
         async with self._semaphore:
-            page = await self._context.new_page()
-            try:
-                # Navigate with a timeout to avoid hanging on bad sites
+            for attempt in range(2):
                 try:
-                    await page.goto(
-                        url, timeout=PAGE_TIMEOUT_MS, wait_until="domcontentloaded"
-                    )
+                    result = await self._capture_one(url)
+                    if result is not None:
+                        return result
                 except Exception as e:
-                    logger.warning(
-                        f"Navigation issue or timeout for {url}: {e}. "
-                        "Capturing whatever loaded."
-                    )
-
-                # Wait a brief moment to allow dynamic content (React/Vue) to render
-                await page.wait_for_timeout(RENDER_WAIT_MS)
-
-                # Capture screenshot as JPEG for smaller payload
-                screenshot_bytes = await page.screenshot(type="jpeg", quality=50)
-                base64_img = base64.b64encode(screenshot_bytes).decode("utf-8")
-                return f"data:image/jpeg;base64,{base64_img}"
-
-            except Exception as e:
-                logger.error(f"Screenshot completely failed for {url}: {e}")
-                return None
-            finally:
-                await page.close()
+                    if attempt == 0:
+                        logger.warning(f"Screenshot attempt 1 failed for {url}: {e}. Retrying...")
+                    else:
+                        logger.warning(f"Screenshot failed for {url}: {e}")
+                        return None
+            return None
 
 
 browser_pool = BrowserPool()
