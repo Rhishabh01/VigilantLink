@@ -30,6 +30,8 @@ class SecurityReport(BaseModel):
     suspicious_redirects: bool = False
     typosquatting_detected: bool = False
     reasons: List[str] = []
+    gsb_matched: bool = False
+    gsb_threat_type: Optional[str] = None
 
 
 class ProgressiveResponse(BaseModel):
@@ -90,6 +92,8 @@ class CompactSecurity(BaseModel):
     sr: bool = Field(False, description="suspicious_redirects")
     ts: bool = Field(False, description="typosquatting_detected")
     r: List[str] = Field(default_factory=list, description="reasons")
+    gsb: bool = Field(False, description="google_safe_browsing_matched")
+    gsbt: Optional[str] = Field(None, description="gsb_threat_type: MALWARE|SOCIAL_ENGINEERING|UNWANTED_SOFTWARE|POTENTIALLY_HARMFUL_APPLICATION")
 
 
 class CompactResponse(BaseModel):

@@ -60,7 +60,9 @@ GLOBAL_DEADLINE_S: float = 2.0      # Total budget for Phase 1 + Phase 2
 PHASE1_DEADLINE_S: float = 0.5      # Phase 1 target
 RDAP_TIMEOUT_S: float = 0.8         # RDAP sub-task budget
 VT_TIMEOUT_S: float = 1.5           # VirusTotal sub-task budget
+GSB_TIMEOUT_S: float = 1.8          # Google Safe Browsing sub-task budget
 SCREENSHOT_TIMEOUT_S: float = 5.0   # Playwright screenshot budget
+GSB_API_URL = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
 
 # ============================================================
 # Resource Limits
@@ -74,3 +76,31 @@ TRACKING_PARAMS = frozenset({
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
     "fbclid", "gclid", "msclkid", "ref", "source",
 })
+
+# ============================================================
+# Google Safe Browsing — Threat Types & Minimum Score Overrides
+# ============================================================
+GSB_THREAT_TYPES = [
+    "MALWARE",
+    "SOCIAL_ENGINEERING",
+    "UNWANTED_SOFTWARE",
+    "POTENTIALLY_HARMFUL_APPLICATION",
+]
+
+# Minimum score enforced when GSB returns a match for the given threat type.
+# GSB matches are high-confidence; these override weak heuristic scores.
+GSB_THREAT_MIN_SCORES: dict[str, int] = {
+    "MALWARE": 95,
+    "SOCIAL_ENGINEERING": 90,
+    "POTENTIALLY_HARMFUL_APPLICATION": 80,
+    "UNWANTED_SOFTWARE": 75,
+}
+
+# Priority order used when multiple threat types are returned in one GSB response.
+# Earlier position = higher severity = selected as the canonical gsbt value.
+GSB_THREAT_PRIORITY = [
+    "MALWARE",
+    "SOCIAL_ENGINEERING",
+    "POTENTIALLY_HARMFUL_APPLICATION",
+    "UNWANTED_SOFTWARE",
+]

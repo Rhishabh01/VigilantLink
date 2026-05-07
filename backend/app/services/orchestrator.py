@@ -34,6 +34,7 @@ from ..core.constants import (
     WEIGHT_HEURISTIC, WEIGHT_RDAP_AGE, WEIGHT_VT, WEIGHT_REDIRECT_DEPTH,
     UNCERTAINTY_PENALTY, TRACKING_PARAMS, PHISHING_KEYWORDS,
     TRUSTED_HOSTING_DOMAINS, SUSPICIOUS_TLDS,
+    GSB_THREAT_MIN_SCORES,
 )
 
 logger = logging.getLogger(__name__)
@@ -88,16 +89,29 @@ def _apply_uncertainty(
     rdap_uncertain: bool,
     vt_uncertain: bool,
     gsb_uncertain: bool = False,
-    cf_uncertain: bool = False,
-) -> int:
+    is_suspicious: bool = False,
+) -> Tuple[int, int, int]:
     """
-    Apply uncertainty penalty when external sources timeout.
-    Formula: U = UNCERTAINTY_PENALTY × (timed_out_sources / total_sources)
+    Revised uncertainty penalty logic.
+    Returns (total_score, rdap_penalty, security_penalty).
     """
-    sources = [rdap_uncertain, vt_uncertain, gsb_uncertain, cf_uncertain]
-    timed_out = sum(1 for s in sources if s)
-    penalty = round(UNCERTAINTY_PENALTY * (timed_out / len(sources)))
-    return min(base_score + penalty, 100)
+    rdap_penalty = 0
+    security_penalty = 0
+    
+    # RDAP timeout: +2 only if site already shows suspicious signs
+    if rdap_uncertain and (is_suspicious or base_score >= VERDICT_YELLOW_THRESHOLD):
+        rdap_penalty = 2
+        
+    # Security sources (VT/GSB): +5 each only if BOTH fail OR heuristics exist OR near threshold
+    if vt_uncertain or gsb_uncertain:
+        security_fail = vt_uncertain and gsb_uncertain
+        near_threshold = base_score >= (VERDICT_YELLOW_THRESHOLD - 5)
+        
+        if security_fail or is_suspicious or near_threshold:
+            if vt_uncertain: security_penalty += 5
+            if gsb_uncertain: security_penalty += 5
+            
+    return min(base_score + rdap_penalty + security_penalty, 100), rdap_penalty, security_penalty
 
 
 def compute_heuristic_score(
@@ -287,31 +301,31 @@ def compute_final_score(
     rdap_uncertain = external.get("rdap_timed_out", False)
     vt_uncertain = external.get("vt_timed_out", False)
     gsb_uncertain = external.get("gsb_timed_out", False)
-    cf_uncertain = external.get("cf_timed_out", False)
     
-    risk_score = _apply_uncertainty(
-        risk_score, rdap_uncertain, vt_uncertain, gsb_uncertain, cf_uncertain
+    is_susp_heur = (
+        heuristics.get("typosquatting_detected") or 
+        heuristics.get("punycode_detected") or 
+        heuristics.get("synergy_detected") or
+        heuristics.get("has_suspicious_keywords")
     )
     
-    if any([rdap_uncertain, vt_uncertain, gsb_uncertain, cf_uncertain]):
-        timed_out_count = sum([rdap_uncertain, vt_uncertain, gsb_uncertain, cf_uncertain])
-        reasons.append(f"Uncertainty penalty (+{round(UNCERTAINTY_PENALTY * timed_out_count / 4)}): {timed_out_count}/4 sources timed out")
+    risk_score, p_rdap, p_sec = _apply_uncertainty(
+        risk_score, rdap_uncertain, vt_uncertain, gsb_uncertain, is_susp_heur
+    )
+    
+    # Store uncertainty info for filtered reason display
+    uncertainty_info = None
+    if p_rdap > 0 or p_sec > 0:
+        timed_out_count = sum([rdap_uncertain, vt_uncertain, gsb_uncertain])
+        uncertainty_info = (timed_out_count, p_rdap + p_sec)
 
-    # NEW: Google Safe Browsing Scoring
+    # Google Safe Browsing Scoring
     gsb_threats = external.get("gsb_threats", [])
-    if gsb_threats:
-        # GSB is authoritative. Any match is a critical threat.
-        risk_score = 100
+    gsb_threat_type = external.get("gsb_threat_type")
+    if gsb_threats and gsb_threat_type:
+        min_score = GSB_THREAT_MIN_SCORES.get(gsb_threat_type, 90)
+        risk_score = max(risk_score, min_score)
         reasons.append(f"CRITICAL: Flagged by Google Safe Browsing ({', '.join(gsb_threats)})")
-
-    # NEW: Cloudflare Radar Popularity Signal
-    cf_pop = external.get("cf_popularity")
-    if cf_pop and cf_pop.get("rank"):
-        rank = cf_pop["rank"]
-        if rank < 100000:
-            # Very popular domain - reduce risk slightly
-            risk_score = max(0, risk_score - 15)
-            reasons.append(f"Trust Signal: High-traffic domain (Global Rank #{rank})")
 
     capped_score = min(risk_score, 100)
 
@@ -330,6 +344,25 @@ def compute_final_score(
     elif capped_score >= VERDICT_YELLOW_THRESHOLD:
         is_safe = False
         verdict = "yellow"
+
+    # Issue 2: Only show uncertainty reason if justified by risk or high timeout count
+    if uncertainty_info:
+        timed_out_count, penalty = uncertainty_info
+        is_suspicious_heuristics = (
+            heuristics.get("typosquatting_detected") or 
+            heuristics.get("punycode_detected") or 
+            heuristics.get("synergy_detected") or
+            heuristics.get("has_suspicious_keywords")
+        )
+        show_uncertainty = (
+            verdict != "green" or
+            timed_out_count >= 2 or
+            bool(gsb_threats) or
+            vendor_flags >= 1 or
+            is_suspicious_heuristics
+        )
+        if show_uncertainty:
+            reasons.append(f"Uncertainty penalty (+{penalty}): {timed_out_count}/3 sources timed out")
 
     return capped_score, verdict, is_safe, reasons
 
@@ -443,7 +476,7 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         external = await asyncio.wait_for(
-            run_external_scans(urlparse(final_url).netloc),
+            run_external_scans(final_url),
             timeout=3.0  # Hard limit for entire Phase 2
         )
     except asyncio.TimeoutError:
@@ -455,7 +488,16 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             "threat_type": None,
             "rdap_timed_out": True,
             "vt_timed_out": True,
+            "gsb_timed_out": True,
         }
+
+    # Concise structured logging for timeouts
+    if external.get("rdap_timed_out"):
+        logger.warning(f"RDAP timeout: {root_domain}")
+    if external.get("vt_timed_out"):
+        logger.warning(f"VT timeout: {root_domain}")
+    if external.get("gsb_timed_out"):
+        logger.warning(f"GSB timeout: {root_domain}")
 
     # Compute final weighted score with uncertainty
     risk_score, verdict, is_safe, reasons = compute_final_score(
@@ -468,7 +510,9 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
 
     # Determine threat type (external threats override heuristic-only threats)
     threat_type = phase1_result["security"].get("threat_type")
-    if external.get("threat_type"):
+    if external.get("gsb_threat_type"):
+        threat_type = external["gsb_threat_type"]
+    elif external.get("threat_type"):
         threat_type = external["threat_type"]
 
     duration_ms = int((time.monotonic() - start) * 1000)
@@ -486,6 +530,8 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             "typosquatting_detected": heuristics.get("typosquatting_detected", False),
             "ssl_error": phase1_result["security"].get("ssl_error", False),
             "reasons": reasons,
+            "gsb_matched": external.get("gsb_matched", False),
+            "gsb_threat_type": external.get("gsb_threat_type"),
         },
         "duration_ms": duration_ms,
     }
