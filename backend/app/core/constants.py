@@ -1,10 +1,12 @@
 # ============================================================
 # Threat Intelligence Lists
 # ============================================================
-SUSPICIOUS_TLDS = ['.top', '.xyz', '.biz', '.zip']
+SUSPICIOUS_TLDS = ['.top', '.xyz', '.biz', '.zip', '.click', '.gq', '.tk', '.work', '.country']
 HIGH_RISK_KEYWORDS = ['verify', 'login', 'bank', 'secure', 'account']
 HIGH_VALUE_TARGETS = ['google', 'amazon', 'paypal', 'github', 'microsoft', 'apple']
 SUSPICIOUS_KEYWORDS = ["free", "login", "update", "verify", "secure", "account"]
+PHISHING_KEYWORDS = ["login", "verify", "password", "account", "security", "wallet", "banking", "auth"]
+TRUSTED_HOSTING_DOMAINS = ["docs.google.com", "github.io", "pages.dev", "notion.site", "pastebin.com"]
 
 # ============================================================
 # Scoring Thresholds

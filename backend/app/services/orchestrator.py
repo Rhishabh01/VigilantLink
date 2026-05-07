@@ -32,7 +32,8 @@ from ..core.constants import (
     REDIRECT_CHAIN_MAJOR_PENALTY, REDIRECT_CHAIN_MINOR_PENALTY,
     VENDOR_FLAG_PENALTY, NEWLY_REGISTERED_PENALTY, RECENTLY_REGISTERED_PENALTY,
     WEIGHT_HEURISTIC, WEIGHT_RDAP_AGE, WEIGHT_VT, WEIGHT_REDIRECT_DEPTH,
-    UNCERTAINTY_PENALTY, TRACKING_PARAMS,
+    UNCERTAINTY_PENALTY, TRACKING_PARAMS, PHISHING_KEYWORDS,
+    TRUSTED_HOSTING_DOMAINS, SUSPICIOUS_TLDS,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,19 +87,27 @@ def _apply_uncertainty(
     base_score: int,
     rdap_uncertain: bool,
     vt_uncertain: bool,
+    gsb_uncertain: bool = False,
+    cf_uncertain: bool = False,
 ) -> int:
     """
     Apply uncertainty penalty when external sources timeout.
     Formula: U = UNCERTAINTY_PENALTY × (timed_out_sources / total_sources)
     """
-    timed_out = int(rdap_uncertain) + int(vt_uncertain)
-    penalty = round(UNCERTAINTY_PENALTY * (timed_out / 2))
+    sources = [rdap_uncertain, vt_uncertain, gsb_uncertain, cf_uncertain]
+    timed_out = sum(1 for s in sources if s)
+    penalty = round(UNCERTAINTY_PENALTY * (timed_out / len(sources)))
     return min(base_score + penalty, 100)
 
 
 def compute_heuristic_score(
-    heuristics: Dict[str, Any], hops: List[Dict[str, Any]], final_url: str,
-    dns_resolves: bool, has_metadata: bool
+    heuristics: Dict[str, Any],
+    hops: List[Dict[str, Any]],
+    final_url: str,
+    dns_resolves: bool,
+    has_metadata: bool,
+    metadata: Optional[Dict[str, Any]] = None,
+    ssl_error: bool = False,
 ) -> Tuple[int, str, bool, List[str]]:
     """
     Phase 1 Preliminary Score — uses ONLY local CPU heuristics.
@@ -121,11 +130,46 @@ def compute_heuristic_score(
 
     # NEW: Suspicious TLD Detection
     domain_lower = urlparse(final_url).netloc.lower()
-    for tld in ["zip", "click", "top", "xyz"]:
-        if domain_lower.endswith(f".{tld}"):
+    for tld in SUSPICIOUS_TLDS:
+        tld_ext = tld if tld.startswith('.') else f".{tld}"
+        if domain_lower.endswith(tld_ext):
             risk_score += 15
-            reasons.append(f"Suspicious TLD: .{tld}")
+            reasons.append(f"Suspicious TLD: {tld_ext}")
             break
+
+    # NEW: HTTPS & Certificate Signal
+    parsed_final = urlparse(final_url)
+    if parsed_final.scheme == "http":
+        risk_score += 20
+        reasons.append("Connection is not encrypted (HTTP)")
+    
+    if ssl_error:
+        risk_score += 30
+        reasons.append("Invalid SSL certificate")
+
+    # NEW: Phishing Intent Detection (Keywords)
+    found_keywords = []
+    content_to_check = [parsed_final.path.lower()]
+    if metadata:
+        if metadata.get("title"):
+            content_to_check.append(metadata["title"].lower())
+        if metadata.get("description"):
+            content_to_check.append(metadata["description"].lower())
+            
+    for kw in PHISHING_KEYWORDS:
+        if any(kw in text for text in content_to_check):
+            found_keywords.append(kw)
+    
+    if found_keywords:
+        risk_score += 10
+        reasons.append(f"Phishing keyword(s) detected: {', '.join(found_keywords[:3])}")
+        
+        # Synergy: Keyword + Suspicious/New Domain
+        # (New domain check happens in Phase 2, but suspicious TLD is Phase 1)
+        is_suspicious_domain = any(domain_lower.endswith(tld if tld.startswith('.') else f".{tld}") for tld in SUSPICIOUS_TLDS)
+        if is_suspicious_domain or heuristics.get("typosquatting_detected"):
+            risk_score += 15
+            reasons.append("Synergy: Phishing keyword on suspicious domain")
 
     # Signal 1: Brand impersonation (Levenshtein distance = 1)
     if heuristics.get("brand_penalty_reason"):
@@ -184,6 +228,8 @@ def compute_final_score(
     final_url: str,
     dns_resolves: bool,
     has_metadata: bool,
+    metadata: Optional[Dict[str, Any]] = None,
+    ssl_error: bool = False,
 ) -> Tuple[int, str, bool, List[str]]:
     """
     Phase 2 Final Score — heuristics + RDAP + VirusTotal + uncertainty penalty.
@@ -191,17 +237,45 @@ def compute_final_score(
     Returns (score, verdict, is_safe, reasons).
     """
     # Start with heuristic base score
-    risk_score, _, _, reasons = compute_heuristic_score(heuristics, hops, final_url, dns_resolves, has_metadata)
+    risk_score, _, _, reasons = compute_heuristic_score(
+        heuristics, hops, final_url, dns_resolves, has_metadata, metadata, ssl_error
+    )
 
-    # Phase 2 Signal: VirusTotal flags (Fixed to check >= 1)
+    # Phase 2 Signal: VirusTotal flags
     vendor_flags = external.get("vendor_flags", 0)
+    domain_age_days = external.get("domain_age_days", DEFAULT_DOMAIN_AGE_DAYS)
+
     if vendor_flags >= 1:
         vt_penalty = min(15 * vendor_flags, 40)
         risk_score += round(WEIGHT_VT * vt_penalty)
         reasons.append(f"Flagged by {vendor_flags} security vendor(s)")
+        
+        # NEW: VirusTotal Weak-Signal + New Domain
+        if domain_age_days < 14:
+            if risk_score < 60:
+                risk_score = 60
+            reasons.append("New domain flagged by security vendors")
+
+    # NEW: Trusted-Domain Abuse Detection
+    domain_lower = urlparse(final_url).netloc.lower()
+    is_trusted_hosting = any(domain_lower == d or domain_lower.endswith(f".{d}") for d in TRUSTED_HOSTING_DOMAINS)
+    
+    has_phishing_keywords = False
+    content_to_check = [urlparse(final_url).path.lower()]
+    if metadata:
+        if metadata.get("title"): content_to_check.append(metadata["title"].lower())
+        if metadata.get("description"): content_to_check.append(metadata["description"].lower())
+    if any(kw in text for kw in PHISHING_KEYWORDS for text in content_to_check):
+        has_phishing_keywords = True
+
+    if is_trusted_hosting and (vendor_flags >= 1 or has_phishing_keywords):
+        if risk_score < 50:
+            risk_score = 50
+        reasons.append("Suspicious content hosted on trusted platform")
+        # Ensure verdict is not green
+        risk_score = max(risk_score, VERDICT_YELLOW_THRESHOLD + 1)
 
     # Phase 2 Signal: Domain age
-    domain_age_days = external.get("domain_age_days", DEFAULT_DOMAIN_AGE_DAYS)
     if domain_age_days < 14:
         risk_score += round(WEIGHT_RDAP_AGE * NEWLY_REGISTERED_PENALTY)
         reasons.append("Newly Registered Domain (<14 days)")
@@ -212,10 +286,32 @@ def compute_final_score(
     # Uncertainty penalty for timed-out sources
     rdap_uncertain = external.get("rdap_timed_out", False)
     vt_uncertain = external.get("vt_timed_out", False)
-    risk_score = _apply_uncertainty(risk_score, rdap_uncertain, vt_uncertain)
-    if rdap_uncertain or vt_uncertain:
-        timed_out_count = int(rdap_uncertain) + int(vt_uncertain)
-        reasons.append(f"Uncertainty penalty (+{round(UNCERTAINTY_PENALTY * timed_out_count / 2)}): {timed_out_count}/2 sources timed out")
+    gsb_uncertain = external.get("gsb_timed_out", False)
+    cf_uncertain = external.get("cf_timed_out", False)
+    
+    risk_score = _apply_uncertainty(
+        risk_score, rdap_uncertain, vt_uncertain, gsb_uncertain, cf_uncertain
+    )
+    
+    if any([rdap_uncertain, vt_uncertain, gsb_uncertain, cf_uncertain]):
+        timed_out_count = sum([rdap_uncertain, vt_uncertain, gsb_uncertain, cf_uncertain])
+        reasons.append(f"Uncertainty penalty (+{round(UNCERTAINTY_PENALTY * timed_out_count / 4)}): {timed_out_count}/4 sources timed out")
+
+    # NEW: Google Safe Browsing Scoring
+    gsb_threats = external.get("gsb_threats", [])
+    if gsb_threats:
+        # GSB is authoritative. Any match is a critical threat.
+        risk_score = 100
+        reasons.append(f"CRITICAL: Flagged by Google Safe Browsing ({', '.join(gsb_threats)})")
+
+    # NEW: Cloudflare Radar Popularity Signal
+    cf_pop = external.get("cf_popularity")
+    if cf_pop and cf_pop.get("rank"):
+        rank = cf_pop["rank"]
+        if rank < 100000:
+            # Very popular domain - reduce risk slightly
+            risk_score = max(0, risk_score - 15)
+            reasons.append(f"Trust Signal: High-traffic domain (Global Rank #{rank})")
 
     capped_score = min(risk_score, 100)
 
@@ -287,7 +383,8 @@ async def run_phase1(url: str) -> Dict[str, Any]:
 
     # Compute initial score (heuristics only — preliminary)
     risk_score, verdict, is_safe, reasons = compute_heuristic_score(
-        heuristics, hops, final_url, dns_resolves, has_metadata
+        heuristics, hops, final_url, dns_resolves, has_metadata, 
+        metadata=metadata, ssl_error=trace_result.get("ssl_error", False)
     )
 
     # Determine threat type from heuristics
@@ -320,6 +417,7 @@ async def run_phase1(url: str) -> Dict[str, Any]:
             "risk_score": risk_score,
             "suspicious_redirects": len(hops) > MAX_REDIRECT_HOPS_FREE,
             "typosquatting_detected": heuristics.get("typosquatting_detected", False),
+            "ssl_error": trace_result.get("ssl_error", False),
             "reasons": reasons,
         },
         "duration_ms": duration_ms,
@@ -345,7 +443,7 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         external = await asyncio.wait_for(
-            run_external_scans(root_domain),
+            run_external_scans(urlparse(final_url).netloc),
             timeout=3.0  # Hard limit for entire Phase 2
         )
     except asyncio.TimeoutError:
@@ -363,7 +461,9 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
     risk_score, verdict, is_safe, reasons = compute_final_score(
         heuristics, external, hops, final_url,
         phase1_result.get("dns_resolves", True),
-        phase1_result.get("has_metadata", True)
+        phase1_result.get("has_metadata", True),
+        metadata=phase1_result.get("metadata"),
+        ssl_error=phase1_result["security"].get("ssl_error", False)
     )
 
     # Determine threat type (external threats override heuristic-only threats)
@@ -384,6 +484,7 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             "risk_score": risk_score,
             "suspicious_redirects": len(hops) > MAX_REDIRECT_HOPS_FREE,
             "typosquatting_detected": heuristics.get("typosquatting_detected", False),
+            "ssl_error": phase1_result["security"].get("ssl_error", False),
             "reasons": reasons,
         },
         "duration_ms": duration_ms,

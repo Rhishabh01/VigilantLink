@@ -160,32 +160,52 @@ async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
 
 async def run_external_scans(domain: str) -> Dict[str, Any]:
     """
-    Tier 2: Run RDAP + VirusTotal in parallel.
-    Returns external scan data for risk scoring.
-
-    RDAP replaces the previous blocking asyncwhois WHOIS lookup.
+    Tier 2: Run RDAP + VirusTotal + GSB + Cloudflare in parallel.
+    'domain' should be the full hostname (e.g. testsafebrowsing.appspot.com).
     """
+    # Calculate root domain for RDAP lookup
+    parts = domain.split('.')
+    if len(parts) > 2:
+        root_domain = f"{parts[-2]}.{parts[-1]}"
+    else:
+        root_domain = domain
+
     rdap_timed_out = False
     vt_timed_out = False
+    gsb_timed_out = False
+    cf_timed_out = False
 
     async def _safe_rdap() -> int:
         nonlocal rdap_timed_out
         try:
             return await asyncio.wait_for(
-                fetch_domain_age_rdap(domain), timeout=0.8
+                fetch_domain_age_rdap(root_domain), timeout=0.8
             )
         except asyncio.TimeoutError:
             rdap_timed_out = True
             return DEFAULT_DOMAIN_AGE_DAYS
         except Exception as e:
-            logger.warning(f"RDAP fallback for {domain}: {e}")
+            logger.warning(f"RDAP fallback for {root_domain}: {e}")
             return DEFAULT_DOMAIN_AGE_DAYS
 
     async def _safe_vt() -> Tuple[int, int]:
         nonlocal vt_timed_out
         try:
             return await asyncio.wait_for(
-                fetch_virustotal_flags(domain), timeout=1.5
+                fetch_virustotal_flags(domain), timeout=2.0
+            )
+        except asyncio.TimeoutError:
+            vt_timed_out = True
+            return 0, TOTAL_VENDORS_COUNT
+
+    async def _safe_gsb() -> List[str]:
+        nonlocal gsb_timed_out
+        try:
+            # Note: GSB uses the full URL usually, but we check domain here for consistency
+            # or the orchestrator can pass the full URL. Let's assume domain for now
+            # but ideally we pass the full URL.
+            return await asyncio.wait_for(
+                check_google_safe_browsing(f"http://{domain}"), timeout=2.0
             )
         except asyncio.TimeoutError:
             vt_timed_out = True

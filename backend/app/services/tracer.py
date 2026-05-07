@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 async def trace_url(url: str) -> Dict[str, Any]:
     """
     Follows redirects to find the final URL.
-    Returns the redirect chain and the final URL.
+    Returns the redirect chain, the final URL, and if there's an SSL error.
     Hard timeout: 2 seconds — must not block Phase 1.
     """
     hops = []
@@ -35,18 +35,30 @@ async def trace_url(url: str) -> Dict[str, Any]:
 
             return {
                 "final_url": str(response.url),
-                "hops": hops
+                "hops": hops,
+                "ssl_error": False
             }
 
     except httpx.TimeoutException:
         logger.warning(f"Redirect tracing timed out for {url}, using original URL")
         return {
             "final_url": url,
-            "hops": [{"url": url, "status_code": 0}]
+            "hops": [{"url": url, "status_code": 0}],
+            "ssl_error": False
+        }
+    except httpx.ConnectError as e:
+        logger.warning(f"Connection error (possible SSL) for {url}: {e}")
+        # Check if it's an SSL error
+        is_ssl = "SSL" in str(e) or "certificate verify failed" in str(e)
+        return {
+            "final_url": url,
+            "hops": [{"url": url, "status_code": 0}],
+            "ssl_error": is_ssl
         }
     except httpx.HTTPError as e:
         logger.error(f"Tracing failed for {url}: {e}")
         return {
             "final_url": url,
-            "hops": [{"url": url, "status_code": 0}]
+            "hops": [{"url": url, "status_code": 0}],
+            "ssl_error": False
         }
