@@ -9,13 +9,14 @@ import asyncio
 import logging
 import os
 import urllib.parse
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
 from ..core.constants import (
     HIGH_RISK_KEYWORDS, HIGH_VALUE_TARGETS, SUSPICIOUS_KEYWORDS,
     SUSPICIOUS_TLDS, DEFAULT_DOMAIN_AGE_DAYS, TOTAL_VENDORS_COUNT,
+    GSB_API_URL, GSB_THREAT_TYPES, GSB_THREAT_PRIORITY, GSB_TIMEOUT_S,
 )
 from .rdap_client import fetch_domain_age_rdap
 
@@ -158,22 +159,90 @@ async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
     return 0, 70
 
 
+def _normalize_gsb_url(target: str) -> Optional[str]:
+    parsed = urllib.parse.urlparse(target)
+    if not parsed.scheme:
+        target = f"http://{target}"
+        parsed = urllib.parse.urlparse(target)
+
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+
+    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path or "/", parsed.params, parsed.query, ""))
+
+
+async def check_google_safe_browsing(url: str) -> List[str]:
+    """Check a URL against Google Safe Browsing v4 threatMatches."""
+    api_key = os.getenv("GOOGLE_SAFE_BROWSING_API_KEY")
+    normalized = _normalize_gsb_url(url)
+    if not api_key or not normalized:
+        return []
+
+    payload = {
+        "client": {
+            "clientId": "vigilantlink",
+            "clientVersion": "1.0",
+        },
+        "threatInfo": {
+            "threatTypes": GSB_THREAT_TYPES,
+            "platformTypes": ["ANY_PLATFORM"],
+            "threatEntryTypes": ["URL"],
+            "threatEntries": [{"url": normalized}],
+        },
+    }
+
+    try:
+        timeout = httpx.Timeout(GSB_TIMEOUT_S)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                GSB_API_URL,
+                params={"key": api_key},
+                json=payload,
+            )
+
+            if response.status_code == 429:
+                logger.warning(f"Google Safe Browsing rate limit hit for {normalized}")
+                return []
+
+            if response.status_code != 200:
+                logger.warning(f"Google Safe Browsing API returned {response.status_code} for {normalized}")
+                return []
+
+            data = response.json()
+            matches = data.get("matches", [])
+            threats = [match.get("threatType") for match in matches if match.get("threatType") in GSB_THREAT_TYPES]
+            return list(dict.fromkeys([t for t in threats if t]))
+
+    except httpx.TimeoutException:
+        logger.warning(f"Google Safe Browsing request timed out for {normalized}")
+    except Exception as e:
+        logger.warning(f"Google Safe Browsing check failed for {normalized}: {e}")
+
+    return []
+
+
 async def run_external_scans(domain: str) -> Dict[str, Any]:
     """
-    Tier 2: Run RDAP + VirusTotal + GSB + Cloudflare in parallel.
-    'domain' should be the full hostname (e.g. testsafebrowsing.appspot.com).
+    Tier 2: Run RDAP + VirusTotal + GSB in parallel.
+    'domain' can be a hostname or a full URL.
     """
-    # Calculate root domain for RDAP lookup
-    parts = domain.split('.')
+    parsed = urllib.parse.urlparse(domain)
+    if parsed.scheme and parsed.netloc:
+        target_domain = parsed.netloc.split(':')[0]
+        gsb_url = urllib.parse.urlunparse(parsed)
+    else:
+        target_domain = domain
+        gsb_url = f"http://{domain}"
+
+    parts = target_domain.split('.')
     if len(parts) > 2:
         root_domain = f"{parts[-2]}.{parts[-1]}"
     else:
-        root_domain = domain
+        root_domain = target_domain
 
     rdap_timed_out = False
     vt_timed_out = False
     gsb_timed_out = False
-    cf_timed_out = False
 
     async def _safe_rdap() -> int:
         nonlocal rdap_timed_out
@@ -192,7 +261,7 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         nonlocal vt_timed_out
         try:
             return await asyncio.wait_for(
-                fetch_virustotal_flags(domain), timeout=2.0
+                fetch_virustotal_flags(target_domain), timeout=2.0
             )
         except asyncio.TimeoutError:
             vt_timed_out = True
@@ -201,22 +270,29 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
     async def _safe_gsb() -> List[str]:
         nonlocal gsb_timed_out
         try:
-            # Note: GSB uses the full URL usually, but we check domain here for consistency
-            # or the orchestrator can pass the full URL. Let's assume domain for now
-            # but ideally we pass the full URL.
             return await asyncio.wait_for(
-                check_google_safe_browsing(f"http://{domain}"), timeout=2.0
+                check_google_safe_browsing(gsb_url), timeout=GSB_TIMEOUT_S
             )
         except asyncio.TimeoutError:
-            vt_timed_out = True
-            return 0, TOTAL_VENDORS_COUNT
+            gsb_timed_out = True
+            return []
 
-    age_days, vt_results = await asyncio.gather(_safe_rdap(), _safe_vt())
+    age_days, vt_results, gsb_results = await asyncio.gather(
+        _safe_rdap(), _safe_vt(), _safe_gsb()
+    )
     vendor_flags, total_vendors = vt_results
 
-    # Determine threat type from external data
+    gsb_threat_type: Optional[str] = None
+    if gsb_results:
+        for threat in GSB_THREAT_PRIORITY:
+            if threat in gsb_results:
+                gsb_threat_type = threat
+                break
+
     threat_type: Optional[str] = None
-    if vendor_flags >= 2:
+    if gsb_threat_type:
+        threat_type = gsb_threat_type
+    elif vendor_flags >= 2:
         threat_type = f"Flagged by {vendor_flags} Security Vendors"
     elif age_days < 30:
         threat_type = "Newly Registered Domain"
@@ -226,8 +302,12 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         "vendor_flags": vendor_flags,
         "total_vendors": total_vendors,
         "threat_type": threat_type,
+        "gsb_threats": gsb_results,
+        "gsb_matched": bool(gsb_results),
+        "gsb_threat_type": gsb_threat_type,
         "rdap_timed_out": rdap_timed_out,
         "vt_timed_out": vt_timed_out,
+        "gsb_timed_out": gsb_timed_out,
     }
 
 

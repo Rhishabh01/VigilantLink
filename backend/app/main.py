@@ -273,6 +273,8 @@ async def _run_phase2_background(
                 "sr": sec2["suspicious_redirects"],
                 "ts": sec2["typosquatting_detected"],
                 "r": sec2["reasons"],
+                "gsb": sec2.get("gsb_matched", False),
+                "gsbt": sec2.get("gsb_threat_type", None),
             },
             "ms": phase2["duration_ms"],
         }
@@ -312,6 +314,8 @@ async def _run_phase2_background(
                 "sr": sec1.get("suspicious_redirects", False),
                 "ts": sec1.get("typosquatting_detected", False),
                 "r": sec1.get("reasons", ["Deep scan failed — showing heuristic result only"]),
+                "gsb": False,
+                "gsbt": None,
             },
             "ms": 0,
         })

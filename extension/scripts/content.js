@@ -494,12 +494,18 @@ function updatePopupWithResult(data) {
   let verdictText = security.safe ? 'Safe' : 'Suspicious';
   if (verdictClass === 'red') verdictText = 'Dangerous';
 
+  // Issue 1: Prevent false "Safe" during Phase 1
+  if (data.s === 1) {
+    verdictClass = 'gray';
+    verdictText = 'ANALYZING';
+  }
+
   const headerDiv = document.createElement('div');
-  headerDiv.className = `header ${verdictClass}-header`;
+  headerDiv.className = `header ${data.s === 1 ? '' : verdictClass + '-header'}`;
 
   const logoDiv = document.createElement('div');
   logoDiv.className = 'logo';
-  logoDiv.textContent = `VigilantLink Score: ${security.rs}/100`;
+  logoDiv.textContent = data.s === 1 ? 'VigilantLink: Scanning...' : `VigilantLink Score: ${security.rs}/100`;
   logoDiv.style.fontSize = '14px';
   headerDiv.appendChild(logoDiv);
 

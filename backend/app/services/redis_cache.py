@@ -245,6 +245,8 @@ class RedisCache:
                     "sr": sec2["suspicious_redirects"],
                     "ts": sec2["typosquatting_detected"],
                     "r": sec2["reasons"],
+                    "gsb": sec2.get("gsb_matched", False),
+                    "gsbt": sec2.get("gsb_threat_type", None),
                 },
                 "ms": p2["duration_ms"],
             }
