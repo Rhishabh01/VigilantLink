@@ -11,6 +11,8 @@ const HOVER_DELAY_MS = 100;
 let mutationObserver = null;
 const processedLinks = new WeakSet();
 let currentAnalysisUrl = null;
+let currentRequestId = null;
+let requestSequence = 0;
 
 // Debounce utility - prevents excessive function calls
 function debounce(func, wait) {
@@ -28,7 +30,7 @@ function debounce(func, wait) {
 // Throttle utility - ensures minimum time between calls
 function throttle(func, limit) {
   let inThrottle;
-  return function(...args) {
+  return function (...args) {
     if (!inThrottle) {
       func.apply(this, args);
       inThrottle = true;
@@ -169,11 +171,15 @@ async function handleLinkMouseEnter(event) {
     showLoadingPopup(x, y);
 
     currentAnalysisUrl = url;
+    currentRequestId = null;
+    const seq = ++requestSequence;
 
     try {
       chrome.runtime.sendMessage({ action: 'analyze_link', url }, (response) => {
         if (currentAnalysisUrl !== url) return; // Stale response
+        if (seq !== requestSequence) return; // Stale sequence
         if (response && response.success) {
+          currentRequestId = response.data.id;
           updatePopupWithResult(response.data);
         } else {
           updatePopupWithError(response?.error || 'Unknown error');
@@ -192,6 +198,7 @@ function handleLinkMouseLeave(event) {
   }
   hoverTargetUrl = null;
   currentAnalysisUrl = null;
+  ++requestSequence;
 
   // Cancel in-flight backend request
   try {
@@ -208,24 +215,24 @@ initializeMutationObserver();
 
 // Close popup if moving away from link and popup
 document.addEventListener('mousemove', (event) => {
-    if (currentPopupContainer) {
-        const target = event.target.closest('a');
-        const isOverPopup = currentPopupContainer.contains(event.target) ||
-            (currentPopupShadowRoot && currentPopupShadowRoot.contains(event.composedPath()[0]));
+  if (currentPopupContainer) {
+    const target = event.target.closest('a');
+    const isOverPopup = currentPopupContainer.contains(event.target) ||
+      (currentPopupShadowRoot && currentPopupShadowRoot.contains(event.composedPath()[0]));
 
-        if (!target && !isOverPopup) {
-            if (!closeTimer) {
-                closeTimer = setTimeout(() => {
-                    closePopup();
-                }, 300);
-            }
-        } else {
-            if (closeTimer) {
-                clearTimeout(closeTimer);
-                closeTimer = null;
-            }
-        }
+    if (!target && !isOverPopup) {
+      if (!closeTimer) {
+        closeTimer = setTimeout(() => {
+          closePopup();
+        }, 300);
+      }
+    } else {
+      if (closeTimer) {
+        clearTimeout(closeTimer);
+        closeTimer = null;
+      }
     }
+  }
 });
 
 document.addEventListener('click', (event) => {
@@ -248,25 +255,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.action === 'get_override') {
     sendResponse({ override: window.sessionStorage.getItem('vigilantlink_override') });
   } else if (message.action === 'phase1_result') {
-    // Progressive update: Phase 1 instant result
-    if (currentPopupContent && currentAnalysisUrl) {
+    // Don't set currentRequestId here — it's managed by the sendMessage callback
+    // to prevent stale phase1_result from corrupting the request id
+    if (currentPopupContent && currentAnalysisUrl && message.url === currentAnalysisUrl) {
       updatePopupWithResult(message.data);
     }
   } else if (message.action === 'phase2_result') {
-    // Progressive update: Phase 2 deep scan result
-    if (currentPopupContent && currentAnalysisUrl) {
+    if (currentPopupContent && currentAnalysisUrl && message.url === currentAnalysisUrl && message.data.id === currentRequestId) {
       mergeDeepScanResult(message.data);
     }
   }
 });
 
 function closePopup() {
-    if (currentPopupContainer) {
-        currentPopupContainer.remove();
-        currentPopupContainer = null;
-        currentPopupShadowRoot = null;
-        currentPopupContent = null;
-    }
+  if (currentPopupContainer) {
+    currentPopupContainer.remove();
+    currentPopupContainer = null;
+    currentPopupShadowRoot = null;
+    currentPopupContent = null;
+  }
 }
 
 function createShadowPopup(x, y) {
@@ -274,10 +281,10 @@ function createShadowPopup(x, y) {
 
   let styleUrl = "";
   try {
-      styleUrl = chrome.runtime.getURL("styles/shadow-styles.css");
+    styleUrl = chrome.runtime.getURL("styles/shadow-styles.css");
   } catch (e) {
-      console.warn("VigilantLink: Extension context invalidated. Please refresh the page.");
-      return;
+    console.warn("VigilantLink: Extension context invalidated. Please refresh the page.");
+    return;
   }
 
   const container = document.createElement("div");
@@ -286,22 +293,22 @@ function createShadowPopup(x, y) {
   container.style.left = `${x}px`;
   container.style.top = `${y}px`;
   container.style.zIndex = "2147483647"; // Max z-index
-   
+
   // Use closed mode for Zero-Trust isolation from host page JS
   const shadowRoot = container.attachShadow({ mode: "closed" });
   currentPopupShadowRoot = shadowRoot;
-   
+
   const styleLink = document.createElement("link");
   styleLink.rel = "stylesheet";
   styleLink.href = styleUrl;
   shadowRoot.appendChild(styleLink);
-   
+
   const content = document.createElement("div");
   content.className = "vigilant-card";
   shadowRoot.appendChild(content);
 
   document.body.appendChild(container);
-   
+
   currentPopupContainer = container;
   currentPopupContent = content;
 }
@@ -347,14 +354,45 @@ function showLoadingPopup(x, y) {
 
 function getBadgeColor(reason) {
   if (reason.includes('Punycode')) return 'red';
-  if (reason.includes('Excessive Redirect Chain') || reason.includes('Cross-Domain')) return 'orange';
-  if (reason.includes('Typosquatting') || reason.includes('Synergy')) return 'red';
-  if (reason.includes('Newly Registered')) return 'orange';
+  if (reason.includes('Excessive Redirect') || reason.includes('Cross-Domain')) return 'orange';
+  if (reason.includes('Typosquatting') || reason.includes('impersonation')) return 'red';
+  if (reason.includes('Synergy') || reason.includes('Homograph')) return 'red';
+  if (reason.includes('Recently issued') || reason.includes('SSL certificate')) return 'orange';
+  if (reason.includes('not encrypted') || reason.includes('HTTP')) return 'orange';
+  if (reason.includes('Flagged')) return 'orange';
   return 'gray';
 }
 
+function cleanThreatExplanation(reason) {
+  const explanations = {
+    'Punycode Homograph Attack': 'Punycode domain trick',
+    'Typosquatting Detected': 'Possible impersonation attempt',
+    'Excessive Redirect Chain': 'Suspicious redirect chain',
+    'Connection is not encrypted': 'No encryption (HTTP)',
+    'Invalid SSL certificate': 'Certificate error',
+    'Suspicious Keywords': 'Suspicious content detected',
+    'Synergy': 'High-risk combination',
+    'Phishing keyword': 'Phishing attempt',
+    'CRITICAL: Punycode': 'Punycode domain trick',
+    'CRITICAL: Flagged': 'Flagged by security vendors',
+    'CRITICAL: VirusTotal': 'Flagged by VirusTotal',
+    'Flagged by': 'Flagged by vendors',
+    'Recently issued SSL certificate': 'New SSL certificate',
+    'Young SSL certificate': 'Young SSL certificate',
+    'does not resolve': 'Domain invalid',
+    'Suspicious TLD': 'Suspicious domain extension',
+    'Uncertainty penalty': 'Limited security data',
+  };
+
+  for (const [key, value] of Object.entries(explanations)) {
+    if (reason.includes(key)) return value;
+  }
+
+  return reason.length > 50 ? reason.substring(0, 47) + '...' : reason;
+}
+
 function createWarningBox(verdictClass, threatType) {
-  if (verdictClass === 'green') return null;
+  if (verdictClass === 'green' || verdictClass === 'gray') return null;
 
   const warningBox = document.createElement('div');
   warningBox.className = `warning-box ${verdictClass}`;
@@ -428,7 +466,7 @@ function createRedirectsSection(redirectChain) {
       urlDiv.style.marginBottom = '3px';
       urlDiv.style.wordBreak = 'break-all';
       const arrow = document.createElement('span');
-      arrow.innerHTML = '&rarr; ';
+      arrow.appendChild(document.createTextNode('\u2192 '));
       urlDiv.appendChild(arrow);
       const urlText = document.createTextNode(r.u);
       urlDiv.appendChild(urlText);
@@ -466,16 +504,18 @@ function createForensicSection(reasons) {
 
   const titleDiv = document.createElement('div');
   titleDiv.className = 'reasons-title';
-  titleDiv.textContent = 'Forensic Analysis';
+  titleDiv.textContent = 'Reasons';
   reasonsDiv.appendChild(titleDiv);
 
   const badgeListDiv = document.createElement('div');
   badgeListDiv.className = 'badge-list';
 
   reasons.forEach(r => {
+    const cleaned = cleanThreatExplanation(r);
     const badge = document.createElement('span');
     badge.className = `forensic-badge ${getBadgeColor(r)}`;
-    badge.textContent = r;
+    badge.textContent = cleaned;
+    badge.title = r;
     badgeListDiv.appendChild(badge);
   });
 
@@ -505,7 +545,7 @@ function updatePopupWithResult(data) {
 
   const logoDiv = document.createElement('div');
   logoDiv.className = 'logo';
-  logoDiv.textContent = data.s === 1 ? 'VigilantLink: Scanning...' : `VigilantLink Score: ${security.rs}/100`;
+  logoDiv.textContent = data.s === 1 ? 'VigilantLink: Scanning...' : `Safety Score: ${100 - security.rs}/100`;
   logoDiv.style.fontSize = '14px';
   headerDiv.appendChild(logoDiv);
 
@@ -526,21 +566,21 @@ function updatePopupWithResult(data) {
   if (title || description) {
     const metaSection = document.createElement('div');
     metaSection.className = 'metadata-section';
-    
+
     if (title) {
       const titleEl = document.createElement('div');
       titleEl.className = 'metadata-title';
       titleEl.textContent = title;
       metaSection.appendChild(titleEl);
     }
-    
+
     if (description) {
       const descEl = document.createElement('div');
       descEl.className = 'metadata-description';
       descEl.textContent = description;
       metaSection.appendChild(descEl);
     }
-    
+
     bodyDiv.appendChild(metaSection);
   }
 
@@ -614,24 +654,27 @@ function updatePopupWithResult(data) {
   const screenshotContainer = document.createElement('div');
   screenshotContainer.className = 'screenshot-container';
 
+  const makePlaceholder = () => {
+    const d = document.createElement('div');
+    d.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
+    d.textContent = 'Preview unavailable';
+    return d;
+  };
+
+  screenshotContainer.appendChild(makePlaceholder());
+
   const displayImage = screenshot_base64 || preview_image_url;
   if (displayImage) {
     const img = document.createElement('img');
-    img.src = displayImage;
+    img.style.display = 'none';
     img.alt = `Preview of ${final_url}`;
-    screenshotContainer.appendChild(img);
-  } else {
-    const placeholderDiv = document.createElement('div');
-    placeholderDiv.style.display = 'flex';
-    placeholderDiv.style.alignItems = 'center';
-    placeholderDiv.style.justifyContent = 'center';
-    placeholderDiv.style.height = '100%';
-    placeholderDiv.style.color = '#888';
-    placeholderDiv.style.fontStyle = 'italic';
-    placeholderDiv.style.textAlign = 'center';
-    placeholderDiv.style.padding = '0 20px';
-    placeholderDiv.textContent = 'Image blocked or preview unavailable';
-    screenshotContainer.appendChild(placeholderDiv);
+    img.onload = () => {
+      screenshotContainer.textContent = '';
+      img.style.display = '';
+      screenshotContainer.appendChild(img);
+    };
+    img.onerror = () => {};
+    img.src = displayImage;
   }
 
   bodyDiv.appendChild(screenshotContainer);
@@ -639,7 +682,18 @@ function updatePopupWithResult(data) {
   const infoDiv = document.createElement('div');
   infoDiv.className = 'info';
 
-  const forensicSection = createForensicSection(security.r);
+  let filteredReasons = security.r || [];
+
+  // Suppress uncertainty penalty and internal reasons for safe verdicts
+  if (verdictClass === 'green') {
+    filteredReasons = filteredReasons.filter(r =>
+      !r.includes('Uncertainty penalty') &&
+      !r.includes('timed out') &&
+      !r.includes('Limited security data')
+    );
+  }
+
+  const forensicSection = createForensicSection(filteredReasons);
   if (forensicSection) infoDiv.appendChild(forensicSection);
 
   const redirectsSection = createRedirectsSection(redirect_chain);
@@ -675,7 +729,7 @@ function mergeDeepScanResult(data) {
     header.className = `header ${verdictClass}-header`;
     badge.className = `badge ${verdictClass}`;
     badge.textContent = verdictText;
-    logo.textContent = `VigilantLink Score: ${security.rs}/100`;
+    logo.textContent = `Safety Score: ${100 - security.rs}/100`;
   }
 
   // Update or add warning box
@@ -696,7 +750,19 @@ function mergeDeepScanResult(data) {
     const existingInfo = currentPopupShadowRoot.querySelector('.info');
     if (existingInfo && security.r && security.r.length > 0) {
       existingInfo.textContent = '';
-      const forensicSection = createForensicSection(security.r);
+
+      let filteredReasons = security.r;
+
+      // Suppress uncertainty penalty and internal reasons for safe verdicts
+      if (security.v === 'green') {
+        filteredReasons = security.r.filter(r =>
+          !r.includes('Uncertainty penalty') &&
+          !r.includes('timed out') &&
+          !r.includes('Limited security data')
+        );
+      }
+
+      const forensicSection = createForensicSection(filteredReasons);
       if (forensicSection) existingInfo.appendChild(forensicSection);
     }
   }
@@ -706,10 +772,21 @@ function mergeDeepScanResult(data) {
     const container = currentPopupShadowRoot.querySelector('.screenshot-container');
     if (container) {
       container.textContent = '';
+      const placeholderDiv = document.createElement('div');
+      placeholderDiv.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
+      placeholderDiv.textContent = 'Preview unavailable';
+      container.appendChild(placeholderDiv);
+
       const img = document.createElement('img');
-      img.src = data.ss;
+      img.style.display = 'none';
       img.alt = 'Site preview';
-      container.appendChild(img);
+      img.onload = () => {
+        container.textContent = '';
+        img.style.display = '';
+        container.appendChild(img);
+      };
+      img.onerror = () => {};
+      img.src = data.ss;
     }
   }
 }
@@ -815,59 +892,4 @@ function updatePopupWithError(errorMsg) {
   currentPopupContent.appendChild(bodyDiv);
 }
 
-// Listen for messages from popup
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'settings_updated') {
-    closePopup();
-  } else if (message.action === 'set_override') {
-    window.sessionStorage.setItem('vigilantlink_override', message.enabled ? 'enabled' : 'disabled');
-    closePopup();
-    sendResponse({ success: true });
-  } else if (message.action === 'get_override') {
-    sendResponse({ override: window.sessionStorage.getItem('vigilantlink_override') });
-  }
-});
 
-function closePopup() {
-    if (currentPopupContainer) {
-        currentPopupContainer.remove();
-        currentPopupContainer = null;
-        currentPopupShadowRoot = null;
-        currentPopupContent = null;
-    }
-}
-
-function createShadowPopup(x, y) {
-  closePopup();
-
-  let styleUrl = '';
-  try {
-      styleUrl = chrome.runtime.getURL('styles/shadow-styles.css');
-  } catch (e) {
-      console.warn('VigilantLink: Extension context invalidated. Please refresh the page.');
-      return;
-  }
-
-  const container = document.createElement('div');
-  container.style.position = 'fixed';
-  container.style.left = `${x}px`;
-  container.style.top = `${y}px`;
-  container.style.zIndex = '2147483647';
-
-  const shadowRoot = container.attachShadow({ mode: 'closed' });
-  currentPopupShadowRoot = shadowRoot;
-
-  const styleLink = document.createElement('link');
-  styleLink.rel = 'stylesheet';
-  styleLink.href = styleUrl;
-  shadowRoot.appendChild(styleLink);
-
-  const content = document.createElement('div');
-  content.className = 'vigilant-card';
-  shadowRoot.appendChild(content);
-
-  document.body.appendChild(container);
-
-  currentPopupContainer = container;
-  currentPopupContent = content;
-}

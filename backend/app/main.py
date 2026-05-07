@@ -139,8 +139,13 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
         if pending:
             return pending
         # Re-trigger phase 2 in background
+        phase1_raw = cached_partial.get("_phase1_raw")
+        if phase1_raw is None:
+            # Stale cache from old extension version — re-run Phase 1
+            logger.info(f"Re-running Phase 1 for stale cache entry: {canonical[:60]}")
+            phase1_raw = await run_phase1(url_str)
         asyncio.create_task(
-            _run_phase2_background(request_id, canonical, cached_partial.get("_phase1_raw"))
+            _run_phase2_background(request_id, canonical, phase1_raw)
         )
         return cached_partial
 
@@ -217,9 +222,6 @@ async def _run_phase2_background(
     Also triggers Phase 3 screenshot if gatekeeper conditions are met.
     Uses asyncio.shield() so Playwright completes even if request is cancelled.
     """
-    # Use the original URL for display, canonical for cache
-    url_str = phase1.get("metadata", {}).get("original_url", canonical_url) if isinstance(phase1.get("metadata"), dict) else canonical_url
-
     try:
         phase2 = await run_phase2(canonical_url, phase1)
 
