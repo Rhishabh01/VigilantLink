@@ -63,8 +63,8 @@ async function analyzeTwoPhase(url, signal, tabId) {
 
   const phase1Data = await phase1Response.json();
 
-  // If we got a full cached result (stage=2), return immediately
-  if (phase1Data.stage === 2) {
+  // If we got a full cached result (s=2), return immediately
+  if (phase1Data.s === 2) {
     activeRequests.delete(tabId);
     return phase1Data;
   }
@@ -82,7 +82,7 @@ async function analyzeTwoPhase(url, signal, tabId) {
   }
 
   // --- Phase 2: Poll for deep scan results ---
-  const requestId = phase1Data.request_id;
+  const requestId = phase1Data.id;
   if (!requestId) {
     activeRequests.delete(tabId);
     return phase1Data;
@@ -136,10 +136,10 @@ async function pollForDeepScan(requestId, signal) {
 
       const data = await response.json();
 
-      if (data.stage === 2) {
+      if (data.s === 2) {
         return data;
       }
-      // stage=1 + status=pending → keep polling
+      // s=1 + status=pending → keep polling
     } catch (e) {
       if (e.name === 'AbortError') throw e;
       // Network error — keep trying

@@ -3,6 +3,7 @@
 # Environments
 venv/
 env/
+.venv/
 backend/venv/
 backend/env/
 
@@ -28,10 +29,19 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
 
 # Environment variables (contains API keys)
 .env
 backend/.env
+*.env
 
 # Test files (generated during development)
 backend/test_*.py
@@ -41,17 +51,34 @@ backend/test_suite.py
 # Playwright
 test-results/
 screenshots/
+playwright-report/
+blob-report/
+playwright-log.txt
+backend/playwright/
+.local-browsers/
 
-# Logs
-*.log
-logs/
+# Node.js (if used for extension build)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn/
 
 # IDEs
 .vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
 .idea/
 *.swp
 *.swo
 *~
+.history/
+.project
+.pydevproject
+.settings/
 
 # OS generated files
 .DS_Store
@@ -61,8 +88,12 @@ logs/
 .Trashes
 ehthumbs.db
 Thumbs.db
+desktop.ini
 
 # Temporary files
 *.tmp
 *.temp
 .cache/
+temp/
+tmp/
+
