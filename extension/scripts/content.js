@@ -28,7 +28,7 @@ function debounce(func, wait) {
 // Throttle utility - ensures minimum time between calls
 function throttle(func, limit) {
   let inThrottle;
-  return function(...args) {
+  return function (...args) {
     if (!inThrottle) {
       func.apply(this, args);
       inThrottle = true;
@@ -208,24 +208,24 @@ initializeMutationObserver();
 
 // Close popup if moving away from link and popup
 document.addEventListener('mousemove', (event) => {
-    if (currentPopupContainer) {
-        const target = event.target.closest('a');
-        const isOverPopup = currentPopupContainer.contains(event.target) ||
-            (currentPopupShadowRoot && currentPopupShadowRoot.contains(event.composedPath()[0]));
+  if (currentPopupContainer) {
+    const target = event.target.closest('a');
+    const isOverPopup = currentPopupContainer.contains(event.target) ||
+      (currentPopupShadowRoot && currentPopupShadowRoot.contains(event.composedPath()[0]));
 
-        if (!target && !isOverPopup) {
-            if (!closeTimer) {
-                closeTimer = setTimeout(() => {
-                    closePopup();
-                }, 300);
-            }
-        } else {
-            if (closeTimer) {
-                clearTimeout(closeTimer);
-                closeTimer = null;
-            }
-        }
+    if (!target && !isOverPopup) {
+      if (!closeTimer) {
+        closeTimer = setTimeout(() => {
+          closePopup();
+        }, 300);
+      }
+    } else {
+      if (closeTimer) {
+        clearTimeout(closeTimer);
+        closeTimer = null;
+      }
     }
+  }
 });
 
 document.addEventListener('click', (event) => {
@@ -261,12 +261,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 function closePopup() {
-    if (currentPopupContainer) {
-        currentPopupContainer.remove();
-        currentPopupContainer = null;
-        currentPopupShadowRoot = null;
-        currentPopupContent = null;
-    }
+  if (currentPopupContainer) {
+    currentPopupContainer.remove();
+    currentPopupContainer = null;
+    currentPopupShadowRoot = null;
+    currentPopupContent = null;
+  }
 }
 
 function createShadowPopup(x, y) {
@@ -274,10 +274,10 @@ function createShadowPopup(x, y) {
 
   let styleUrl = "";
   try {
-      styleUrl = chrome.runtime.getURL("styles/shadow-styles.css");
+    styleUrl = chrome.runtime.getURL("styles/shadow-styles.css");
   } catch (e) {
-      console.warn("VigilantLink: Extension context invalidated. Please refresh the page.");
-      return;
+    console.warn("VigilantLink: Extension context invalidated. Please refresh the page.");
+    return;
   }
 
   const container = document.createElement("div");
@@ -286,22 +286,22 @@ function createShadowPopup(x, y) {
   container.style.left = `${x}px`;
   container.style.top = `${y}px`;
   container.style.zIndex = "2147483647"; // Max z-index
-   
+
   // Use closed mode for Zero-Trust isolation from host page JS
   const shadowRoot = container.attachShadow({ mode: "closed" });
   currentPopupShadowRoot = shadowRoot;
-   
+
   const styleLink = document.createElement("link");
   styleLink.rel = "stylesheet";
   styleLink.href = styleUrl;
   shadowRoot.appendChild(styleLink);
-   
+
   const content = document.createElement("div");
   content.className = "vigilant-card";
   shadowRoot.appendChild(content);
 
   document.body.appendChild(container);
-   
+
   currentPopupContainer = container;
   currentPopupContent = content;
 }
@@ -347,10 +347,41 @@ function showLoadingPopup(x, y) {
 
 function getBadgeColor(reason) {
   if (reason.includes('Punycode')) return 'red';
-  if (reason.includes('Excessive Redirect Chain') || reason.includes('Cross-Domain')) return 'orange';
-  if (reason.includes('Typosquatting') || reason.includes('Synergy')) return 'red';
-  if (reason.includes('Newly Registered')) return 'orange';
+  if (reason.includes('Excessive Redirect') || reason.includes('Cross-Domain')) return 'orange';
+  if (reason.includes('Typosquatting') || reason.includes('impersonation')) return 'red';
+  if (reason.includes('Synergy') || reason.includes('Homograph')) return 'red';
+  if (reason.includes('Recently issued') || reason.includes('SSL certificate')) return 'orange';
+  if (reason.includes('not encrypted') || reason.includes('HTTP')) return 'orange';
+  if (reason.includes('Flagged')) return 'orange';
   return 'gray';
+}
+
+function cleanThreatExplanation(reason) {
+  const explanations = {
+    'Punycode Homograph Attack': 'Punycode domain trick',
+    'Typosquatting Detected': 'Possible impersonation attempt',
+    'Excessive Redirect Chain': 'Suspicious redirect chain',
+    'Connection is not encrypted': 'No encryption (HTTP)',
+    'Invalid SSL certificate': 'Certificate error',
+    'Suspicious Keywords': 'Suspicious content detected',
+    'Synergy': 'High-risk combination',
+    'Phishing keyword': 'Phishing attempt',
+    'CRITICAL: Punycode': 'Punycode domain trick',
+    'CRITICAL: Flagged': 'Flagged by security vendors',
+    'CRITICAL: VirusTotal': 'Flagged by VirusTotal',
+    'Flagged by': 'Flagged by vendors',
+    'Recently issued SSL certificate': 'New SSL certificate',
+    'Young SSL certificate': 'Young SSL certificate',
+    'does not resolve': 'Domain invalid',
+    'Suspicious TLD': 'Suspicious domain extension',
+    'Uncertainty penalty': 'Limited security data',
+  };
+
+  for (const [key, value] of Object.entries(explanations)) {
+    if (reason.includes(key)) return value;
+  }
+
+  return reason.length > 50 ? reason.substring(0, 47) + '...' : reason;
 }
 
 function createWarningBox(verdictClass, threatType) {
@@ -466,16 +497,18 @@ function createForensicSection(reasons) {
 
   const titleDiv = document.createElement('div');
   titleDiv.className = 'reasons-title';
-  titleDiv.textContent = 'Forensic Analysis';
+  titleDiv.textContent = 'Reasons';
   reasonsDiv.appendChild(titleDiv);
 
   const badgeListDiv = document.createElement('div');
   badgeListDiv.className = 'badge-list';
 
   reasons.forEach(r => {
+    const cleaned = cleanThreatExplanation(r);
     const badge = document.createElement('span');
     badge.className = `forensic-badge ${getBadgeColor(r)}`;
-    badge.textContent = r;
+    badge.textContent = cleaned;
+    badge.title = r;
     badgeListDiv.appendChild(badge);
   });
 
@@ -526,21 +559,21 @@ function updatePopupWithResult(data) {
   if (title || description) {
     const metaSection = document.createElement('div');
     metaSection.className = 'metadata-section';
-    
+
     if (title) {
       const titleEl = document.createElement('div');
       titleEl.className = 'metadata-title';
       titleEl.textContent = title;
       metaSection.appendChild(titleEl);
     }
-    
+
     if (description) {
       const descEl = document.createElement('div');
       descEl.className = 'metadata-description';
       descEl.textContent = description;
       metaSection.appendChild(descEl);
     }
-    
+
     bodyDiv.appendChild(metaSection);
   }
 
@@ -639,7 +672,18 @@ function updatePopupWithResult(data) {
   const infoDiv = document.createElement('div');
   infoDiv.className = 'info';
 
-  const forensicSection = createForensicSection(security.r);
+  let filteredReasons = security.r || [];
+
+  // Suppress uncertainty penalty and internal reasons for safe verdicts
+  if (verdictClass === 'green') {
+    filteredReasons = filteredReasons.filter(r =>
+      !r.includes('Uncertainty penalty') &&
+      !r.includes('timed out') &&
+      !r.includes('Limited security data')
+    );
+  }
+
+  const forensicSection = createForensicSection(filteredReasons);
   if (forensicSection) infoDiv.appendChild(forensicSection);
 
   const redirectsSection = createRedirectsSection(redirect_chain);
@@ -696,7 +740,19 @@ function mergeDeepScanResult(data) {
     const existingInfo = currentPopupShadowRoot.querySelector('.info');
     if (existingInfo && security.r && security.r.length > 0) {
       existingInfo.textContent = '';
-      const forensicSection = createForensicSection(security.r);
+
+      let filteredReasons = security.r;
+
+      // Suppress uncertainty penalty and internal reasons for safe verdicts
+      if (security.v === 'green') {
+        filteredReasons = security.r.filter(r =>
+          !r.includes('Uncertainty penalty') &&
+          !r.includes('timed out') &&
+          !r.includes('Limited security data')
+        );
+      }
+
+      const forensicSection = createForensicSection(filteredReasons);
       if (forensicSection) existingInfo.appendChild(forensicSection);
     }
   }
@@ -829,12 +885,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 function closePopup() {
-    if (currentPopupContainer) {
-        currentPopupContainer.remove();
-        currentPopupContainer = null;
-        currentPopupShadowRoot = null;
-        currentPopupContent = null;
-    }
+  if (currentPopupContainer) {
+    currentPopupContainer.remove();
+    currentPopupContainer = null;
+    currentPopupShadowRoot = null;
+    currentPopupContent = null;
+  }
 }
 
 function createShadowPopup(x, y) {
@@ -842,10 +898,10 @@ function createShadowPopup(x, y) {
 
   let styleUrl = '';
   try {
-      styleUrl = chrome.runtime.getURL('styles/shadow-styles.css');
+    styleUrl = chrome.runtime.getURL('styles/shadow-styles.css');
   } catch (e) {
-      console.warn('VigilantLink: Extension context invalidated. Please refresh the page.');
-      return;
+    console.warn('VigilantLink: Extension context invalidated. Please refresh the page.');
+    return;
   }
 
   const container = document.createElement('div');

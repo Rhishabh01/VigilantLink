@@ -502,7 +502,7 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             timeout=3.0  # Hard limit for entire Phase 2
         )
     except asyncio.TimeoutError:
-        logger.warning(f"Phase 2 external scans timed out for {root_domain}")
+        logger.debug(f"Phase 2 external scans timed out for {root_domain}")
         external = {
             "ssl_cert_age_days": None,
             "vendor_flags": 0,
@@ -513,13 +513,13 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             "gsb_timed_out": True,
         }
 
-    # Concise structured logging for timeouts
+    # Concise structured logging for timeouts - use debug level to reduce noise
     if external.get("ssl_timed_out"):
-        logger.warning(f"SSL cert age timeout: {root_domain}")
+        logger.debug(f"SSL cert age timeout: {root_domain}")
     if external.get("vt_timed_out"):
-        logger.warning(f"VT timeout: {root_domain}")
+        logger.debug(f"VT timeout: {root_domain}")
     if external.get("gsb_timed_out"):
-        logger.warning(f"GSB timeout: {root_domain}")
+        logger.debug(f"GSB timeout: {root_domain}")
 
     # Compute final weighted score with uncertainty
     risk_score, verdict, is_safe, reasons = compute_final_score(
@@ -584,11 +584,11 @@ def needs_screenshot(
 
     if risk_score >= 70:
         return True
-    if risk_score >= 40 and cert_age_days is not None and cert_age_days < 90:
+    if risk_score >= 40 and ssl_cert_age_days is not None and ssl_cert_age_days < 90:
         return True
     if vendor_flags >= 2 and not has_image:
         return True
-    if redirect_depth > MAX_REDIRECT_HOPS_FREE and cert_age_days is not None and cert_age_days < 90:
+    if redirect_depth > MAX_REDIRECT_HOPS_FREE and ssl_cert_age_days is not None and ssl_cert_age_days < 90:
         return True
 
     return False
