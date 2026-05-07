@@ -35,7 +35,7 @@ from ..core.constants import (
     SSL_CERT_VERY_NEW_DAYS, SSL_CERT_NEW_DAYS, SSL_CERT_RECENT_DAYS, SSL_CERT_YOUNG_DAYS,
     WEIGHT_HEURISTIC, WEIGHT_SSL_AGE, WEIGHT_VT, WEIGHT_REDIRECT_DEPTH,
     UNCERTAINTY_PENALTY, TRACKING_PARAMS, PHISHING_KEYWORDS,
-    TRUSTED_HOSTING_DOMAINS, SUSPICIOUS_TLDS,
+    TRUSTED_HOSTING_DOMAINS, TRUSTED_PLATFORMS, SUSPICIOUS_TLDS,
     GSB_THREAT_MIN_SCORES,
 )
 
@@ -139,13 +139,19 @@ def compute_heuristic_score(
         risk_score += 40
         reasons.append("Domain does not resolve (suspicious)")
 
-    # NEW: Metadata Failure
-    if not has_metadata:
-        risk_score += 10
+    # NEW: Trusted platform detection (used to dampen weak signals)
+    domain_lower = urlparse(final_url).netloc.lower()
+    is_trusted_platform = any(
+        domain_lower == d or domain_lower.endswith(f".{d}")
+        for d in TRUSTED_PLATFORMS
+    )
+
+    # NEW: Metadata Failure (dampened for trusted platforms)
+    if not has_metadata and not is_trusted_platform:
+        risk_score += 5
         reasons.append("No metadata available")
 
     # NEW: Suspicious TLD Detection
-    domain_lower = urlparse(final_url).netloc.lower()
     for tld in SUSPICIOUS_TLDS:
         tld_ext = tld if tld.startswith('.') else f".{tld}"
         if domain_lower.endswith(tld_ext):
@@ -260,14 +266,25 @@ def compute_final_score(
     # Phase 2 Signal: VirusTotal flags
     vendor_flags = external.get("vendor_flags", 0)
     gsb_threats = external.get("gsb_threats", [])
-    
+
+    # NEW: Detect trusted platform early — used to dampen VT domain-level leakage
+    domain_lower = urlparse(final_url).netloc.lower()
+    is_trusted_platform = any(
+        domain_lower == d or domain_lower.endswith(f".{d}")
+        for d in TRUSTED_PLATFORMS
+    )
+
     if vendor_flags >= 1:
-        vt_penalty = min(15 * vendor_flags, 40)
-        risk_score += round(WEIGHT_VT * vt_penalty)
-        reasons.append(f"Flagged by {vendor_flags} security vendor(s)")
+        if is_trusted_platform and vendor_flags < 3:
+            # Trusted domain: 1-2 VT vendor hits are domain-level noise, not per-URL maliciousness
+            vt_penalty = 0
+        else:
+            vt_penalty = min(10 * vendor_flags, 40)
+        if vt_penalty > 0:
+            risk_score += round(WEIGHT_VT * vt_penalty)
+            reasons.append(f"Flagged by {vendor_flags} security vendor(s)")
 
     # NEW: Trusted-Domain Abuse Detection
-    domain_lower = urlparse(final_url).netloc.lower()
     is_trusted_hosting = any(domain_lower == d or domain_lower.endswith(f".{d}") for d in TRUSTED_HOSTING_DOMAINS)
     
     has_phishing_keywords = False
@@ -309,11 +326,11 @@ def compute_final_score(
             
             final_penalty = round(WEIGHT_SSL_AGE * ssl_age_penalty)
             if not is_risky:
-                final_penalty = min(final_penalty, 10)
+                final_penalty = min(final_penalty, 5)
             
             risk_score += final_penalty
             
-            if cert_age < SSL_CERT_NEW_DAYS:
+            if cert_age < SSL_CERT_RECENT_DAYS:
                 reasons.append(f"Recently issued SSL certificate (<{cert_age + 1} days)")
             else:
                 reasons.append(f"Young SSL certificate ({cert_age} days old)")
@@ -347,17 +364,42 @@ def compute_final_score(
         risk_score = max(risk_score, min_score)
         reasons.append(f"CRITICAL: Flagged by Google Safe Browsing ({', '.join(gsb_threats)})")
 
+    # Trusted platform calibration: dampen weak/noisy signals
+    if is_trusted_platform:
+        has_strong_signals = (
+            vendor_flags >= 3 or
+            bool(gsb_threats) or
+            len(hops) > MAX_REDIRECT_HOPS_FREE or
+            heuristics.get("punycode_detected", False) or
+            heuristics.get("brand_penalty_reason") is not None
+        )
+        if not has_strong_signals:
+            risk_score = min(risk_score, VERDICT_YELLOW_THRESHOLD - 1)
+            weak_signal_patterns = [
+                "No metadata", "Preview unavailable", "SSL certificate",
+                "Young SSL", "Recently issued", "uncertainty", "Uncertainty",
+                "timed out", "Limited security data", "metadata", "screenshot"
+            ]
+            reasons = [
+                r for r in reasons
+                if not any(p.lower() in r.lower() for p in weak_signal_patterns)
+            ]
+
     capped_score = min(risk_score, 100)
 
     is_safe = True
     verdict = "green"
 
-    # VirusTotal critical override
+    # VirusTotal critical override (softened for trusted platforms without corroboration)
     if vendor_flags > SEVERE_VENDOR_FLAGS_THRESHOLD:
-        is_safe = False
-        verdict = "red"
-        capped_score = 99
-        reasons.append(f"CRITICAL: VirusTotal flagged by {vendor_flags} vendors (>{SEVERE_VENDOR_FLAGS_THRESHOLD})")
+        has_corroboration = bool(gsb_threats) or has_phishing_keywords or len(hops) > MAX_REDIRECT_HOPS_FREE
+        if is_trusted_platform and not has_corroboration:
+            capped_score = min(capped_score, VERDICT_RED_THRESHOLD - 1)
+        else:
+            is_safe = False
+            verdict = "red"
+            capped_score = 99
+            reasons.append(f"CRITICAL: VirusTotal flagged by {vendor_flags} vendors (>{SEVERE_VENDOR_FLAGS_THRESHOLD})")
     elif capped_score >= VERDICT_RED_THRESHOLD:
         is_safe = False
         verdict = "red"
@@ -502,7 +544,7 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             timeout=3.0  # Hard limit for entire Phase 2
         )
     except asyncio.TimeoutError:
-        logger.warning(f"Phase 2 external scans timed out for {root_domain}")
+        logger.debug(f"Phase 2 external scans timed out for {root_domain}")
         external = {
             "ssl_cert_age_days": None,
             "vendor_flags": 0,
@@ -513,13 +555,13 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             "gsb_timed_out": True,
         }
 
-    # Concise structured logging for timeouts
+    # Concise structured logging for timeouts - use debug level to reduce noise
     if external.get("ssl_timed_out"):
-        logger.warning(f"SSL cert age timeout: {root_domain}")
+        logger.debug(f"SSL cert age timeout: {root_domain}")
     if external.get("vt_timed_out"):
-        logger.warning(f"VT timeout: {root_domain}")
+        logger.debug(f"VT timeout: {root_domain}")
     if external.get("gsb_timed_out"):
-        logger.warning(f"GSB timeout: {root_domain}")
+        logger.debug(f"GSB timeout: {root_domain}")
 
     # Compute final weighted score with uncertainty
     risk_score, verdict, is_safe, reasons = compute_final_score(
@@ -584,11 +626,17 @@ def needs_screenshot(
 
     if risk_score >= 70:
         return True
-    if risk_score >= 40 and cert_age_days is not None and cert_age_days < 90:
+    if risk_score >= 40 and ssl_cert_age_days is not None and ssl_cert_age_days < 90:
         return True
     if vendor_flags >= 2 and not has_image:
         return True
-    if redirect_depth > MAX_REDIRECT_HOPS_FREE and cert_age_days is not None and cert_age_days < 90:
+    if redirect_depth > MAX_REDIRECT_HOPS_FREE and ssl_cert_age_days is not None and ssl_cert_age_days < 90:
+        return True
+    # Fallback: metadata fetch failed entirely — try screenshot for visual preview
+    if metadata is None:
+        return True
+    # Fallback: metadata exists but has no OG image — try screenshot for visual preview
+    if metadata is not None and not has_image:
         return True
 
     return False

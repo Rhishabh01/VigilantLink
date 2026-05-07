@@ -7,20 +7,24 @@ HIGH_VALUE_TARGETS = ['google', 'amazon', 'paypal', 'github', 'microsoft', 'appl
 SUSPICIOUS_KEYWORDS = ["free", "login", "update", "verify", "secure", "account"]
 PHISHING_KEYWORDS = ["login", "verify", "password", "account", "security", "wallet", "banking", "auth"]
 TRUSTED_HOSTING_DOMAINS = ["docs.google.com", "github.io", "pages.dev", "notion.site", "pastebin.com"]
+TRUSTED_PLATFORMS = [
+    "youtube.com", "google.com", "github.com", "microsoft.com",
+    "cloudflare.com", "discord.com", "linkedin.com",
+]
 
 # ============================================================
 # Scoring Thresholds
 # ============================================================
 NEW_DOMAIN_THRESHOLD_DAYS = 30
 SSL_CERT_VERY_NEW_DAYS = 1
-SSL_CERT_NEW_DAYS = 7
+SSL_CERT_NEW_DAYS = 10
 SSL_CERT_RECENT_DAYS = 30
 SSL_CERT_YOUNG_DAYS = 90
 MAX_REDIRECT_HOPS_FREE = 3
 SEVERE_VENDOR_FLAGS_THRESHOLD = 5
 
-VERDICT_RED_THRESHOLD = 71
-VERDICT_YELLOW_THRESHOLD = 36
+VERDICT_RED_THRESHOLD = 65
+VERDICT_YELLOW_THRESHOLD = 30
 PUNYCODE_MIN_SCORE = 75
 
 # ============================================================
@@ -35,10 +39,10 @@ REDIRECT_CHAIN_MINOR_PENALTY = 5    # Same-domain redirect hop
 
 # Phase 2 (external) signal values
 VENDOR_FLAG_PENALTY = 40            # Applied when vendor_flags >= 2
-SSL_CERT_VERY_NEW_PENALTY = 60      # < 1 day
-SSL_CERT_NEW_PENALTY = 40           # < 7 days
-SSL_CERT_RECENT_PENALTY = 20        # < 30 days
-SSL_CERT_YOUNG_PENALTY = 10         # < 90 days
+SSL_CERT_VERY_NEW_PENALTY = 30      # < 1 day
+SSL_CERT_NEW_PENALTY = 18           # < 10 days
+SSL_CERT_RECENT_PENALTY = 10        # < 30 days
+SSL_CERT_YOUNG_PENALTY = 4          # < 90 days
 
 # Weights — multipliers for each signal category
 WEIGHT_HEURISTIC: float = 1.0       # Phase 1 signals at full weight

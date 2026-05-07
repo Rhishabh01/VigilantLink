@@ -120,7 +120,7 @@
     }
 
     #site-status-badge {
-      font-size: 9px;
+      font-size: 12px;
       padding: 3px 8px;
       border-radius: 20px;
       font-weight: 700;
@@ -429,23 +429,27 @@
       <div class="logo">VL</div>
       <h1>VigilantLink</h1>
     </div>
+    <div class="label-row" style="margin-bottom:0">
+      <span class="label-text"></span>
+      <span id="site-status-badge">ACTIVE</span>
+    </div>
   </div>
 
   <div class="content">
-    <div class="current-site">
-      <div class="label-row">
-        <span class="label-text">Current Protection</span>
-        <span id="site-status-badge">ACTIVE</span>
-      </div>
-      <div class="domain" id="current-domain">Detecting...</div>
-    </div>
+    <p style="font-size:14px;color:wheat">Current Website</p>
+    <div class="domain" id="current-domain" style="margin-bottom:2px;font-size:20px;color:var(--text-muted)">
+      Detecting...</div>
 
     <div class="toggle-section">
-      <span class="toggle-label">Enable active scanning</span>
+      <span class="toggle-label">Link Checking</span>
       <label class="toggle">
         <input type="checkbox" id="site-toggle">
         <span class="slider"></span>
       </label>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);margin:-8px 4px 12px;line-height:1.4;">
+      Enables or disables link hover checks on this site. Toggling off temporarily disables link checks — re-enable to
+      resume or when you visit the site again.
     </div>
 
     <div class="preset-sites">
@@ -454,7 +458,7 @@
     </div>
 
     <div class="custom-sites">
-      <div class="section-title">Safelist & Targets</div>
+      <div class="section-title">Custom Website Toggle</div>
 
       <div class="add-site-form" id="add-form" style="display: none;">
         <input type="text" id="site-name-input" placeholder="e.g. My Secure Bank">
@@ -468,7 +472,7 @@
       <div class="custom-list" id="custom-list"></div>
 
       <button class="show-add-btn" id="show-add-btn">
-        <span>+</span> Add Custom Domain
+        <span>+</span> Add Website
       </button>
     </div>
   </div>
