@@ -21,9 +21,9 @@ async function getSettings() {
 async function updateToggles() {
   const { globalEnabled, disabledSites, customSites } = await getSettings();
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  
+
   if (!tab) return;
-  
+
   const url = new URL(tab.url);
   const currentHostname = url.hostname;
   const isBrowserPage = url.protocol === 'chrome:' || url.protocol === 'chrome-extension:';
@@ -37,14 +37,14 @@ async function updateToggles() {
     siteToggle.disabled = true;
     siteToggle.checked = false;
     if (badgeEl) {
-        badgeEl.textContent = 'N/A';
-        badgeEl.style.background = '#eee';
-        badgeEl.style.color = '#888';
+      badgeEl.textContent = 'N/A';
+      badgeEl.style.background = 'rgba(255,255,255,0.1)';
+      badgeEl.style.color = '#94a3b8';
     }
   } else {
     currentDomainEl.textContent = currentHostname;
     siteToggle.disabled = false;
-    
+
     // Ask content script for any temporary override
     let tabOverride = null;
     try {
@@ -55,26 +55,26 @@ async function updateToggles() {
     }
 
     const isDefaultDisabled = disabledSites.some(d => currentHostname === d || currentHostname.endsWith('.' + d));
-    
+
     let isCurrentlyDisabled;
     if (tabOverride === 'enabled') isCurrentlyDisabled = false;
     else if (tabOverride === 'disabled') isCurrentlyDisabled = true;
     else isCurrentlyDisabled = isDefaultDisabled;
 
     siteToggle.checked = !isCurrentlyDisabled;
-    
+
     // Status text & color
     if (isCurrentlyDisabled) {
       if (badgeEl) {
-          badgeEl.textContent = 'DISABLED';
-          badgeEl.style.background = '#f8d7da';
-          badgeEl.style.color = '#721c24';
+        badgeEl.textContent = 'DISABLED';
+        badgeEl.style.background = 'rgba(239, 68, 68, 0.2)';
+        badgeEl.style.color = '#f87171';
       }
     } else {
       if (badgeEl) {
-          badgeEl.textContent = 'ACTIVE';
-          badgeEl.style.background = '#d4edda';
-          badgeEl.style.color = '#155724';
+        badgeEl.textContent = 'ACTIVE';
+        badgeEl.style.background = 'rgba(16, 185, 129, 0.2)';
+        badgeEl.style.color = '#34d399';
       }
     }
   }
@@ -127,10 +127,12 @@ function renderCustomList(customSites, disabledSites) {
   if (customSites.length === 0) {
     listEl.textContent = '';
     const emptyDiv = document.createElement('div');
-    emptyDiv.style.fontSize = '11px';
-    emptyDiv.style.color = '#888';
+    emptyDiv.style.fontSize = '12px';
+    emptyDiv.style.color = 'var(--text-muted)';
     emptyDiv.style.textAlign = 'center';
-    emptyDiv.style.padding = '8px';
+    emptyDiv.style.padding = '20px 10px';
+    emptyDiv.style.background = 'var(--glass)';
+    emptyDiv.style.borderRadius = '12px';
     emptyDiv.textContent = 'No custom sites added';
     listEl.appendChild(emptyDiv);
     return;
@@ -182,7 +184,12 @@ function renderCustomList(customSites, disabledSites) {
     removeBtn.className = 'remove';
     removeBtn.dataset.index = index;
     removeBtn.title = 'Remove';
-    removeBtn.textContent = '×';
+    removeBtn.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="3 6 5 6 21 6"></polyline>
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+      </svg>
+    `;
     controlsDiv.appendChild(removeBtn);
 
     item.appendChild(controlsDiv);
@@ -193,7 +200,7 @@ function renderCustomList(customSites, disabledSites) {
 // Event Listeners for State Changes
 async function handleToggleChange(domain, isEnabled) {
   let { disabledSites } = await getSettings();
-  
+
   if (isEnabled) {
     // If enabling, remove exact match and any parent domains that might be blocking it
     disabledSites = disabledSites.filter(d => d !== domain && !domain.endsWith('.' + d));
@@ -201,7 +208,7 @@ async function handleToggleChange(domain, isEnabled) {
     // If disabling, add it
     if (!disabledSites.includes(domain)) disabledSites.push(domain);
   }
-  
+
   await chrome.storage.local.set({ disabledSites });
   // updateToggles() will be called via storage listener or manually
   notifyTabs();
@@ -210,7 +217,7 @@ async function handleToggleChange(domain, isEnabled) {
 function notifyTabs() {
   chrome.tabs.query({}, (tabs) => {
     tabs.forEach(tab => {
-      chrome.tabs.sendMessage(tab.id, { action: 'settings_updated' }).catch(() => {});
+      chrome.tabs.sendMessage(tab.id, { action: 'settings_updated' }).catch(() => { });
     });
   });
 }
@@ -244,8 +251,8 @@ document.addEventListener('click', async (e) => {
   } else if (e.target.id === 'save-site-btn') {
     const name = document.getElementById('site-name-input').value.trim();
     const domain = document.getElementById('site-domain-input').value.trim()
-                   .replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-    
+      .replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+
     if (name && domain) {
       const { customSites } = await getSettings();
       customSites.push({ name, domain });
@@ -254,8 +261,9 @@ document.addEventListener('click', async (e) => {
       document.getElementById('show-add-btn').style.display = 'block';
       updateToggles();
     }
-  } else if (e.target.classList.contains('remove')) {
-    const index = parseInt(e.target.dataset.index);
+  } else if (e.target.closest('.remove')) {
+    const removeBtn = e.target.closest('.remove');
+    const index = parseInt(removeBtn.dataset.index);
     let { customSites, disabledSites } = await getSettings();
     const domain = customSites[index].domain;
     customSites.splice(index, 1);

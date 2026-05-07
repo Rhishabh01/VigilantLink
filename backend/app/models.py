@@ -25,7 +25,7 @@ class SecurityReport(BaseModel):
     threat_type: Optional[str] = None
     vendor_flags: int = 0
     total_vendors: int = 0
-    domain_age_days: Optional[int] = None
+    ssl_cert_age_days: Optional[int] = None
     risk_score: int = 0
     suspicious_redirects: bool = False
     typosquatting_detected: bool = False
@@ -88,7 +88,7 @@ class CompactSecurity(BaseModel):
     tt: Optional[str] = Field(None, description="threat_type")
     vf: int = Field(0, description="vendor_flags")
     tv: int = Field(0, description="total_vendors")
-    age: Optional[int] = Field(None, description="domain_age_days")
+    age: Optional[int] = Field(None, description="ssl_cert_age_days")
     sr: bool = Field(False, description="suspicious_redirects")
     ts: bool = Field(False, description="typosquatting_detected")
     r: List[str] = Field(default_factory=list, description="reasons")

@@ -12,8 +12,10 @@ TRUSTED_HOSTING_DOMAINS = ["docs.google.com", "github.io", "pages.dev", "notion.
 # Scoring Thresholds
 # ============================================================
 NEW_DOMAIN_THRESHOLD_DAYS = 30
-NEWLY_REGISTERED_DAYS = 14
-RECENTLY_REGISTERED_DAYS = 90
+SSL_CERT_VERY_NEW_DAYS = 1
+SSL_CERT_NEW_DAYS = 7
+SSL_CERT_RECENT_DAYS = 30
+SSL_CERT_YOUNG_DAYS = 90
 MAX_REDIRECT_HOPS_FREE = 3
 SEVERE_VENDOR_FLAGS_THRESHOLD = 5
 
@@ -33,18 +35,20 @@ REDIRECT_CHAIN_MINOR_PENALTY = 5    # Same-domain redirect hop
 
 # Phase 2 (external) signal values
 VENDOR_FLAG_PENALTY = 40            # Applied when vendor_flags >= 2
-NEWLY_REGISTERED_PENALTY = 40       # Domain age < 14 days
-RECENTLY_REGISTERED_PENALTY = 20    # Domain age < 90 days
+SSL_CERT_VERY_NEW_PENALTY = 60      # < 1 day
+SSL_CERT_NEW_PENALTY = 40           # < 7 days
+SSL_CERT_RECENT_PENALTY = 20        # < 30 days
+SSL_CERT_YOUNG_PENALTY = 10         # < 90 days
 
 # Weights — multipliers for each signal category
 WEIGHT_HEURISTIC: float = 1.0       # Phase 1 signals at full weight
-WEIGHT_RDAP_AGE: float = 1.0        # Domain age penalty multiplier
+WEIGHT_SSL_AGE: float = 1.0         # SSL certificate age multiplier
 WEIGHT_VT: float = 1.0              # VirusTotal vendor flags multiplier
 WEIGHT_REDIRECT_DEPTH: float = 1.0  # Redirect chain penalty multiplier
 
 # Uncertainty penalty when external sources timeout (Task 2.4)
 # Formula: U = UNCERTAINTY_PENALTY × (timed_out_sources / total_sources)
-# Max penalty = 15 (both RDAP + VT timeout)
+# Max penalty = 15 (both SSL + VT timeout)
 UNCERTAINTY_PENALTY: int = 15
 
 # ============================================================
@@ -58,7 +62,7 @@ TOTAL_VENDORS_COUNT = 70
 # ============================================================
 GLOBAL_DEADLINE_S: float = 2.0      # Total budget for Phase 1 + Phase 2
 PHASE1_DEADLINE_S: float = 0.5      # Phase 1 target
-RDAP_TIMEOUT_S: float = 0.8         # RDAP sub-task budget
+SSL_CERT_TIMEOUT_S: float = 1.2     # SSL Certificate inspection budget
 VT_TIMEOUT_S: float = 1.5           # VirusTotal sub-task budget
 GSB_TIMEOUT_S: float = 1.8          # Google Safe Browsing sub-task budget
 SCREENSHOT_TIMEOUT_S: float = 5.0   # Playwright screenshot budget

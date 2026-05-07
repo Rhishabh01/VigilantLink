@@ -241,7 +241,7 @@ class RedisCache:
                     "tt": sec2["threat_type"],
                     "vf": sec2["vendor_flags"],
                     "tv": sec2["total_vendors"],
-                    "age": sec2["domain_age_days"],
+                    "age": sec2.get("ssl_cert_age_days"),
                     "sr": sec2["suspicious_redirects"],
                     "ts": sec2["typosquatting_detected"],
                     "r": sec2["reasons"],

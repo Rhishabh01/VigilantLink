@@ -174,7 +174,7 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
             "tt": sec["threat_type"],
             "vf": sec["vendor_flags"],
             "tv": sec["total_vendors"],
-            "age": sec["domain_age_days"],
+            "age": sec.get("ssl_cert_age_days"),
             "sr": sec["suspicious_redirects"],
             "ts": sec["typosquatting_detected"],
             "r": sec["reasons"],
@@ -229,11 +229,11 @@ async def _run_phase2_background(
         # Phase 3: Conditional screenshot (gatekeeper)
         screenshot_base64: Optional[str] = None
         risk_score = phase2["security"]["risk_score"]
-        domain_age = phase2["security"].get("domain_age_days")
+        ssl_age = phase2["security"].get("ssl_cert_age_days")
         vendor_flags = phase2["security"].get("vendor_flags", 0)
         redirect_depth = len(phase1.get("hops", []))
 
-        if needs_screenshot(metadata, risk_score, domain_age, vendor_flags, redirect_depth):
+        if needs_screenshot(metadata, risk_score, ssl_age, vendor_flags, redirect_depth):
             # shield() ensures Playwright completes even if caller is cancelled
             try:
                 screenshot_base64 = await asyncio.shield(
@@ -269,7 +269,7 @@ async def _run_phase2_background(
                 "tt": sec2["threat_type"],
                 "vf": sec2["vendor_flags"],
                 "tv": sec2["total_vendors"],
-                "age": sec2["domain_age_days"],
+                "age": sec2.get("ssl_cert_age_days"),
                 "sr": sec2["suspicious_redirects"],
                 "ts": sec2["typosquatting_detected"],
                 "r": sec2["reasons"],
@@ -310,7 +310,7 @@ async def _run_phase2_background(
                 "tt": sec1.get("threat_type"),
                 "vf": sec1.get("vendor_flags", 0),
                 "tv": sec1.get("total_vendors", 0),
-                "age": sec1.get("domain_age_days"),
+                "age": sec1.get("ssl_cert_age_days"),
                 "sr": sec1.get("suspicious_redirects", False),
                 "ts": sec1.get("typosquatting_detected", False),
                 "r": sec1.get("reasons", ["Deep scan failed — showing heuristic result only"]),

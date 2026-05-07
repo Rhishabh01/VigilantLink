@@ -1,282 +1,479 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VigilantLink</title>
+  <title>VigilantLink | Advanced Security</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      width: 300px;
-      background: #ffffff;
-      color: #333;
-      font-size: 14px;
+    :root {
+      --bg: #0f172a;
+      --card-bg: rgba(30, 41, 59, 0.7);
+      --accent: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --glass: rgba(255, 255, 255, 0.05);
+      --glass-border: rgba(255, 255, 255, 0.1);
     }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      width: 320px;
+      background: var(--bg);
+      color: var(--text);
+      overflow-x: hidden;
+      padding-bottom: 8px;
+    }
+
+    /* Background Glow Effect */
+    body::before {
+      content: '';
+      position: fixed;
+      top: -50px;
+      right: -50px;
+      width: 200px;
+      height: 200px;
+      background: radial-gradient(circle, rgba(16, 185, 129, 0.15) 0%, transparent 70%);
+      z-index: -1;
+    }
+
     .header {
-      padding: 12px 16px;
-      background: #dc3545;
-      color: white;
+      padding: 20px 20px 15px;
       display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--glass-border);
     }
-    .header .logo { font-size: 18px; font-weight: bold; }
-    .header h1 { font-size: 14px; font-weight: 600; }
-    .content { padding: 16px; }
-    .current-site {
-      background: #f8f9fa;
-      padding: 12px;
-      border-radius: 6px;
-      margin-bottom: 16px;
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
-    .current-site .label {
-      font-size: 11px;
-      color: #888;
-      margin-bottom: 4px;
+
+    .logo {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, #10b981, #059669);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 16px;
+      color: white;
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+      letter-spacing: -1px;
     }
-    .current-site .domain {
+
+    .header h1 {
+      font-size: 16px;
       font-weight: 600;
-      color: #333;
+      letter-spacing: -0.02em;
+    }
+
+    .content {
+      padding: 20px;
+    }
+
+    /* Current Site Card */
+    .current-site {
+      background: var(--card-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      padding: 16px;
+      border-radius: 16px;
+      margin-bottom: 20px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .current-site:hover {
+      border-color: rgba(16, 185, 129, 0.4);
+      transform: translateY(-2px);
+    }
+
+    .label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .label-text {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+
+    #site-status-badge {
+      font-size: 9px;
+      padding: 3px 8px;
+      border-radius: 20px;
+      font-weight: 700;
+      text-transform: uppercase;
+      transition: all 0.3s ease;
+    }
+
+    .domain {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      margin-top: 4px;
     }
+
+    /* Toggle Section */
     .toggle-section {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 8px 0;
+      padding: 12px 4px;
+      margin-bottom: 12px;
     }
-    .toggle-label { font-weight: 500; color: #555; }
+
+    .toggle-label {
+      font-weight: 500;
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    /* Modern Toggle */
     .toggle {
       position: relative;
-      width: 40px;
-      height: 22px;
+      width: 44px;
+      height: 24px;
     }
+
     .toggle input {
       opacity: 0;
       width: 0;
       height: 0;
     }
+
     .slider {
       position: absolute;
       cursor: pointer;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background-color: #ccc;
-      transition: .3s;
-      border-radius: 22px;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #334155;
+      transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.4s ease;
+      border-radius: 24px;
     }
+
     .slider:before {
       position: absolute;
       content: "";
-      height: 16px;
-      width: 16px;
+      height: 18px;
+      width: 18px;
       left: 3px;
       bottom: 3px;
       background-color: white;
-      transition: .3s;
+      transition: transform 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55), width 0.3s ease;
       border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     }
-    .toggle input:checked + .slider {
-      background-color: #28a745;
+
+    .toggle input:checked+.slider {
+      background-color: var(--accent);
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
     }
-    .toggle input:checked + .slider:before {
-      transform: translateX(18px);
+
+    .toggle input:checked+.slider:before {
+      transform: translateX(20px);
     }
-    .status {
+
+    .toggle:active .slider:before {
+      width: 24px;
+    }
+
+    /* Sections */
+    .section-title {
       font-size: 11px;
-      text-align: center;
-      padding: 8px;
-      border-top: 1px solid #eee;
-      color: #28a745;
-    }
-    .status.disabled { color: #dc3545; }
-    .preset-sites {
-      border-top: 1px solid #eee;
-      padding-top: 12px;
-      margin-top: 12px;
-    }
-    .preset-sites h3 {
-      font-size: 12px;
-      color: #666;
-      margin-bottom: 10px;
+      font-weight: 700;
+      color: var(--text-muted);
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.1em;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
-    .preset-list {
-      max-height: 200px;
+
+    .section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--glass-border);
+    }
+
+    .preset-list,
+    .custom-list {
+      max-height: 180px;
       overflow-y: auto;
+      margin-bottom: 15px;
+      padding-right: 4px;
     }
-    .preset-item {
+
+    /* Custom Scrollbar */
+    .preset-list::-webkit-scrollbar,
+    .custom-list::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .preset-list::-webkit-scrollbar-thumb,
+    .custom-list::-webkit-scrollbar-thumb {
+      background: var(--glass-border);
+      border-radius: 4px;
+    }
+
+    .item {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 6px 0;
-      border-bottom: 1px solid #f0f0f0;
+      padding: 10px 12px;
+      background: var(--glass);
+      border: 1px solid transparent;
+      border-radius: 12px;
+      margin-bottom: 8px;
+      transition: all 0.2s ease;
     }
-    .preset-item:last-child {
-      border-bottom: none;
+
+    .item:hover {
+      border-color: var(--glass-border);
+      background: rgba(255, 255, 255, 0.08);
     }
-    .preset-item .site-name {
-      font-size: 12px;
-      color: #555;
-      flex: 1;
+
+    .site-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
     }
-    .preset-item .toggle {
-      width: 36px;
-      height: 20px;
+
+    .site-domain {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 2px;
     }
-    .preset-item .slider:before {
-      height: 14px;
-      width: 14px;
-      left: 3px;
-      bottom: 3px;
+
+    /* Controls */
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
-    .preset-item .toggle input:checked + .slider:before {
-      transform: translateX(16px);
+
+    .remove {
+      cursor: pointer;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      background: rgba(239, 68, 68, 0.1);
+      color: var(--danger);
+      font-size: 16px;
+      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     }
-    .custom-sites {
-      border-top: 1px solid #eee;
-      padding-top: 12px;
-      margin-top: 12px;
+
+    .remove:hover {
+      background: var(--danger);
+      color: white;
     }
-    .custom-sites h3 {
-      font-size: 12px;
-      color: #666;
-      margin-bottom: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
+
+    /* Form */
     .add-site-form {
+      background: var(--card-bg);
+      border: 1px solid var(--glass-border);
+      padding: 15px;
+      border-radius: 16px;
+      margin-bottom: 15px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      margin-bottom: 12px;
-      padding: 10px;
-      background: #f8f9fa;
-      border-radius: 6px;
+      gap: 10px;
+      animation: slideDown 0.3s ease-out;
     }
-    .add-site-form input {
-      padding: 6px 10px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      font-size: 12px;
+
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
-    .add-site-form .buttons {
+
+    input[type="text"] {
+      width: 100%;
+      background: #0f172a;
+      border: 1px solid var(--glass-border);
+      padding: 10px 14px;
+      border-radius: 10px;
+      color: white;
+      font-family: 'Outfit', sans-serif;
+      font-size: 13px;
+      transition: border-color 0.2s ease;
+    }
+
+    input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .form-buttons {
       display: flex;
-      gap: 6px;
+      gap: 8px;
     }
-    .add-site-form button {
+
+    .btn {
       flex: 1;
-      padding: 6px 12px;
+      padding: 10px;
       border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
+      border-radius: 10px;
       font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      font-family: 'Outfit', sans-serif;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      filter: brightness(1.1);
+    }
+
     .btn-add {
-      background: #dc3545;
+      background: var(--accent);
       color: white;
     }
-    .btn-add:hover { background: #c82333; }
+
     .btn-cancel {
-      background: #6c757d;
+      background: #334155;
+      color: var(--text-muted);
+    }
+
+    .btn-cancel:hover {
+      background: #475569;
       color: white;
     }
-    .btn-cancel:hover { background: #5a6268; }
+
+    .show-add-btn {
+      width: 100%;
+      padding: 12px;
+      background: transparent;
+      border: 1px dashed var(--glass-border);
+      border-radius: 12px;
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .show-add-btn:hover {
+      background: var(--glass);
+      border-color: var(--accent);
+      color: var(--accent);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    .preset-item,
     .custom-site-item {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 6px 0;
-      border-bottom: 1px solid #f0f0f0;
+      padding: 10px 14px;
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: 14px;
+      margin-bottom: 10px;
     }
-    .custom-site-item:last-child {
-      border-bottom: none;
-    }
-    .custom-site-item .site-info {
-      flex: 1;
-      overflow: hidden;
-    }
-    .custom-site-item .site-name {
-      font-size: 12px;
-      color: #333;
-      font-weight: 500;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .custom-site-item .site-domain {
-      font-size: 10px;
-      color: #888;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .custom-site-item .remove {
-      cursor: pointer;
-      color: #dc3545;
-      font-size: 14px;
-      padding: 0 4px;
-    }
-    .show-add-form {
-      width: 100%;
-      padding: 8px;
-      background: #f8f9fa;
-      border: 1px dashed #ddd;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-      color: #555;
-      text-align: center;
-      margin-top: 8px;
-    }
-    .show-add-form:hover {
-      background: #e9ecef;
-      border-color: #dc3545;
+
+    .preset-item:hover,
+    .custom-site-item:hover {
+      background: rgba(255, 255, 255, 0.08);
     }
   </style>
 </head>
+
 <body>
   <div class="header">
-    <div class="logo">VL</div>
-    <h1>VigilantLink</h1>
+    <div class="logo-container">
+      <div class="logo">VL</div>
+      <h1>VigilantLink</h1>
+    </div>
   </div>
+
   <div class="content">
     <div class="current-site">
-      <div class="label" style="display: flex; justify-content: space-between; align-items: center;">
-        <span>Current Site</span>
-        <span id="site-status-badge" style="font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold;"></span>
+      <div class="label-row">
+        <span class="label-text">Current Protection</span>
+        <span id="site-status-badge">ACTIVE</span>
       </div>
-      <div class="domain" id="current-domain">Loading...</div>
+      <div class="domain" id="current-domain">Detecting...</div>
     </div>
+
     <div class="toggle-section">
-      <span class="toggle-label">Enable for this site</span>
+      <span class="toggle-label">Enable active scanning</span>
       <label class="toggle">
         <input type="checkbox" id="site-toggle">
         <span class="slider"></span>
       </label>
     </div>
+
     <div class="preset-sites">
-      <h3>Quick Toggle</h3>
+      <div class="section-title">Quick Toggle</div>
       <div class="preset-list" id="preset-list"></div>
     </div>
+
     <div class="custom-sites">
-      <h3>Custom Sites</h3>
+      <div class="section-title">Safelist & Targets</div>
+
       <div class="add-site-form" id="add-form" style="display: none;">
-        <input type="text" id="site-name-input" placeholder="Site name (e.g., My Bank)">
-        <input type="text" id="site-domain-input" placeholder="Domain (e.g., bank.com)">
-        <div class="buttons">
-          <button class="btn-add" id="save-site-btn">Add</button>
-          <button class="btn-cancel" id="cancel-btn">Cancel</button>
+        <input type="text" id="site-name-input" placeholder="e.g. My Secure Bank">
+        <input type="text" id="site-domain-input" placeholder="e.g. bank.com">
+        <div class="form-buttons">
+          <button class="btn btn-add" id="save-site-btn">Add Site</button>
+          <button class="btn btn-cancel" id="cancel-btn">Cancel</button>
         </div>
       </div>
+
       <div class="custom-list" id="custom-list"></div>
-      <div class="show-add-form" id="show-add-btn">+ Add Website</div>
+
+      <button class="show-add-btn" id="show-add-btn">
+        <span>+</span> Add Custom Domain
+      </button>
     </div>
   </div>
+
   <script src="popup.js"></script>
 </body>
+
 </html>
