@@ -23,9 +23,17 @@ SSL_CERT_YOUNG_DAYS = 90
 MAX_REDIRECT_HOPS_FREE = 3
 SEVERE_VENDOR_FLAGS_THRESHOLD = 5
 
+# VT low-confidence suppression — vendor_flags below this + no corroboration = zero contribution
+VT_LOW_CONFIDENCE_THRESHOLD = 2
+# Minimum vendor flags to count as corroboration for trusted platforms
+CORROBORATION_MIN_VENDOR_FLAGS = 3
+
 VERDICT_RED_THRESHOLD = 65
 VERDICT_YELLOW_THRESHOLD = 30
 PUNYCODE_MIN_SCORE = 75
+
+# Trusted platform cap — uncorroborated weak signals cannot exceed yellow-1
+TRUSTED_PLATFORM_CAP = 29
 
 # ============================================================
 # Weighted Scoring — Signal Penalties (Task 5)
@@ -84,6 +92,27 @@ TRACKING_PARAMS = frozenset({
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
     "fbclid", "gclid", "msclkid", "ref", "source",
 })
+
+# ============================================================
+# Hosted Phishing Detection — Deceptive query params to flag
+# ============================================================
+DECEPTIVE_QUERY_PARAMS = frozenset({
+    "redirect", "return", "next", "goto", "target", "url", "link",
+    "dest", "destination", "continue", "to", "redirect_uri", "callback",
+})
+
+# Suspicious hosted paths — login/auth pages on trusted hosting platforms
+SUSPICIOUS_HOSTED_PATHS = [
+    "/login", "/signin", "/auth", "/authenticate",
+    "/password", "/credential", "/account",
+]
+
+# Weak signal patterns to filter from trusted platform reasons
+WEAK_SIGNAL_PATTERNS = [
+    "No metadata", "Preview unavailable", "SSL certificate",
+    "Young SSL", "Recently issued", "uncertainty", "Uncertainty",
+    "timed out", "Limited security data", "metadata", "screenshot",
+]
 
 # ============================================================
 # Google Safe Browsing — Threat Types & Minimum Score Overrides

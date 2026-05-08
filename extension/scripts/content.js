@@ -13,6 +13,13 @@ const processedLinks = new WeakSet();
 let currentAnalysisUrl = null;
 let currentRequestId = null;
 let requestSequence = 0;
+let lastPhase1Result = null;
+let freezeTimer = null;
+const FREEZE_TIMEOUT_MS = 12000;
+let activeAnchor = null;
+let lastLocation = location.href;
+let spaPatched = false;
+let spaInterval = null;
 
 // Debounce utility - prevents excessive function calls
 function debounce(func, wait) {
@@ -143,6 +150,7 @@ async function handleLinkMouseEnter(event) {
 
   const url = target.href;
   hoverTargetUrl = url;
+  activeAnchor = target;
 
   if (hoverTimer) clearTimeout(hoverTimer);
 
@@ -192,12 +200,14 @@ async function handleLinkMouseEnter(event) {
 }
 
 function handleLinkMouseLeave(event) {
+  clearFreezeTimer();
   if (hoverTimer) {
     clearTimeout(hoverTimer);
     hoverTimer = null;
   }
   hoverTargetUrl = null;
   currentAnalysisUrl = null;
+  activeAnchor = null;
   ++requestSequence;
 
   // Cancel in-flight backend request
@@ -215,28 +225,28 @@ initializeMutationObserver();
 
 // Close popup if moving away from link and popup
 document.addEventListener('mousemove', (event) => {
-  if (currentPopupContainer) {
-    const target = event.target.closest('a');
-    const isOverPopup = currentPopupContainer.contains(event.target) ||
-      (currentPopupShadowRoot && currentPopupShadowRoot.contains(event.composedPath()[0]));
+  if (!isPopupValid()) return;
+  const target = event.target.closest('a');
+  const isOverPopup = currentPopupContainer.contains(event.target) ||
+    (currentPopupShadowRoot && currentPopupShadowRoot.contains(event.composedPath()[0]));
 
-    if (!target && !isOverPopup) {
-      if (!closeTimer) {
-        closeTimer = setTimeout(() => {
-          closePopup();
-        }, 300);
-      }
-    } else {
-      if (closeTimer) {
-        clearTimeout(closeTimer);
-        closeTimer = null;
-      }
+  if (!target && !isOverPopup) {
+    if (!closeTimer) {
+      closeTimer = setTimeout(() => {
+        closePopup();
+      }, 300);
+    }
+  } else {
+    if (closeTimer) {
+      clearTimeout(closeTimer);
+      closeTimer = null;
     }
   }
 });
 
 document.addEventListener('click', (event) => {
-  if (currentPopupContainer && !currentPopupContainer.contains(event.target)) {
+  if (!isPopupValid()) return;
+  if (!currentPopupContainer.contains(event.target)) {
     if (currentPopupShadowRoot && currentPopupShadowRoot.contains(event.composedPath()[0])) {
       return;
     }
@@ -255,24 +265,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.action === 'get_override') {
     sendResponse({ override: window.sessionStorage.getItem('vigilantlink_override') });
   } else if (message.action === 'phase1_result') {
-    // Don't set currentRequestId here — it's managed by the sendMessage callback
-    // to prevent stale phase1_result from corrupting the request id
-    if (currentPopupContent && currentAnalysisUrl && message.url === currentAnalysisUrl) {
+    if (isPopupValid() && currentAnalysisUrl && message.url === currentAnalysisUrl) {
       updatePopupWithResult(message.data);
     }
   } else if (message.action === 'phase2_result') {
-    if (currentPopupContent && currentAnalysisUrl && message.url === currentAnalysisUrl && message.data.id === currentRequestId) {
+    if (isPopupValid() && currentAnalysisUrl && message.url === currentAnalysisUrl && message.data.id === currentRequestId) {
       mergeDeepScanResult(message.data);
+    }
+  } else if (message.action === 'phase2_error') {
+    if (isPopupValid() && message.url === currentAnalysisUrl && message.requestId === currentRequestId) {
+      clearFreezeTimer();
+      if (lastPhase1Result) {
+        resolvePhase1AsFinal(lastPhase1Result);
+      }
     }
   }
 });
 
+function isPopupValid() {
+  return currentPopupContainer !== null &&
+    currentPopupContainer.isConnected &&
+    currentPopupShadowRoot !== null &&
+    currentPopupContent !== null;
+}
+
 function closePopup() {
+  clearFreezeTimer();
   if (currentPopupContainer) {
-    currentPopupContainer.remove();
+    if (currentPopupContainer.isConnected) {
+      currentPopupContainer.remove();
+    }
     currentPopupContainer = null;
     currentPopupShadowRoot = null;
     currentPopupContent = null;
+  }
+}
+
+function clearFreezeTimer() {
+  if (freezeTimer) {
+    clearTimeout(freezeTimer);
+    freezeTimer = null;
   }
 }
 
@@ -316,6 +348,17 @@ function createShadowPopup(x, y) {
 function showLoadingPopup(x, y) {
   createShadowPopup(x, y);
   if (!currentPopupContent) return;
+
+  clearFreezeTimer();
+  freezeTimer = setTimeout(() => {
+    if (isPopupValid()) {
+      if (lastPhase1Result) {
+        resolvePhase1AsFinal(lastPhase1Result);
+      } else {
+        closePopup();
+      }
+    }
+  }, FREEZE_TIMEOUT_MS);
 
   currentPopupContent.textContent = '';
 
@@ -524,7 +567,12 @@ function createForensicSection(reasons) {
 }
 
 function updatePopupWithResult(data) {
-  if (!currentPopupContent) return;
+  if (!isPopupValid()) return;
+
+  clearFreezeTimer();
+  if (data.s === 1) {
+    lastPhase1Result = data;
+  }
 
   const { url: original_url, furl: final_url, hops: redirect_chain, ss: screenshot_base64, sec: security, t: title, d: description, img: preview_image_url } = data;
 
@@ -705,12 +753,30 @@ function updatePopupWithResult(data) {
   attachPopupEventHandlers(final_url);
 }
 
+function resolvePhase1AsFinal(data) {
+  if (!isPopupValid()) return;
+  const sec = data.sec || data.security;
+  if (!sec) return;
+  const badge = currentPopupShadowRoot.querySelector('.badge');
+  const header = currentPopupShadowRoot.querySelector('.header');
+  const logo = currentPopupShadowRoot.querySelector('.logo');
+  if (!badge || !header || !logo) return;
+  let verdictClass = sec.v;
+  let verdictText = sec.safe ? 'Safe' : 'Suspicious';
+  if (verdictClass === 'red') verdictText = 'Dangerous';
+  header.className = `header ${verdictClass}-header`;
+  badge.className = `badge ${verdictClass}`;
+  badge.textContent = verdictText;
+  logo.textContent = `Safety Score: ${100 - sec.rs}/100`;
+}
+
 /**
  * Merges Phase 2 deep scan results into the existing popup.
  * Updates badge color, risk score, and forensic details with smooth transitions.
  */
 function mergeDeepScanResult(data) {
-  if (!currentPopupContent || !currentPopupShadowRoot) return;
+  if (!isPopupValid()) return;
+  clearFreezeTimer();
 
   const security = data.sec;
   if (!security) return;
@@ -860,7 +926,8 @@ function attachPopupEventHandlers(finalUrl) {
 }
 
 function updatePopupWithError(errorMsg) {
-  if (!currentPopupContent) return;
+  if (!isPopupValid()) return;
+  clearFreezeTimer();
   currentPopupContent.textContent = '';
 
   const headerDiv = document.createElement('div');
@@ -891,5 +958,42 @@ function updatePopupWithError(errorMsg) {
 
   currentPopupContent.appendChild(bodyDiv);
 }
+
+// ============================================================
+// SPA Navigation Cleanup
+// ============================================================
+
+window.addEventListener('popstate', () => {
+  closePopup();
+});
+
+window.addEventListener('hashchange', () => {
+  closePopup();
+});
+
+function patchSpaNavigation() {
+  if (spaPatched) return;
+  spaPatched = true;
+  const origPushState = history.pushState;
+  const origReplaceState = history.replaceState;
+  history.pushState = function (...args) {
+    origPushState.apply(this, args);
+    closePopup();
+  };
+  history.replaceState = function (...args) {
+    origReplaceState.apply(this, args);
+    closePopup();
+  };
+}
+patchSpaNavigation();
+
+// Lightweight location change watchdog
+spaInterval = setInterval(() => {
+  const currentUrl = location.href;
+  if (currentUrl !== lastLocation) {
+    lastLocation = currentUrl;
+    closePopup();
+  }
+}, 1000);
 
 
