@@ -16,7 +16,7 @@ TRUSTED_PLATFORMS = [
 # Scoring Thresholds
 # ============================================================
 NEW_DOMAIN_THRESHOLD_DAYS = 30
-SSL_CERT_VERY_NEW_DAYS = 1
+SSL_CERT_VERY_NEW_DAYS = 2
 SSL_CERT_NEW_DAYS = 10
 SSL_CERT_RECENT_DAYS = 30
 SSL_CERT_YOUNG_DAYS = 90
@@ -29,11 +29,11 @@ VT_LOW_CONFIDENCE_THRESHOLD = 2
 CORROBORATION_MIN_VENDOR_FLAGS = 3
 
 VERDICT_RED_THRESHOLD = 65
-VERDICT_YELLOW_THRESHOLD = 30
+VERDICT_YELLOW_THRESHOLD = 35
 PUNYCODE_MIN_SCORE = 75
 
 # Trusted platform cap — uncorroborated weak signals cannot exceed yellow-1
-TRUSTED_PLATFORM_CAP = 29
+TRUSTED_PLATFORM_CAP = 34
 
 # ============================================================
 # Weighted Scoring — Signal Penalties (Task 5)

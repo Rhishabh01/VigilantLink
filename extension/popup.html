@@ -4,57 +4,47 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VigilantLink | Advanced Security</title>
+  <title>VigilantLink</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg: #0f172a;
-      --card-bg: rgba(30, 41, 59, 0.7);
+      --surface: #1e293b;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-hover: rgba(255, 255, 255, 0.15);
       --accent: #10b981;
+      --accent-dim: rgba(16, 185, 129, 0.15);
       --danger: #ef4444;
-      --warning: #f59e0b;
-      --text: #f8fafc;
+      --danger-dim: rgba(239, 68, 68, 0.15);
+      --text: #f1f5f9;
       --text-muted: #94a3b8;
-      --glass: rgba(255, 255, 255, 0.05);
-      --glass-border: rgba(255, 255, 255, 0.1);
+      --text-dim: #64748b;
+      --radius: 10px;
     }
 
     * {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
-      -webkit-font-smoothing: antialiased;
     }
 
     body {
-      font-family: 'Outfit', sans-serif;
-      width: 320px;
+      font-family: 'Inter', sans-serif;
+      width: 340px;
       background: var(--bg);
       color: var(--text);
-      overflow-x: hidden;
-      padding-bottom: 8px;
-    }
-
-    /* Background Glow Effect */
-    body::before {
-      content: '';
-      position: fixed;
-      top: -50px;
-      right: -50px;
-      width: 200px;
-      height: 200px;
-      background: radial-gradient(circle, rgba(16, 185, 129, 0.15) 0%, transparent 70%);
-      z-index: -1;
+      -webkit-font-smoothing: antialiased;
+      padding-top: 4px;
     }
 
     .header {
-      padding: 20px 20px 15px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid var(--glass-border);
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
     }
 
     .logo-container {
@@ -64,100 +54,108 @@
     }
 
     .logo {
-      width: 32px;
-      height: 32px;
-      background: linear-gradient(135deg, #10b981, #059669);
-      border-radius: 8px;
+      width: 26px;
+      height: 26px;
+      background: var(--accent);
+      border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-weight: 800;
-      font-size: 16px;
+      font-weight: 700;
+      font-size: 13px;
       color: white;
-      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-      letter-spacing: -1px;
     }
 
     .header h1 {
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 600;
-      letter-spacing: -0.02em;
-    }
-
-    .content {
-      padding: 20px;
-    }
-
-    /* Current Site Card */
-    .current-site {
-      background: var(--card-bg);
-      backdrop-filter: blur(12px);
-      border: 1px solid var(--glass-border);
-      padding: 16px;
-      border-radius: 16px;
-      margin-bottom: 20px;
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .current-site:hover {
-      border-color: rgba(16, 185, 129, 0.4);
-      transform: translateY(-2px);
-    }
-
-    .label-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 8px;
-    }
-
-    .label-text {
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-muted);
     }
 
     #site-status-badge {
-      font-size: 12px;
-      padding: 3px 8px;
+      font-size: 11px;
+      padding: 2px 8px;
       border-radius: 20px;
-      font-weight: 700;
+      font-weight: 600;
       text-transform: uppercase;
-      transition: all 0.3s ease;
+      letter-spacing: 0.03em;
+    }
+
+    .content {
+      padding: 14px 20px 18px;
+    }
+
+    .current-site-label {
+      font-size: 11px;
+      color: var(--text-dim);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      text-align: center;
     }
 
     .domain {
-      font-size: 15px;
+      font-size: 16px;
       font-weight: 600;
-      color: var(--text);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      margin-top: 4px;
+      margin-bottom: 14px;
+      text-align: center;
     }
 
-    /* Toggle Section */
     .toggle-section {
+      min-height: 50px;
+      max-height: 50px;
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      padding: 12px 4px;
+      gap: 8px;
+      padding: 6px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
       margin-bottom: 12px;
+      transition: border-color 0.2s;
+    }
+
+    .toggle-section:hover {
+      border-color: var(--border-hover);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .toggle-section .toggle {
+      margin-left: auto;
+    }
+
+    .toggle-section::after {
+      content: '';
+      width: 24px;
+      flex-shrink: 0;
     }
 
     .toggle-label {
-      font-weight: 500;
       font-size: 13px;
-      color: var(--text);
+      font-weight: 500;
     }
 
-    /* Modern Toggle */
+    .toggle-label {
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .toggle-hint {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin-bottom: 16px;
+      display: flex;
+      gap: 6px;
+    }
+
     .toggle {
       position: relative;
-      width: 44px;
-      height: 24px;
+      width: 42px;
+      height: 22px;
+      flex-shrink: 0;
     }
 
     .toggle input {
@@ -169,102 +167,96 @@
     .slider {
       position: absolute;
       cursor: pointer;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: #334155;
-      transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.4s ease;
-      border-radius: 24px;
+      inset: 0;
+      background: #334155;
+      border-radius: 22px;
+      transition: background 0.25s;
     }
 
     .slider:before {
-      position: absolute;
       content: "";
-      height: 18px;
-      width: 18px;
+      position: absolute;
+      height: 16px;
+      width: 16px;
       left: 3px;
       bottom: 3px;
-      background-color: white;
-      transition: transform 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55), width 0.3s ease;
+      background: white;
       border-radius: 50%;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+      transition: transform 0.25s;
     }
 
     .toggle input:checked+.slider {
-      background-color: var(--accent);
-      box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+      background: var(--accent);
     }
 
     .toggle input:checked+.slider:before {
       transform: translateX(20px);
     }
 
-    .toggle:active .slider:before {
-      width: 24px;
-    }
-
-    /* Sections */
     .section-title {
       font-size: 11px;
-      font-weight: 700;
-      color: var(--text-muted);
+      font-weight: 600;
+      color: var(--text-dim);
       text-transform: uppercase;
-      letter-spacing: 0.1em;
-      margin-bottom: 12px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .section-title::after {
-      content: '';
-      flex: 1;
-      height: 1px;
-      background: var(--glass-border);
+      letter-spacing: 0.06em;
+      margin-bottom: 8px;
     }
 
     .preset-list,
     .custom-list {
-      max-height: 180px;
-      overflow-y: auto;
-      margin-bottom: 15px;
-      padding-right: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 12px;
+      height: 158px;
+      overflow-y: overlay;
+      overflow-x: hidden;
     }
 
-    /* Custom Scrollbar */
     .preset-list::-webkit-scrollbar,
     .custom-list::-webkit-scrollbar {
-      width: 4px;
+      width: 3px;
+    }
+
+    .preset-list::-webkit-scrollbar-track,
+    .custom-list::-webkit-scrollbar-track {
+      background: transparent;
     }
 
     .preset-list::-webkit-scrollbar-thumb,
     .custom-list::-webkit-scrollbar-thumb {
-      background: var(--glass-border);
-      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 999px;
     }
 
-    .item {
+    .preset-item .toggle {
+      margin-left: auto;
+    }
+
+    .preset-item,
+    .custom-site-item {
+      min-height: 50px;
+      max-height: 50px;
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      padding: 10px 12px;
-      background: var(--glass);
-      border: 1px solid transparent;
-      border-radius: 12px;
-      margin-bottom: 8px;
-      transition: all 0.2s ease;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      flex-shrink: 0;
+      transition: border-color 0.2s;
     }
 
-    .item:hover {
-      border-color: var(--glass-border);
-      background: rgba(255, 255, 255, 0.08);
+    .custom-site-item:hover {
+      border-color: var(--border-hover);
+      background: rgba(255, 255, 255, 0.03);
     }
 
     .site-name {
       font-size: 13px;
       font-weight: 500;
-      color: var(--text);
     }
 
     .site-domain {
@@ -273,11 +265,10 @@
       margin-top: 2px;
     }
 
-    /* Controls */
     .controls {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 8px;
     }
 
     .remove {
@@ -288,34 +279,32 @@
       align-items: center;
       justify-content: center;
       border-radius: 6px;
-      background: rgba(239, 68, 68, 0.1);
       color: var(--danger);
-      font-size: 16px;
-      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      opacity: 0.4;
+      transition: opacity 0.2s;
     }
 
     .remove:hover {
-      background: var(--danger);
-      color: white;
+      opacity: 1;
+      background: var(--danger-dim);
     }
 
-    /* Form */
     .add-site-form {
-      background: var(--card-bg);
-      border: 1px solid var(--glass-border);
-      padding: 15px;
-      border-radius: 16px;
-      margin-bottom: 15px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 14px;
+      border-radius: var(--radius);
+      margin-bottom: 12px;
       display: flex;
       flex-direction: column;
       gap: 10px;
-      animation: slideDown 0.3s ease-out;
+      animation: slideDown 0.2s ease-out;
     }
 
     @keyframes slideDown {
       from {
         opacity: 0;
-        transform: translateY(-10px);
+        transform: translateY(-8px);
       }
 
       to {
@@ -326,14 +315,14 @@
 
     input[type="text"] {
       width: 100%;
-      background: #0f172a;
-      border: 1px solid var(--glass-border);
-      padding: 10px 14px;
-      border-radius: 10px;
-      color: white;
-      font-family: 'Outfit', sans-serif;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      padding: 9px 12px;
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
       font-size: 13px;
-      transition: border-color 0.2s ease;
+      transition: border-color 0.2s;
     }
 
     input[type="text"]:focus {
@@ -348,20 +337,18 @@
 
     .btn {
       flex: 1;
-      padding: 10px;
+      padding: 9px;
       border: none;
-      border-radius: 10px;
+      border-radius: 8px;
       font-weight: 600;
       font-size: 13px;
       cursor: pointer;
-      font-family: 'Outfit', sans-serif;
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      font-family: 'Inter', sans-serif;
+      transition: opacity 0.2s;
     }
 
     .btn:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-      filter: brightness(1.1);
+      opacity: 0.8;
     }
 
     .btn-add {
@@ -374,51 +361,26 @@
       color: var(--text-muted);
     }
 
-    .btn-cancel:hover {
-      background: #475569;
-      color: white;
-    }
-
     .show-add-btn {
       width: 100%;
-      padding: 12px;
+      padding: 10px;
       background: transparent;
-      border: 1px dashed var(--glass-border);
-      border-radius: 12px;
-      color: var(--text-muted);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      color: var(--text-dim);
       font-size: 13px;
       font-weight: 500;
       cursor: pointer;
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 8px;
+      gap: 6px;
+      transition: border-color 0.2s, color 0.2s;
     }
 
     .show-add-btn:hover {
-      background: var(--glass);
       border-color: var(--accent);
       color: var(--accent);
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-    }
-
-    .preset-item,
-    .custom-site-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 10px 14px;
-      background: var(--glass);
-      border: 1px solid var(--glass-border);
-      border-radius: 14px;
-      margin-bottom: 10px;
-    }
-
-    .preset-item:hover,
-    .custom-site-item:hover {
-      background: rgba(255, 255, 255, 0.08);
     }
   </style>
 </head>
@@ -429,16 +391,12 @@
       <div class="logo">VL</div>
       <h1>VigilantLink</h1>
     </div>
-    <div class="label-row" style="margin-bottom:0">
-      <span class="label-text"></span>
-      <span id="site-status-badge">ACTIVE</span>
-    </div>
+    <span id="site-status-badge">ACTIVE</span>
   </div>
 
   <div class="content">
-    <p style="font-size:14px;color:wheat">Current Website</p>
-    <div class="domain" id="current-domain" style="margin-bottom:2px;font-size:20px;color:var(--text-muted)">
-      Detecting...</div>
+    <div class="current-site-label" style="padding-bottom: 8px;">Current Website</div>
+    <div class="domain" id="current-domain">Detecting...</div>
 
     <div class="toggle-section">
       <span class="toggle-label">Link Checking</span>
@@ -447,18 +405,20 @@
         <span class="slider"></span>
       </label>
     </div>
-    <div style="font-size:11px;color:var(--text-muted);margin:-8px 4px 12px;line-height:1.4;">
-      Enables or disables link hover checks on this site. Toggling off temporarily disables link checks — re-enable to
+    <div class="toggle-hint">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="16" x2="12" y2="12"></line>
+        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+      </svg>
+      Enables or disables link hover checks on this site. Toggling off temporarily disables link checks re-enable to
       resume or when you visit the site again.
     </div>
 
     <div class="preset-sites">
-      <div class="section-title">Quick Toggle</div>
+      <div class="section-title">Websites</div>
       <div class="preset-list" id="preset-list"></div>
-    </div>
-
-    <div class="custom-sites">
-      <div class="section-title">Custom Website Toggle</div>
 
       <div class="add-site-form" id="add-form" style="display: none;">
         <input type="text" id="site-name-input" placeholder="e.g. My Secure Bank">
@@ -468,8 +428,6 @@
           <button class="btn btn-cancel" id="cancel-btn">Cancel</button>
         </div>
       </div>
-
-      <div class="custom-list" id="custom-list"></div>
 
       <button class="show-add-btn" id="show-add-btn">
         <span>+</span> Add Website
