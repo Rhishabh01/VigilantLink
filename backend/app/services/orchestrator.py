@@ -27,6 +27,7 @@ from .scanner import run_heuristics, run_external_scans
 from ..core.constants import (
     VERDICT_RED_THRESHOLD, VERDICT_YELLOW_THRESHOLD, PUNYCODE_MIN_SCORE,
     MAX_REDIRECT_HOPS_FREE, SEVERE_VENDOR_FLAGS_THRESHOLD,
+    VT_LOW_CONFIDENCE_THRESHOLD, CORROBORATION_MIN_VENDOR_FLAGS, TRUSTED_PLATFORM_CAP,
     DEFAULT_DOMAIN_AGE_DAYS, TOTAL_VENDORS_COUNT,
     BRAND_PENALTY_SCORE, SYNERGY_PENALTY_SCORE, TYPOSQUATTING_PENALTY,
     REDIRECT_CHAIN_MAJOR_PENALTY, REDIRECT_CHAIN_MINOR_PENALTY,
@@ -36,6 +37,7 @@ from ..core.constants import (
     WEIGHT_HEURISTIC, WEIGHT_SSL_AGE, WEIGHT_VT, WEIGHT_REDIRECT_DEPTH,
     UNCERTAINTY_PENALTY, TRACKING_PARAMS, PHISHING_KEYWORDS,
     TRUSTED_HOSTING_DOMAINS, TRUSTED_PLATFORMS, SUSPICIOUS_TLDS,
+    DECEPTIVE_QUERY_PARAMS, SUSPICIOUS_HOSTED_PATHS, WEAK_SIGNAL_PATTERNS,
     GSB_THREAT_MIN_SCORES,
 )
 
@@ -80,6 +82,85 @@ def normalize_url(raw: str) -> str:
         sorted_qs,
         "",  # strip fragment
     ))
+
+
+# ============================================================
+# Hosted Phishing Detection
+# ============================================================
+
+def detect_hosted_phishing(
+    final_url: str,
+    hops: List[Dict[str, Any]],
+    metadata: Optional[Dict[str, Any]],
+    vendor_flags: int,
+    has_phishing_keywords: bool,
+) -> Dict[str, Any]:
+    """
+    Detects phishing abuse on trusted hosting platforms.
+    Checks for suspicious paths, deceptive redirect params,
+    and redirect chains that end on trusted platforms.
+    """
+    signals = {
+        "active": False,
+        "suspicious_path": False,
+        "deceptive_param": False,
+        "redirect_chain_suspicious": False,
+        "corroboration_count": 0,
+    }
+
+    domain_lower = urlparse(final_url).netloc.lower()
+    is_hosting = any(
+        domain_lower == d or domain_lower.endswith(f".{d}")
+        for d in TRUSTED_HOSTING_DOMAINS
+    )
+    if not is_hosting:
+        return signals
+
+    path_lower = urlparse(final_url).path.lower()
+
+    for sp in SUSPICIOUS_HOSTED_PATHS:
+        if path_lower.startswith(sp):
+            signals["suspicious_path"] = True
+            break
+
+    parsed_qs = parse_qs(urlparse(final_url).query)
+    for param in DECEPTIVE_QUERY_PARAMS:
+        if param in parsed_qs:
+            val = parsed_qs[param][0]
+            if val and not any(
+                trusted in val for trusted in TRUSTED_PLATFORMS
+            ):
+                signals["deceptive_param"] = True
+                signals["deceptive_param_name"] = param
+                signals["redirect_target"] = val
+                break
+
+    if hops and len(hops) > 1:
+        for hop in hops[:-1]:
+            hop_domain = urlparse(hop["url"]).netloc
+            is_trusted_hop = any(
+                hop_domain == d or hop_domain.endswith(f".{d}")
+                for d in list(TRUSTED_PLATFORMS) + TRUSTED_HOSTING_DOMAINS
+            )
+            if not is_trusted_hop:
+                signals["redirect_chain_suspicious"] = True
+                break
+
+    count = 0
+    if vendor_flags >= 1:
+        count += 1
+    if signals["suspicious_path"]:
+        count += 1
+    if signals["deceptive_param"]:
+        count += 1
+    if signals["redirect_chain_suspicious"]:
+        count += 1
+    if has_phishing_keywords:
+        count += 1
+    signals["corroboration_count"] = count
+    signals["active"] = count >= 1
+
+    return signals
 
 
 # ============================================================
@@ -274,9 +355,26 @@ def compute_final_score(
         for d in TRUSTED_PLATFORMS
     )
 
+    # Phishing keyword detection in URL + metadata (used by multiple downstream checks)
+    has_phishing_keywords = False
+    content_to_check = [urlparse(final_url).path.lower(), urlparse(final_url).query.lower()]
+    if metadata:
+        if metadata.get("title"): content_to_check.append(metadata["title"].lower())
+        if metadata.get("description"): content_to_check.append(metadata["description"].lower())
+    if any(kw in text for kw in PHISHING_KEYWORDS for text in content_to_check):
+        has_phishing_keywords = True
+
+    # Low-confidence VT suppression: vendor_flags < threshold + no corroboration = zero contribution
+    has_vt_corroboration = (
+        bool(gsb_threats) or
+        has_phishing_keywords or
+        vendor_flags >= CORROBORATION_MIN_VENDOR_FLAGS
+    )
+
     if vendor_flags >= 1:
-        if is_trusted_platform and vendor_flags < 3:
-            # Trusted domain: 1-2 VT vendor hits are domain-level noise, not per-URL maliciousness
+        if vendor_flags < VT_LOW_CONFIDENCE_THRESHOLD and not has_vt_corroboration:
+            vt_penalty = 0
+        elif is_trusted_platform and vendor_flags < 3:
             vt_penalty = 0
         else:
             vt_penalty = min(10 * vendor_flags, 40)
@@ -286,20 +384,28 @@ def compute_final_score(
 
     # NEW: Trusted-Domain Abuse Detection
     is_trusted_hosting = any(domain_lower == d or domain_lower.endswith(f".{d}") for d in TRUSTED_HOSTING_DOMAINS)
-    
-    has_phishing_keywords = False
-    content_to_check = [urlparse(final_url).path.lower()]
-    if metadata:
-        if metadata.get("title"): content_to_check.append(metadata["title"].lower())
-        if metadata.get("description"): content_to_check.append(metadata["description"].lower())
-    if any(kw in text for kw in PHISHING_KEYWORDS for text in content_to_check):
-        has_phishing_keywords = True
 
     if is_trusted_hosting and (vendor_flags >= 1 or has_phishing_keywords):
         if risk_score < 50:
             risk_score = 50
         reasons.append("Suspicious content hosted on trusted platform")
         risk_score = max(risk_score, VERDICT_YELLOW_THRESHOLD + 1)
+
+    # Hosted phishing escalation with corroboration
+    hosted_signals = detect_hosted_phishing(
+        final_url, hops, metadata, vendor_flags, has_phishing_keywords
+    )
+    if hosted_signals.get("active"):
+        if hosted_signals.get("suspicious_path"):
+            reasons.append("Suspicious authentication path on trusted hosting")
+        if hosted_signals.get("deceptive_param"):
+            target = hosted_signals.get("redirect_target", "unknown")
+            reasons.append(f"Deceptive redirect parameter ({hosted_signals['deceptive_param_name']}) to {target}")
+        if hosted_signals.get("redirect_chain_suspicious"):
+            reasons.append("Redirect chain passes through untrusted domain before trusted landing")
+        if risk_score < 55:
+            risk_score = 55
+        risk_score = max(risk_score, VERDICT_YELLOW_THRESHOLD + 5)
 
     # Phase 2 Signal: SSL Certificate age
     cert_age = external.get("ssl_cert_age_days")
@@ -371,18 +477,14 @@ def compute_final_score(
             bool(gsb_threats) or
             len(hops) > MAX_REDIRECT_HOPS_FREE or
             heuristics.get("punycode_detected", False) or
-            heuristics.get("brand_penalty_reason") is not None
+            heuristics.get("brand_penalty_reason") is not None or
+            hosted_signals.get("active", False)
         )
         if not has_strong_signals:
-            risk_score = min(risk_score, VERDICT_YELLOW_THRESHOLD - 1)
-            weak_signal_patterns = [
-                "No metadata", "Preview unavailable", "SSL certificate",
-                "Young SSL", "Recently issued", "uncertainty", "Uncertainty",
-                "timed out", "Limited security data", "metadata", "screenshot"
-            ]
+            risk_score = min(risk_score, TRUSTED_PLATFORM_CAP)
             reasons = [
                 r for r in reasons
-                if not any(p.lower() in r.lower() for p in weak_signal_patterns)
+                if not any(p.lower() in r.lower() for p in WEAK_SIGNAL_PATTERNS)
             ]
 
     capped_score = min(risk_score, 100)

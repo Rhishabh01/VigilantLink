@@ -130,6 +130,16 @@ async function pollForDeepScanBackground(requestId, signal, tabId, url, generati
   } catch (e) {
     if (e.name !== 'AbortError') {
       console.warn("VigilantLink: Background Phase 2 polling failed", e);
+      try {
+        chrome.tabs.sendMessage(tabId, {
+          action: "phase2_error",
+          url: url,
+          requestId: requestId,
+          error: e.message || "Phase 2 polling failed"
+        });
+      } catch (e2) {
+        // Tab may have closed
+      }
     }
   } finally {
     cleanupRequest(tabId, generation);
