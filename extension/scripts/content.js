@@ -21,6 +21,19 @@ let lastLocation = location.href;
 let spaPatched = false;
 let spaInterval = null;
 
+// ── Scan State Machine ─────────────────────────────────────────────────────
+// IDLE        : no active scan
+// SCANNING    : phase1 request in-flight, skeleton shown
+// ANALYZING   : phase1 rendered, polling phase2
+// RECONNECTING: phase2 poll failed, retrying after backend reconnect
+// FINALIZED   : phase2_result received, final verdict shown
+// INTERRUPTED : reconnect timed out, scan could not complete
+let scanState = 'IDLE';
+let reconnectTimer = null;
+let reconnectStartTime = 0;
+const MAX_RECONNECT_DURATION_MS = 25000; // 25 s total retry window
+const RECONNECT_INTERVAL_MS    =  2500; // retry every 2.5 s
+
 // Debounce utility - prevents excessive function calls
 function debounce(func, wait) {
   let timeout;
@@ -200,20 +213,30 @@ async function handleLinkMouseEnter(event) {
 }
 
 function handleLinkMouseLeave(event) {
-  clearFreezeTimer();
   if (hoverTimer) {
+    // Only cancel if the popup hasn't appeared yet (still in debounce window)
     clearTimeout(hoverTimer);
     hoverTimer = null;
+    hoverTargetUrl = null;
+    activeAnchor = null;
+    ++requestSequence;
+    // No popup shown yet — cancel the in-flight request and clear state
+    currentAnalysisUrl = null;
+    currentRequestId = null;
+    clearFreezeTimer();
+    clearReconnectTimer();
+    scanState = 'IDLE';
+    try {
+      chrome.runtime.sendMessage({ action: 'cancel_analysis' });
+    } catch (e) { /* context may be invalid */ }
+    return;
   }
-  hoverTargetUrl = null;
-  currentAnalysisUrl = null;
-  activeAnchor = null;
-  ++requestSequence;
 
-  // Cancel in-flight backend request
-  try {
-    chrome.runtime.sendMessage({ action: 'cancel_analysis' });
-  } catch (e) { /* context may be invalid */ }
+  // Popup is already visible — preserve currentAnalysisUrl / currentRequestId
+  // so that an in-flight phase2_result can still be matched and rendered.
+  // closePopup() is the single authoritative site that clears analysis state.
+  hoverTargetUrl = null;
+  activeAnchor = null;
 }
 
 // Global event delegation on document body - catches all link hovers
@@ -223,9 +246,22 @@ document.addEventListener('mouseout', handleLinkMouseLeave, { capture: true });
 // Initialize observer for AJAX and dynamic content
 initializeMutationObserver();
 
-// Close popup if moving away from link and popup
+// Close popup if moving away from link and popup.
+// During active scans (SCANNING / ANALYZING / RECONNECTING), suppress the
+// auto-close entirely — the popup must stay alive so it can receive
+// phase2_result when the scan or reconnect completes.
 document.addEventListener('mousemove', (event) => {
   if (!isPopupValid()) return;
+
+  // Keep popup alive while a scan is in progress
+  if (scanState === 'SCANNING' || scanState === 'ANALYZING' || scanState === 'RECONNECTING') {
+    if (closeTimer) {
+      clearTimeout(closeTimer);
+      closeTimer = null;
+    }
+    return;
+  }
+
   const target = event.target.closest('a');
   const isOverPopup = currentPopupContainer.contains(event.target) ||
     (currentPopupShadowRoot && currentPopupShadowRoot.contains(event.composedPath()[0]));
@@ -269,14 +305,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       updatePopupWithResult(message.data);
     }
   } else if (message.action === 'phase2_result') {
-    if (isPopupValid() && currentAnalysisUrl && message.url === currentAnalysisUrl && message.data.id === currentRequestId) {
+    if (!isPopupValid()) return;
+    if (!currentAnalysisUrl) return; // Popup was closed; drop result
+
+    const matchesId  = currentRequestId !== null && message.requestId === currentRequestId;
+    const matchesUrl = currentRequestId === null  && message.url === currentAnalysisUrl;
+
+    if (matchesId || matchesUrl) {
+      if (matchesUrl && message.requestId) currentRequestId = message.requestId;
       mergeDeepScanResult(message.data);
     }
   } else if (message.action === 'phase2_error') {
-    if (isPopupValid() && message.url === currentAnalysisUrl && message.requestId === currentRequestId) {
-      clearFreezeTimer();
-      if (lastPhase1Result) {
-        resolvePhase1AsFinal(lastPhase1Result);
+    if (isPopupValid() && message.url === currentAnalysisUrl) {
+      const idMatch = !currentRequestId || message.requestId === currentRequestId;
+      if (idMatch) {
+        clearFreezeTimer();
+        // Preserve currentRequestId — we need it to resume polling
+        if (message.requestId) currentRequestId = message.requestId;
+        if (scanState === 'RECONNECTING') {
+          // Already retrying — schedule the next attempt
+          scheduleNextReconnect();
+        } else {
+          // First failure — enter recoverable reconnect mode
+          enterReconnectingState();
+        }
       }
     }
   }
@@ -291,6 +343,12 @@ function isPopupValid() {
 
 function closePopup() {
   clearFreezeTimer();
+  clearReconnectTimer();
+  // Single authoritative cleanup site for all analysis state.
+  scanState = 'IDLE';
+  currentAnalysisUrl = null;
+  currentRequestId = null;
+  lastPhase1Result = null;
   if (currentPopupContainer) {
     if (currentPopupContainer.isConnected) {
       currentPopupContainer.remove();
@@ -306,6 +364,271 @@ function clearFreezeTimer() {
     clearTimeout(freezeTimer);
     freezeTimer = null;
   }
+}
+
+function clearReconnectTimer() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
+// ── Reconnect Recovery ─────────────────────────────────────────────────────
+
+function enterReconnectingState() {
+  scanState = 'RECONNECTING';
+  reconnectStartTime = Date.now();
+  showReconnectingUI();
+  scheduleNextReconnect();
+}
+
+function scheduleNextReconnect() {
+  clearReconnectTimer();
+  reconnectTimer = setTimeout(attemptReconnectPoll, RECONNECT_INTERVAL_MS);
+}
+
+function attemptReconnectPoll() {
+  reconnectTimer = null;
+  if (!isPopupValid() || scanState !== 'RECONNECTING') return;
+
+  if (Date.now() - reconnectStartTime > MAX_RECONNECT_DURATION_MS) {
+    enterInterruptedState();
+    return;
+  }
+  
+  const url = currentAnalysisUrl;
+  if (!url) {
+    enterInterruptedState();
+    return;
+  }
+
+  // Use Phase 1 analyze_link to re-establish connectivity and get a fresh ID if the old one died.
+  // This ensures that as soon as the backend is back, we resume progress even if state was lost.
+  chrome.runtime.sendMessage({ action: 'analyze_link', url }, (response) => {
+    // Basic guard: ensure we are still in the same popup and reconnect session
+    if (!isPopupValid() || scanState !== 'RECONNECTING' || currentAnalysisUrl !== url) return;
+
+    if (response && response.success) {
+      const data = response.data;
+      if (data.s === 2) {
+        // Result is already cached/complete! Transition to result view.
+        finalizeReconnectCard(data);
+      } else {
+        // Phase 1 succeeded (got ID), move back to ANALYZING and wait for Phase 2.
+        // The background script already started polling for data.id in its analyze_link handler.
+        currentRequestId = data.id;
+        scanState = 'ANALYZING';
+        
+        // Update UI to show we are back to analyzing
+        const badge = currentPopupShadowRoot.querySelector('.badge');
+        const logo = currentPopupShadowRoot.querySelector('.logo');
+        if (badge) {
+          badge.className = 'badge gray';
+          badge.textContent = 'ANALYZING';
+        }
+        if (logo) {
+          logo.textContent = 'VigilantLink: Scanning...';
+        }
+      }
+    } else {
+      // Still down or errored, schedule next retry
+      scheduleNextReconnect();
+    }
+  });
+}
+
+function showReconnectingUI() {
+  if (!isPopupValid()) return;
+
+  const badge  = currentPopupShadowRoot.querySelector('.badge');
+  const header = currentPopupShadowRoot.querySelector('.header');
+  const logo   = currentPopupShadowRoot.querySelector('.logo');
+
+  if (badge && header && logo) {
+    // Popup already shows phase1 content — update header only
+    header.className    = 'header loading-header';
+    badge.className     = 'badge gray';
+    badge.textContent   = 'Reconnecting…';
+    logo.textContent    = 'VigilantLink: Waiting for backend…';
+    logo.style.fontSize = '14px';
+  } else {
+    // Still in skeleton/loading state — rebuild as a minimal reconnect card
+    currentPopupContent.textContent = '';
+
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'header loading-header';
+    const logoDiv = document.createElement('div');
+    logoDiv.className   = 'logo';
+    logoDiv.textContent = 'VigilantLink';
+    logoDiv.style.fontSize = '14px';
+    headerDiv.appendChild(logoDiv);
+    const badgeDiv = document.createElement('div');
+    badgeDiv.className   = 'badge gray';
+    badgeDiv.textContent = 'Reconnecting…';
+    headerDiv.appendChild(badgeDiv);
+    currentPopupContent.appendChild(headerDiv);
+
+    const bodyDiv = document.createElement('div');
+    bodyDiv.className = 'body';
+    const msgDiv = document.createElement('div');
+    msgDiv.style.cssText = 'padding:20px 0;text-align:center;color:#888;font-size:13px;font-style:italic;';
+    msgDiv.textContent = 'Waiting for backend to reconnect…';
+    bodyDiv.appendChild(msgDiv);
+    currentPopupContent.appendChild(bodyDiv);
+  }
+}
+
+function enterInterruptedState() {
+  scanState = 'INTERRUPTED';
+  clearReconnectTimer();
+  if (!isPopupValid()) return;
+
+  const badge  = currentPopupShadowRoot.querySelector('.badge');
+  const header = currentPopupShadowRoot.querySelector('.header');
+  const logo   = currentPopupShadowRoot.querySelector('.logo');
+
+  if (badge && header && logo) {
+    header.className  = 'header error-header';
+    badge.className   = 'badge gray';
+    badge.textContent = 'Scan Timed Out';
+    logo.textContent  = 'VigilantLink: Limited Protection';
+    logo.style.fontSize = '14px';
+  } else {
+    currentPopupContent.textContent = '';
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'header error-header';
+    const logoDiv = document.createElement('div');
+    logoDiv.className   = 'logo';
+    logoDiv.textContent = 'VigilantLink: Limited Protection';
+    logoDiv.style.fontSize = '14px';
+    headerDiv.appendChild(logoDiv);
+    const badgeDiv = document.createElement('div');
+    badgeDiv.className   = 'badge gray';
+    badgeDiv.textContent = 'Scan Timed Out';
+    headerDiv.appendChild(badgeDiv);
+    currentPopupContent.appendChild(headerDiv);
+  }
+}
+
+/**
+ * Transitions the reconnect card in-place to the final scan result.
+ * Updates the header badge/logo, then replaces the body content with the
+ * full result (URL, screenshot, warning, forensics, redirects).
+ * This avoids the jarring full-card rebuild that updatePopupWithResult does.
+ */
+function finalizeReconnectCard(data) {
+  if (!isPopupValid()) return;
+
+  const security = data.sec;
+  if (!security) return;
+
+  const { furl: final_url, hops: redirect_chain, ss: screenshot_base64,
+          t: title, d: description, img: preview_image_url } = data;
+
+  const verdictClass = security.v;
+  let verdictText = security.safe ? 'Safe' : 'Suspicious';
+  if (verdictClass === 'red') verdictText = 'Dangerous';
+
+  // — 1. Update header in-place —
+  const badge  = currentPopupShadowRoot.querySelector('.badge');
+  const header = currentPopupShadowRoot.querySelector('.header');
+  const logo   = currentPopupShadowRoot.querySelector('.logo');
+
+  if (header && badge && logo) {
+    header.className    = `header ${verdictClass}-header`;
+    badge.className     = `badge ${verdictClass}`;
+    badge.textContent   = verdictText;
+    logo.textContent    = `Safety Score: ${100 - security.rs}/100`;
+    logo.style.fontSize = '14px';
+  } else {
+    // Reconnect card lost its header nodes somehow — full rebuild
+    updatePopupWithResult(data);
+    return;
+  }
+
+  // — 2. Build a fresh body and swap it in —
+  const bodyDiv = document.createElement('div');
+  bodyDiv.className = 'body';
+
+  const warningBox = createWarningBox(verdictClass, security.tt);
+  if (warningBox) bodyDiv.appendChild(warningBox);
+
+  if (title || description) {
+    const metaSection = document.createElement('div');
+    metaSection.className = 'metadata-section';
+    if (title) {
+      const titleEl = document.createElement('div');
+      titleEl.className = 'metadata-title';
+      titleEl.textContent = title;
+      metaSection.appendChild(titleEl);
+    }
+    if (description) {
+      const descEl = document.createElement('div');
+      descEl.className = 'metadata-description';
+      descEl.textContent = description;
+      metaSection.appendChild(descEl);
+    }
+    bodyDiv.appendChild(metaSection);
+  }
+
+  if (final_url) {
+    const urlDestDiv = document.createElement('div');
+    urlDestDiv.className = 'url-dest';
+    urlDestDiv.style.cssText = 'margin-bottom:8px;font-size:11px;color:#555;display:flex;align-items:center;gap:6px;';
+    const destLabel = document.createElement('strong');
+    destLabel.textContent = 'Dest: ';
+    urlDestDiv.appendChild(destLabel);
+    const linkEl = document.createElement('a');
+    linkEl.href = final_url;
+    linkEl.target = '_blank';
+    linkEl.rel = 'noopener noreferrer';
+    linkEl.title = final_url;
+    linkEl.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;display:inline-block;vertical-align:middle;';
+    linkEl.textContent = final_url;
+    urlDestDiv.appendChild(linkEl);
+    bodyDiv.appendChild(urlDestDiv);
+  }
+
+  const screenshotContainer = document.createElement('div');
+  screenshotContainer.className = 'screenshot-container';
+  const placeholder = document.createElement('div');
+  placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
+  placeholder.textContent = 'Preview unavailable';
+  screenshotContainer.appendChild(placeholder);
+  const displayImage = screenshot_base64 || preview_image_url;
+  if (displayImage) {
+    const img = document.createElement('img');
+    img.style.display = 'none';
+    img.alt = `Preview of ${final_url}`;
+    img.onload = () => { screenshotContainer.textContent = ''; img.style.display = ''; screenshotContainer.appendChild(img); };
+    img.onerror = () => {};
+    img.src = displayImage;
+  }
+  bodyDiv.appendChild(screenshotContainer);
+
+  const infoDiv = document.createElement('div');
+  infoDiv.className = 'info';
+  let filteredReasons = security.r || [];
+  if (verdictClass === 'green') {
+    filteredReasons = filteredReasons.filter(r =>
+      !r.includes('Uncertainty penalty') && !r.includes('timed out') && !r.includes('Limited security data')
+    );
+  }
+  const forensicSection = createForensicSection(filteredReasons);
+  if (forensicSection) infoDiv.appendChild(forensicSection);
+  const redirectsSection = createRedirectsSection(redirect_chain);
+  if (redirectsSection) infoDiv.appendChild(redirectsSection);
+  bodyDiv.appendChild(infoDiv);
+
+  // Swap: remove old body (reconnect message) and insert fresh result body
+  const existingBody = currentPopupShadowRoot.querySelector('.body');
+  if (existingBody) {
+    existingBody.replaceWith(bodyDiv);
+  } else {
+    currentPopupContent.appendChild(bodyDiv);
+  }
+
+  if (final_url) attachPopupEventHandlers(final_url);
 }
 
 function createShadowPopup(x, y) {
@@ -350,8 +673,10 @@ function showLoadingPopup(x, y) {
   if (!currentPopupContent) return;
 
   clearFreezeTimer();
+  scanState = 'SCANNING';
   freezeTimer = setTimeout(() => {
-    if (isPopupValid()) {
+    // Do NOT finalize the popup while the reconnect mechanism is active.
+    if (isPopupValid() && scanState !== 'RECONNECTING' && scanState !== 'FINALIZED' && scanState !== 'INTERRUPTED') {
       if (lastPhase1Result) {
         resolvePhase1AsFinal(lastPhase1Result);
       } else {
@@ -572,6 +897,9 @@ function updatePopupWithResult(data) {
   clearFreezeTimer();
   if (data.s === 1) {
     lastPhase1Result = data;
+    scanState = 'ANALYZING';
+  } else if (data.s === 2) {
+    scanState = 'FINALIZED';
   }
 
   const { url: original_url, furl: final_url, hops: redirect_chain, ss: screenshot_base64, sec: security, t: title, d: description, img: preview_image_url } = data;
@@ -777,14 +1105,35 @@ function resolvePhase1AsFinal(data) {
 function mergeDeepScanResult(data) {
   if (!isPopupValid()) return;
   clearFreezeTimer();
+  clearReconnectTimer();
 
   const security = data.sec;
   if (!security) return;
 
-  // Update header badge and color
+  // Capture previous state before updating, so the routing decision below
+  // is based on where we were, not where we're going.
+  const prevState = scanState;
+  scanState = 'FINALIZED';
+
+  // Route based on previous state:
+  // ANALYZING    → incremental patch (header + forensics only, body DOM is already full)
+  // RECONNECTING → in-card transition (header patch + body swap)
+  // SCANNING /
+  // anything else → full rebuild (phase1 never rendered a result)
+  if (prevState === 'RECONNECTING') {
+    finalizeReconnectCard(data);
+    return;
+  }
+  if (prevState !== 'ANALYZING') {
+    updatePopupWithResult(data);
+    return;
+  }
+
+  // --- Incremental patch path (popup already shows phase1 result) ---
+
+  const badge  = currentPopupShadowRoot.querySelector('.badge');
   const header = currentPopupShadowRoot.querySelector('.header');
-  const badge = currentPopupShadowRoot.querySelector('.badge');
-  const logo = currentPopupShadowRoot.querySelector('.logo');
+  const logo   = currentPopupShadowRoot.querySelector('.logo');
 
   if (header && badge && logo) {
     const verdictClass = security.v;
