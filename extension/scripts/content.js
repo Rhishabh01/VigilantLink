@@ -32,7 +32,7 @@ let scanState = 'IDLE';
 let reconnectTimer = null;
 let reconnectStartTime = 0;
 const MAX_RECONNECT_DURATION_MS = 25000; // 25 s total retry window
-const RECONNECT_INTERVAL_MS    =  2500; // retry every 2.5 s
+const RECONNECT_INTERVAL_MS = 2500; // retry every 2.5 s
 
 // Debounce utility - prevents excessive function calls
 function debounce(func, wait) {
@@ -243,8 +243,15 @@ function handleLinkMouseLeave(event) {
 document.addEventListener('mouseover', handleLinkMouseEnter, { capture: true });
 document.addEventListener('mouseout', handleLinkMouseLeave, { capture: true });
 
-// Initialize observer for AJAX and dynamic content
+// --- Initialization ---
 initializeMutationObserver();
+
+// Close popup when switching tabs or minimizing
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    closePopup();
+  }
+});
 
 // Close popup if moving away from link and popup.
 // During active scans (SCANNING / ANALYZING / RECONNECTING), suppress the
@@ -308,8 +315,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!isPopupValid()) return;
     if (!currentAnalysisUrl) return; // Popup was closed; drop result
 
-    const matchesId  = currentRequestId !== null && message.requestId === currentRequestId;
-    const matchesUrl = currentRequestId === null  && message.url === currentAnalysisUrl;
+    const matchesId = currentRequestId !== null && message.requestId === currentRequestId;
+    const matchesUrl = currentRequestId === null && message.url === currentAnalysisUrl;
 
     if (matchesId || matchesUrl) {
       if (matchesUrl && message.requestId) currentRequestId = message.requestId;
@@ -395,7 +402,7 @@ function attemptReconnectPoll() {
     enterInterruptedState();
     return;
   }
-  
+
   const url = currentAnalysisUrl;
   if (!url) {
     enterInterruptedState();
@@ -418,7 +425,7 @@ function attemptReconnectPoll() {
         // The background script already started polling for data.id in its analyze_link handler.
         currentRequestId = data.id;
         scanState = 'ANALYZING';
-        
+
         // Update UI to show we are back to analyzing
         const badge = currentPopupShadowRoot.querySelector('.badge');
         const logo = currentPopupShadowRoot.querySelector('.logo');
@@ -440,16 +447,16 @@ function attemptReconnectPoll() {
 function showReconnectingUI() {
   if (!isPopupValid()) return;
 
-  const badge  = currentPopupShadowRoot.querySelector('.badge');
+  const badge = currentPopupShadowRoot.querySelector('.badge');
   const header = currentPopupShadowRoot.querySelector('.header');
-  const logo   = currentPopupShadowRoot.querySelector('.logo');
+  const logo = currentPopupShadowRoot.querySelector('.logo');
 
   if (badge && header && logo) {
     // Popup already shows phase1 content — update header only
-    header.className    = 'header loading-header';
-    badge.className     = 'badge gray';
-    badge.textContent   = 'Reconnecting…';
-    logo.textContent    = 'VigilantLink: Waiting for backend…';
+    header.className = 'header loading-header';
+    badge.className = 'badge gray';
+    badge.textContent = 'Reconnecting…';
+    logo.textContent = 'VigilantLink: Waiting for backend…';
     logo.style.fontSize = '14px';
   } else {
     // Still in skeleton/loading state — rebuild as a minimal reconnect card
@@ -458,12 +465,12 @@ function showReconnectingUI() {
     const headerDiv = document.createElement('div');
     headerDiv.className = 'header loading-header';
     const logoDiv = document.createElement('div');
-    logoDiv.className   = 'logo';
+    logoDiv.className = 'logo';
     logoDiv.textContent = 'VigilantLink';
     logoDiv.style.fontSize = '14px';
     headerDiv.appendChild(logoDiv);
     const badgeDiv = document.createElement('div');
-    badgeDiv.className   = 'badge gray';
+    badgeDiv.className = 'badge gray';
     badgeDiv.textContent = 'Reconnecting…';
     headerDiv.appendChild(badgeDiv);
     currentPopupContent.appendChild(headerDiv);
@@ -483,27 +490,27 @@ function enterInterruptedState() {
   clearReconnectTimer();
   if (!isPopupValid()) return;
 
-  const badge  = currentPopupShadowRoot.querySelector('.badge');
+  const badge = currentPopupShadowRoot.querySelector('.badge');
   const header = currentPopupShadowRoot.querySelector('.header');
-  const logo   = currentPopupShadowRoot.querySelector('.logo');
+  const logo = currentPopupShadowRoot.querySelector('.logo');
 
   if (badge && header && logo) {
-    header.className  = 'header error-header';
-    badge.className   = 'badge gray';
+    header.className = 'header error-header';
+    badge.className = 'badge gray';
     badge.textContent = 'Scan Timed Out';
-    logo.textContent  = 'VigilantLink: Limited Protection';
+    logo.textContent = 'VigilantLink: Limited Protection';
     logo.style.fontSize = '14px';
   } else {
     currentPopupContent.textContent = '';
     const headerDiv = document.createElement('div');
     headerDiv.className = 'header error-header';
     const logoDiv = document.createElement('div');
-    logoDiv.className   = 'logo';
+    logoDiv.className = 'logo';
     logoDiv.textContent = 'VigilantLink: Limited Protection';
     logoDiv.style.fontSize = '14px';
     headerDiv.appendChild(logoDiv);
     const badgeDiv = document.createElement('div');
-    badgeDiv.className   = 'badge gray';
+    badgeDiv.className = 'badge gray';
     badgeDiv.textContent = 'Scan Timed Out';
     headerDiv.appendChild(badgeDiv);
     currentPopupContent.appendChild(headerDiv);
@@ -523,22 +530,22 @@ function finalizeReconnectCard(data) {
   if (!security) return;
 
   const { furl: final_url, hops: redirect_chain, ss: screenshot_base64,
-          t: title, d: description, img: preview_image_url } = data;
+    t: title, d: description, img: preview_image_url } = data;
 
   const verdictClass = security.v;
   let verdictText = security.safe ? 'Safe' : 'Suspicious';
   if (verdictClass === 'red') verdictText = 'Dangerous';
 
   // — 1. Update header in-place —
-  const badge  = currentPopupShadowRoot.querySelector('.badge');
+  const badge = currentPopupShadowRoot.querySelector('.badge');
   const header = currentPopupShadowRoot.querySelector('.header');
-  const logo   = currentPopupShadowRoot.querySelector('.logo');
+  const logo = currentPopupShadowRoot.querySelector('.logo');
 
   if (header && badge && logo) {
-    header.className    = `header ${verdictClass}-header`;
-    badge.className     = `badge ${verdictClass}`;
-    badge.textContent   = verdictText;
-    logo.textContent    = `Safety Score: ${100 - security.rs}/100`;
+    header.className = `header ${verdictClass}-header`;
+    badge.className = `badge ${verdictClass}`;
+    badge.textContent = verdictText;
+    logo.textContent = `Safety Score: ${100 - security.rs}/100`;
     logo.style.fontSize = '14px';
   } else {
     // Reconnect card lost its header nodes somehow — full rebuild
@@ -601,7 +608,7 @@ function finalizeReconnectCard(data) {
     img.style.display = 'none';
     img.alt = `Preview of ${final_url}`;
     img.onload = () => { screenshotContainer.textContent = ''; img.style.display = ''; screenshotContainer.appendChild(img); };
-    img.onerror = () => {};
+    img.onerror = () => { };
     img.src = displayImage;
   }
   bodyDiv.appendChild(screenshotContainer);
@@ -1049,7 +1056,7 @@ function updatePopupWithResult(data) {
       img.style.display = '';
       screenshotContainer.appendChild(img);
     };
-    img.onerror = () => {};
+    img.onerror = () => { };
     img.src = displayImage;
   }
 
@@ -1131,9 +1138,9 @@ function mergeDeepScanResult(data) {
 
   // --- Incremental patch path (popup already shows phase1 result) ---
 
-  const badge  = currentPopupShadowRoot.querySelector('.badge');
+  const badge = currentPopupShadowRoot.querySelector('.badge');
   const header = currentPopupShadowRoot.querySelector('.header');
-  const logo   = currentPopupShadowRoot.querySelector('.logo');
+  const logo = currentPopupShadowRoot.querySelector('.logo');
 
   if (header && badge && logo) {
     const verdictClass = security.v;
@@ -1200,7 +1207,7 @@ function mergeDeepScanResult(data) {
         img.style.display = '';
         container.appendChild(img);
       };
-      img.onerror = () => {};
+      img.onerror = () => { };
       img.src = data.ss;
     }
   }

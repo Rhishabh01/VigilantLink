@@ -76,6 +76,18 @@ function cancelRequest(tabId) {
 }
 
 async function analyzeTwoPhase(url, signal, tabId, generation) {
+  // --- Phase 1: Instant fetch ---
+  const phase1Response = await fetch(`${BACKEND_URL}/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+    signal
+  });
+
+  if (!phase1Response.ok) {
+    throw new Error(`Backend Error: ${phase1Response.statusText}`);
+  }
+
   const phase1Data = await phase1Response.json();
 
   // If we got a full cached result (s=2), we still honor the delay for the 'loading' feel
@@ -87,7 +99,7 @@ async function analyzeTwoPhase(url, signal, tabId, generation) {
   }
 
   const requestId = phase1Data.id;
-  
+
   // START Phase 2 polling immediately in the background!
   // This happens while the UI is still "loading".
   if (requestId) {
