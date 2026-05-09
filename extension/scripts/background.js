@@ -46,6 +46,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ success: true });
     return false;
   }
+
+  if (request.action === "resume_deep_scan") {
+    const { requestId, url } = request;
+    if (!tabId || !requestId || !url) {
+      sendResponse({ success: false });
+      return false;
+    }
+    // Cancel any stale poll before starting a fresh one
+    cancelRequest(tabId);
+    const generation = (requestGenerations.get(tabId) || 0) + 1;
+    requestGenerations.set(tabId, generation);
+    const controller = new AbortController();
+    activeRequests.set(tabId, { controller, generation });
+    // Resume phase2 polling only — no phase1 re-run
+    pollForDeepScanBackground(requestId, controller.signal, tabId, url, generation);
+    sendResponse({ success: true });
+    return false;
+  }
 });
 
 function cancelRequest(tabId) {
@@ -58,27 +76,30 @@ function cancelRequest(tabId) {
 }
 
 async function analyzeTwoPhase(url, signal, tabId, generation) {
-  // --- Phase 1: Instant fetch ---
-  const phase1Response = await fetch(`${BACKEND_URL}/analyze`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
-    signal
-  });
-
-  if (!phase1Response.ok) {
-    throw new Error(`Backend Error: ${phase1Response.statusText}`);
-  }
-
   const phase1Data = await phase1Response.json();
 
-  // If we got a full cached result (s=2), return immediately
+  // If we got a full cached result (s=2), we still honor the delay for the 'loading' feel
+  // before returning.
   if (phase1Data.s === 2) {
+    await new Promise(resolve => setTimeout(resolve, 2000));
     cleanupRequest(tabId, generation);
     return phase1Data;
   }
 
-  // Send Phase 1 result to content script immediately
+  const requestId = phase1Data.id;
+  
+  // START Phase 2 polling immediately in the background!
+  // This happens while the UI is still "loading".
+  if (requestId) {
+    pollForDeepScanBackground(requestId, signal, tabId, url, generation);
+  }
+
+  // NOW we apply the artificial delay for the "loading" feel
+  // only for the Phase 1 UI message.
+  await new Promise(resolve => setTimeout(resolve, 2000));
+  if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
+  // Send Phase 1 result to content script
   if (tabId) {
     try {
       chrome.tabs.sendMessage(tabId, {
@@ -90,16 +111,6 @@ async function analyzeTwoPhase(url, signal, tabId, generation) {
       // Tab may have closed
     }
   }
-
-  const requestId = phase1Data.id;
-  if (!requestId) {
-    cleanupRequest(tabId, generation);
-    return phase1Data;
-  }
-
-  // Return Phase 1 data immediately (shows ANALYZING in popup).
-  // Poll Phase 2 in background — result arrives via phase2_result message.
-  pollForDeepScanBackground(requestId, signal, tabId, url, generation);
 
   return phase1Data;
 }
@@ -114,12 +125,16 @@ function cleanupRequest(tabId, generation) {
 async function pollForDeepScanBackground(requestId, signal, tabId, url, generation) {
   try {
     const phase2Data = await pollForDeepScan(requestId, signal, BACKGROUND_POLL_MAX_MS);
-    // Only send if this generation is still current for this exact URL
+    // Check generation — but still send if the generation entry was cleaned up
+    // (can happen after a disconnect/reconnect). The content script is the
+    // authoritative staleness gatekeeper via currentAnalysisUrl / currentRequestId.
     const entry = activeRequests.get(tabId);
-    if (entry && entry.generation === generation && tabId) {
+    const generationOk = !entry || entry.generation === generation;
+    if (generationOk && tabId) {
       try {
         chrome.tabs.sendMessage(tabId, {
           action: "phase2_result",
+          requestId: requestId,   // forward so content.js can gate on it
           url: url,
           data: phase2Data
         });
@@ -161,6 +176,9 @@ async function pollForDeepScan(requestId, signal, timeoutMs = POLL_TIMEOUT_MS) {
         signal
       });
 
+      if (response.status === 404 || response.status === 410) {
+        throw new Error("Analysis session expired");
+      }
       if (!response.ok) continue;
 
       const data = await response.json();
@@ -171,7 +189,8 @@ async function pollForDeepScan(requestId, signal, timeoutMs = POLL_TIMEOUT_MS) {
       // s=0 → keep polling
     } catch (e) {
       if (e.name === 'AbortError') throw e;
-      // Network error — keep trying
+      if (e.message === "Analysis session expired") throw e;
+      // Network error — keep trying until timeoutMs
     }
   }
 
