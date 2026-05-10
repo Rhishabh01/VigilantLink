@@ -93,8 +93,15 @@ class BrowserPool:
         IMPORTANT: Caller should wrap with asyncio.shield() to prevent
         cancellation when the user's request is aborted.
         """
+        # Lazy-start: initialise Chromium on first use rather than at
+        # server startup (which would block the event loop for several
+        # seconds and cause Railway health-check timeouts).
+        if not self._started:
+            await self.start()
+
         if not self._context:
-            raise RuntimeError("BrowserPool not started")
+            raise RuntimeError("BrowserPool failed to start")
+
 
         async with self._semaphore:
             for attempt in range(2):

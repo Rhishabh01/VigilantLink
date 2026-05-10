@@ -4,6 +4,7 @@ import os
 import sys
 import warnings
 import time
+import time as _time
 from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -47,20 +48,25 @@ rate_limiter = SessionRateLimiter(capacity=10, leak_rate=2.0)
 async def root():
     return {"status": "running"}
 
-# ============================================================
-# Lifespan (replaces deprecated on_event)
-# ============================================================
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    await browser_pool.start()
+    # ── Startup ──────────────────────────────────────────────────────────
+    # NOTE: Chromium (BrowserPool) is intentionally NOT started here.
+    # Launching a browser at startup blocks the event loop for several
+    # seconds, causing Railway/health-check timeouts before the server
+    # is ready. Instead, browser_pool.start() is called lazily inside
+    # capture_screenshot() on first use.
+    t0 = _time.monotonic()
+    logger.info("[startup] Connecting to Redis (3s timeout)...")
     try:
-        await redis_cache.connect()
+        await asyncio.wait_for(redis_cache.connect(), timeout=3.0)
+    except asyncio.TimeoutError:
+        logger.warning("[startup] Redis connect timed out — running in no-cache mode")
     except Exception as e:
-        logger.warning(f"Redis connection failed, falling back to no-cache mode: {e}")
+        logger.warning(f"[startup] Redis connection failed — no-cache mode: {e}")
+    logger.info(f"[startup] Ready in {_time.monotonic() - t0:.2f}s")
     yield
-    # Shutdown
+    # ── Shutdown ─────────────────────────────────────────────────────────
     await browser_pool.stop()
     await redis_cache.close()
 
