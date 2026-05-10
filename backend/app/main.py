@@ -44,9 +44,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_cache = RedisCache(redis_url=REDIS_URL)
 rate_limiter = SessionRateLimiter(capacity=10, leak_rate=2.0)
 
-@app.get("/")
-async def root():
-    return {"status": "running"}
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -75,6 +73,10 @@ async def lifespan(app: FastAPI):
 # ============================================================
 
 app = FastAPI(title="VigilantLink Security API", lifespan=lifespan)
+
+@app.get("/")
+async def root():
+    return {"status": "VigilantLink backend running"}
 
 # Origin validation (relaxed for local dev)
 ALLOWED_EXTENSION_ID = os.getenv("EXTENSION_ID", "[MY_EXTENSION_ID]")
