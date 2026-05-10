@@ -208,6 +208,7 @@ async function pollForDeepScan(requestId, signal, timeoutMs = POLL_TIMEOUT_MS) {
       if (!response.ok) continue;
 
       const data = await response.json();
+      console.log("Poll data received:", data);
 
       if (data.s === 2) {
         console.log("Phase2 complete:", data);
