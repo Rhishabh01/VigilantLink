@@ -42,8 +42,9 @@ from ..core.constants import (
     DECEPTIVE_QUERY_PARAMS, SUSPICIOUS_HOSTED_PATHS, WEAK_SIGNAL_PATTERNS,
     GSB_THREAT_MIN_SCORES,
 )
+from ..core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("VigilantLink")
 
 
 # ============================================================
@@ -349,7 +350,7 @@ def compute_final_score(
     risk_score, _, _, reasons = compute_heuristic_score(
         heuristics, hops, final_url, dns_resolves, has_metadata, metadata, ssl_error
     )
-    print(f"[SCORING TRACE] {final_url} - Initial base score: {risk_score}")
+    logger.debug(f"[SCORING] {final_url[:50]}... - Initial base score: {risk_score}")
 
     # Phase 2 Signal: VirusTotal flags
     vendor_flags = external.get("vendor_flags", 0)
@@ -487,7 +488,7 @@ def compute_final_score(
             risk_score = round(risk_score * 0.85)
             reasons.append("Established popular domain")
             
-    print(f"[SCORING TRACE] {final_url} - After popularity dampening: {risk_score} (Popularity rank: {popularity}, Has Authoritative Threat: {has_authoritative_threat})")
+    logger.debug(f"[SCORING] {final_url[:50]}... - After popularity dampening: {risk_score} (Popularity rank: {popularity}, Has Authoritative Threat: {has_authoritative_threat})")
             
     # Uncertainty penalty for timed-out sources
     ssl_uncertain = external.get("ssl_timed_out", False)
@@ -515,12 +516,12 @@ def compute_final_score(
 
     # Google Safe Browsing Scoring
     gsb_threat_type = external.get("gsb_threat_type")
-    print(f"[SCORING TRACE] {final_url} - GSB result: matched={bool(gsb_threats)}, type={gsb_threat_type}")
+    logger.debug(f"[SCORING] {final_url[:50]}... - GSB result: matched={bool(gsb_threats)}, type={gsb_threat_type}")
     if gsb_threats and gsb_threat_type:
         min_score = GSB_THREAT_MIN_SCORES.get(gsb_threat_type, 90)
         risk_score = max(risk_score, min_score)
         reasons.append(f"CRITICAL: Flagged by Google Safe Browsing ({', '.join(gsb_threats)})")
-        print(f"[SCORING TRACE] {final_url} - After GSB override: {risk_score}")
+        logger.debug(f"[SCORING] {final_url[:50]}... - After GSB override: {risk_score}")
 
     # Trusted platform calibration: dampen weak/noisy signals
     if is_trusted_platform:
@@ -540,7 +541,7 @@ def compute_final_score(
             ]
 
     capped_score = min(risk_score, 100)
-    print(f"[SCORING TRACE] {final_url} - After trusted platform cap: {capped_score} (Is Trusted Platform: {is_trusted_platform})")
+    logger.debug(f"[SCORING] {final_url[:50]}... - After trusted platform cap: {capped_score} (Is Trusted Platform: {is_trusted_platform})")
 
     is_safe = True
     verdict = "green"
@@ -583,7 +584,7 @@ def compute_final_score(
         if show_uncertainty:
             reasons.append(f"Uncertainty penalty (+{penalty}): {timed_out_count}/5 sources timed out")
 
-    print(f"[SCORING TRACE] {final_url} - Final Verdict: {verdict}, Safe: {is_safe}, Final Score: {capped_score}")
+    logger.debug(f"[SCORING] {final_url[:50]}... - Final Verdict: {verdict}, Safe: {is_safe}, Final Score: {capped_score}")
     return capped_score, verdict, is_safe, reasons
 
 
@@ -622,7 +623,7 @@ async def run_phase1(url: str) -> Dict[str, Any]:
         final_domain = final_domain.split(':')[0]
         
     if domain_to_check != final_domain:
-        logger.info(f"Domain changed during redirect, re-fetching metadata and DNS for {final_url}")
+        logger.debug(f"[PHASE1] Domain changed during redirect, re-fetching metadata for {final_domain}")
         async with asyncio.TaskGroup() as tg2:
             meta_task2 = tg2.create_task(fetch_metadata(final_url))
             dns_task2 = tg2.create_task(check_dns(final_domain))
@@ -700,7 +701,7 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             timeout=3.0  # Hard limit for entire Phase 2
         )
     except asyncio.TimeoutError:
-        logger.debug(f"Phase 2 external scans timed out for {root_domain}")
+        logger.warning(f"[PHASE2] External scans timed out for {root_domain}")
         external = {
             "ssl_cert_age_days": None,
             "domain_age_days": None,
@@ -720,15 +721,15 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
 
     # Concise structured logging for timeouts - use debug level to reduce noise
     if external.get("ssl_timed_out"):
-        logger.debug(f"SSL cert age timeout: {root_domain}")
+        logger.debug(f"[PHASE2] SSL cert age timeout: {root_domain}")
     if external.get("vt_timed_out"):
-        logger.debug(f"VT timeout: {root_domain}")
+        logger.debug(f"[PHASE2] VT timeout: {root_domain}")
     if external.get("gsb_timed_out"):
-        logger.debug(f"GSB timeout: {root_domain}")
+        logger.debug(f"[PHASE2] GSB timeout: {root_domain}")
     if external.get("rdap_timed_out"):
-        logger.debug(f"RDAP timeout: {root_domain}")
+        logger.debug(f"[PHASE2] RDAP timeout: {root_domain}")
     if external.get("cf_timed_out"):
-        logger.debug(f"Cloudflare timeout: {root_domain}")
+        logger.debug(f"[PHASE2] Cloudflare timeout: {root_domain}")
 
     # Compute final weighted score with uncertainty
     risk_score, verdict, is_safe, reasons = compute_final_score(

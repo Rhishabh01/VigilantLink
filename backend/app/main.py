@@ -1,16 +1,15 @@
 import asyncio
-import logging
 import os
 import sys
-import warnings
 import time
-import time as _time
 from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
+
+from .core.logging import setup_logging, get_logger
 
 from .models import AnalyzeRequest
 from .services.orchestrator import (
@@ -22,19 +21,9 @@ from .services.request_collapser import request_collapser
 from .middleware.rate_limiter import SessionRateLimiter
 from .core.constants import SCREENSHOT_TIMEOUT_S
 
-# Fix for Windows ProactorEventLoop requirement for Playwright/Subprocesses
-if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-
-# Suppress noisy Windows connection reset errors
-def suppress_connection_reset() -> None:
-    if sys.platform == 'win32':
-        warnings.filterwarnings('ignore', category=ResourceWarning)
-        logging.getLogger('asyncio').setLevel(logging.CRITICAL)
-
-suppress_connection_reset()
-
-logger = logging.getLogger(__name__)
+# Standardized Logging
+setup_logging()
+logger = get_logger("VigilantLink")
 
 # ============================================================
 # Globals
@@ -54,15 +43,15 @@ async def lifespan(app: FastAPI):
     # seconds, causing Railway/health-check timeouts before the server
     # is ready. Instead, browser_pool.start() is called lazily inside
     # capture_screenshot() on first use.
-    t0 = _time.monotonic()
-    logger.info("[startup] Connecting to Redis (3s timeout)...")
+    t0 = time.monotonic()
+    logger.info("[STARTUP] Connecting to Redis...")
     try:
         await asyncio.wait_for(redis_cache.connect(), timeout=3.0)
     except asyncio.TimeoutError:
-        logger.warning("[startup] Redis connect timed out — running in no-cache mode")
+        logger.warning("[STARTUP] Redis connect timed out — running in no-cache mode")
     except Exception as e:
-        logger.warning(f"[startup] Redis connection failed — no-cache mode: {e}")
-    logger.info(f"[startup] Ready in {_time.monotonic() - t0:.2f}s")
+        logger.warning(f"[STARTUP] Redis connection failed — no-cache mode: {e}")
+    logger.info(f"[STARTUP] Initialization ready in {time.monotonic() - t0:.2f}s")
     yield
     # ── Shutdown ─────────────────────────────────────────────────────────
     await browser_pool.stop()
@@ -140,7 +129,7 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
         # Check Redis full cache first — return complete result instantly
         cached_full = await redis_cache.get_full(canonical)
         if cached_full:
-            logger.info(f"Full cache hit for {canonical[:60]}")
+            logger.info(f"[RESULT] Full cache hit: {canonical[:50]}...")
             return cached_full
 
         # Check partial cache — return stage 1 instantly + re-trigger phase 2
@@ -155,7 +144,7 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
             phase1_raw = cached_partial.get("_phase1_raw")
             if phase1_raw is None:
                 # Stale cache from old extension version — re-run Phase 1
-                logger.info(f"Re-running Phase 1 for stale cache entry: {canonical[:60]}")
+                logger.info(f"[PHASE1] Re-running for stale cache entry: {canonical[:50]}...")
                 phase1_raw = await run_phase1(url_str)
             asyncio.create_task(
                 _run_phase2_background(request_id, canonical, phase1_raw)
@@ -210,9 +199,7 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
         return stage1_response
 
     except Exception as e:
-        import traceback
-        logger.error(f"ANALYZE ERROR: {str(e)}")
-        traceback.print_exc()
+        logger.exception(f"[ERROR] Analyze failed: {str(e)}")
         raise
 
 
@@ -228,11 +215,10 @@ async def get_deep_result(request_id: str) -> dict:
     """
     result = await redis_cache.get_pending(request_id)
     if result:
-        print(f"[POLL] Found result for {request_id}: s={result.get('s')}")
+        # Reduced noise: only log if we actually found something to return
+        logger.debug(f"[POLL] Deep result ready for {request_id}")
         return result
     
-    # Log periodically or for specific debug
-    # print(f"[POLL] No result yet for {request_id}")
     return {"s": 0, "id": request_id}
 
 
@@ -242,7 +228,7 @@ async def _run_phase2_background(
     """
     Background task: runs Phase 2 deep scans and stores result for polling.
     """
-    print(f"[PHASE2] Started: {request_id}")
+    logger.info(f"[PHASE2] Background scan started: {request_id}")
     stage2_response = None
     try:
         phase2 = await run_phase2(canonical_url, phase1)
@@ -258,7 +244,7 @@ async def _run_phase2_background(
         redirect_depth = len(phase1.get("hops", []))
 
         if needs_screenshot(metadata, risk_score, ssl_age, vendor_flags, redirect_depth):
-            print(f"[PHASE2] Launching browser: {final_url}")
+            logger.info(f"[PHASE2] Launching browser for screenshot: {final_url[:50]}...")
             try:
                 screenshot_base64 = await asyncio.shield(
                     asyncio.wait_for(
@@ -266,9 +252,9 @@ async def _run_phase2_background(
                         timeout=SCREENSHOT_TIMEOUT_S,
                     )
                 )
-                print(f"[PHASE2] Browser completed")
+                logger.debug(f"[PHASE2] Screenshot captured")
             except Exception as e:
-                logger.warning(f"Phase 3 screenshot failed for {final_url}: {e}")
+                logger.warning(f"[PHASE2] Screenshot failed: {e}")
 
         # Build complete stage 2 response
         sec2 = phase2["security"]
@@ -302,12 +288,10 @@ async def _run_phase2_background(
 
         # Cache results
         await redis_cache.set_full(canonical_url, stage2_response)
-        logger.info(f"Phase 2 complete for {canonical_url[:60]}")
+        logger.info(f"[PHASE2] Deep scan complete for {canonical_url[:50]}...")
 
     except Exception as e:
-        import traceback
-        print("[PHASE2 ERROR]", str(e))
-        traceback.print_exc()
+        logger.exception(f"[ERROR] Phase 2 failed: {str(e)}")
         
         # Build failure fallback so polling doesn't hang — use Phase 1 data
         sec1 = phase1.get("security", {})
@@ -341,9 +325,8 @@ async def _run_phase2_background(
         }
     finally:
         if stage2_response:
-            print(f"[PHASE2] Saving final result to pending")
+            logger.debug(f"[PHASE2] Saving result to pending: {request_id}")
             await redis_cache.set_pending(request_id, stage2_response)
-            print(f"[PHASE2] Completed background task")
 
 
 

@@ -25,8 +25,9 @@ from ..core.constants import (
 )
 from .rdap_client import fetch_domain_age_rdap
 from .cloudflare_radar import fetch_domain_popularity
+from ..core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("VigilantLink")
 
 
 def levenshtein_distance(s1: str, s2: str) -> int:
@@ -167,11 +168,11 @@ async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
             response = await client.get(url, headers=headers)
 
             if response.status_code == 429:
-                logger.warning(f"VirusTotal rate limit hit for {domain}")
+                logger.warning(f"[VT] Rate limit hit for {domain[:30]}...")
                 return 0, 70
 
             if response.status_code != 200:
-                logger.warning(f"VirusTotal API returned {response.status_code} for {domain}")
+                logger.debug(f"[VT] API returned {response.status_code} for {domain[:30]}...")
                 return 0, 70
 
             data = response.json()
@@ -182,14 +183,14 @@ async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
             return (malicious + suspicious), total
 
     except httpx.TimeoutException:
-        logger.warning(f"VirusTotal request timed out for {domain}")
+        logger.debug(f"[VT] Request timed out for {domain[:30]}...")
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 429:
-            logger.warning(f"VirusTotal rate limit hit for {domain}")
+            logger.warning(f"[VT] Rate limit hit for {domain[:30]}...")
         else:
-            logger.error(f"VirusTotal HTTP error for {domain}: {e}")
+            logger.error(f"[VT] HTTP error for {domain[:30]}...: {e}")
     except Exception as e:
-        logger.error(f"VirusTotal fetch failed for {domain}: {e}")
+        logger.error(f"[VT] Fetch failed for {domain[:30]}...: {e}")
 
     return 0, 70
 
@@ -236,11 +237,11 @@ async def check_google_safe_browsing(url: str) -> List[str]:
             )
 
             if response.status_code == 429:
-                logger.warning(f"Google Safe Browsing rate limit hit for {normalized}")
+                logger.warning(f"[GSB] Rate limit hit")
                 return []
 
             if response.status_code != 200:
-                logger.warning(f"Google Safe Browsing API returned {response.status_code} for {normalized}")
+                logger.debug(f"[GSB] API returned {response.status_code}")
                 return []
 
             data = response.json()
@@ -249,9 +250,9 @@ async def check_google_safe_browsing(url: str) -> List[str]:
             return list(dict.fromkeys([t for t in threats if t]))
 
     except httpx.TimeoutException:
-        logger.warning(f"Google Safe Browsing request timed out for {normalized}")
+        logger.debug(f"[GSB] Request timed out")
     except Exception as e:
-        logger.warning(f"Google Safe Browsing check failed for {normalized}: {e}")
+        logger.error(f"[GSB] Check failed: {e}")
 
     return []
 

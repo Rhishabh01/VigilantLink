@@ -13,10 +13,10 @@ import logging
 from typing import Optional
 
 from playwright.async_api import async_playwright, Browser, BrowserContext
-
 from ..core.constants import MAX_CONCURRENT_SCREENSHOTS
+from ..core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("VigilantLink")
 
 PAGE_TIMEOUT_MS: int = 15000
 RENDER_WAIT_MS: int = 500
@@ -43,7 +43,7 @@ class BrowserPool:
     async def start(self) -> None:
         if self._started:
             return
-        logger.info(f"Starting BrowserPool (max_concurrent={MAX_CONCURRENT_SCREENSHOTS})")
+        logger.info(f"[BROWSER] Starting pool (max_concurrent={MAX_CONCURRENT_SCREENSHOTS})")
         self._playwright = await async_playwright().start()
         self._browser = await self._playwright.chromium.launch(
             headless=True,
@@ -58,7 +58,7 @@ class BrowserPool:
         self._started = True
 
     async def stop(self) -> None:
-        logger.info("Stopping BrowserPool...")
+        logger.info("[BROWSER] Stopping pool...")
         if self._context:
             await self._context.close()
         if self._browser:
@@ -74,8 +74,8 @@ class BrowserPool:
             try:
                 await page.goto(url, timeout=PAGE_TIMEOUT_MS, wait_until="domcontentloaded")
             except Exception as e:
-                logger.warning(
-                    f"Navigation issue or timeout for {url}: {e}. "
+                logger.debug(
+                    f"[BROWSER] Navigation issue for {url[:50]}...: {e}. "
                     "Capturing whatever loaded."
                 )
             await page.wait_for_timeout(RENDER_WAIT_MS)
@@ -112,9 +112,9 @@ class BrowserPool:
                         return result
                 except Exception as e:
                     if attempt == 0:
-                        logger.warning(f"Screenshot attempt 1 failed for {url}: {e}. Retrying...")
+                        logger.warning(f"[BROWSER] Screenshot attempt 1 failed for {url[:50]}...: {e}. Retrying...")
                     else:
-                        logger.warning(f"Screenshot failed for {url}: {e}")
+                        logger.error(f"[BROWSER] Screenshot failed for {url[:50]}...: {e}")
                         return None
             return None
 
