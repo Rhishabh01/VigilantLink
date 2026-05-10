@@ -2,10 +2,10 @@
 // Phase 1: Instant analysis (POST /analyze) — returned immediately
 // Phase 2: Deep scan polling (GET /analyze/deep/{request_id}) — background poll
 
-const BACKEND_URL = "http://127.0.0.1:8000";
+const BACKEND_URL = "https://extension-production-4bd4.up.railway.app";
 const POLL_INTERVAL_MS = 400;
-const POLL_TIMEOUT_MS = 3000;
-const BACKGROUND_POLL_MAX_MS = 10000;
+const POLL_TIMEOUT_MS = 8000;
+const BACKGROUND_POLL_MAX_MS = 30000;
 
 // Track active requests per tab with generation counter to prevent stale cleanup
 const activeRequests = new Map();
