@@ -242,6 +242,7 @@ async def _run_phase2_background(
     Also triggers Phase 3 screenshot if gatekeeper conditions are met.
     Uses asyncio.shield() so Playwright completes even if request is cancelled.
     """
+    print(f"[PHASE2] Started: {request_id}")
     try:
         phase2 = await run_phase2(canonical_url, phase1)
 
@@ -257,6 +258,7 @@ async def _run_phase2_background(
 
         if needs_screenshot(metadata, risk_score, ssl_age, vendor_flags, redirect_depth):
             # shield() ensures Playwright completes even if caller is cancelled
+            print(f"[PHASE2] Launching browser: {final_url}")
             try:
                 screenshot_base64 = await asyncio.shield(
                     asyncio.wait_for(
@@ -264,6 +266,7 @@ async def _run_phase2_background(
                         timeout=SCREENSHOT_TIMEOUT_S,
                     )
                 )
+                print(f"[PHASE2] Browser completed")
             except asyncio.CancelledError:
                 logger.info(f"Request cancelled but screenshot shielded for {final_url}")
             except Exception as e:
@@ -298,12 +301,14 @@ async def _run_phase2_background(
                 "gsb": sec2.get("gsb_matched", False),
                 "gsbt": sec2.get("gsb_threat_type", None),
             },
-            "ms": phase2["duration_ms"],
+            "ms": phase1["duration_ms"] + phase2["duration_ms"],
         }
 
         # Store in pending cache (for polling) and full cache (for re-hover)
-        await redis_cache.set_pending(request_id, stage2_response)
+        print(f"[PHASE2] Saving final result")
         await redis_cache.set_full(canonical_url, stage2_response)
+        await redis_cache.set_pending(request_id, stage2_response)
+        print(f"[PHASE2] Completed successfully")
 
         logger.info(
             f"Phase 2 complete for {canonical_url[:60]} in {phase2['duration_ms']}ms "
@@ -311,6 +316,9 @@ async def _run_phase2_background(
         )
 
     except Exception as e:
+        import traceback
+        print("[PHASE2 ERROR]", str(e))
+        traceback.print_exc()
         logger.error(f"Phase 2 background task failed for {canonical_url}: {e}")
         # Store a fallback result so polling doesn't hang forever
         sec1 = phase1.get("security", {})

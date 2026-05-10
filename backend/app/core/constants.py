@@ -77,7 +77,7 @@ PHASE1_DEADLINE_S: float = 0.5      # Phase 1 target
 SSL_CERT_TIMEOUT_S: float = 1.2     # SSL Certificate inspection budget
 VT_TIMEOUT_S: float = 1.5           # VirusTotal sub-task budget
 GSB_TIMEOUT_S: float = 1.8          # Google Safe Browsing sub-task budget
-SCREENSHOT_TIMEOUT_S: float = 5.0   # Playwright screenshot budget
+SCREENSHOT_TIMEOUT_S: float = 15.0   # Playwright screenshot budget
 GSB_API_URL = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
 
 # ============================================================

@@ -18,7 +18,7 @@ from ..core.constants import MAX_CONCURRENT_SCREENSHOTS
 
 logger = logging.getLogger(__name__)
 
-PAGE_TIMEOUT_MS: int = 7000
+PAGE_TIMEOUT_MS: int = 15000
 RENDER_WAIT_MS: int = 500
 
 SCREENSHOT_USER_AGENT = (
@@ -69,6 +69,7 @@ class BrowserPool:
 
     async def _capture_one(self, url: str) -> Optional[str]:
         page = await self._context.new_page()
+        page.set_default_timeout(PAGE_TIMEOUT_MS)
         try:
             try:
                 await page.goto(url, timeout=PAGE_TIMEOUT_MS, wait_until="domcontentloaded")
