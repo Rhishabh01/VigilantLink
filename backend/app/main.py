@@ -241,10 +241,9 @@ async def _run_phase2_background(
 ) -> None:
     """
     Background task: runs Phase 2 deep scans and stores result for polling.
-    Also triggers Phase 3 screenshot if gatekeeper conditions are met.
-    Uses asyncio.shield() so Playwright completes even if request is cancelled.
     """
     print(f"[PHASE2] Started: {request_id}")
+    stage2_response = None
     try:
         phase2 = await run_phase2(canonical_url, phase1)
 
@@ -259,7 +258,6 @@ async def _run_phase2_background(
         redirect_depth = len(phase1.get("hops", []))
 
         if needs_screenshot(metadata, risk_score, ssl_age, vendor_flags, redirect_depth):
-            # shield() ensures Playwright completes even if caller is cancelled
             print(f"[PHASE2] Launching browser: {final_url}")
             try:
                 screenshot_base64 = await asyncio.shield(
@@ -269,25 +267,21 @@ async def _run_phase2_background(
                     )
                 )
                 print(f"[PHASE2] Browser completed")
-            except asyncio.CancelledError:
-                logger.info(f"Request cancelled but screenshot shielded for {final_url}")
             except Exception as e:
                 logger.warning(f"Phase 3 screenshot failed for {final_url}: {e}")
 
         # Build complete stage 2 response
-        metadata = metadata or {}
         sec2 = phase2["security"]
-        
-        stage2_response: Dict[str, Any] = {
+        stage2_response = {
             "s": 2,
             "id": request_id,
             "url": canonical_url,
             "furl": final_url,
             "hops": [{"u": h["url"], "c": h["status_code"]} for h in phase1["hops"]],
-            "t": metadata.get("title"),
-            "d": metadata.get("description"),
-            "img": metadata.get("image_url"),
-            "fav": metadata.get("favicon_url"),
+            "t": (metadata or {}).get("title"),
+            "d": (metadata or {}).get("description"),
+            "img": (metadata or {}).get("image_url"),
+            "fav": (metadata or {}).get("favicon_url"),
             "ss": screenshot_base64,
             "sec": {
                 "safe": sec2["is_safe"],
@@ -306,51 +300,38 @@ async def _run_phase2_background(
             "ms": phase1["duration_ms"] + phase2["duration_ms"],
         }
 
-        # Store in pending cache (for polling) and full cache (for re-hover)
-        print(f"[PHASE2] Saving final result")
+        # Cache results
         await redis_cache.set_full(canonical_url, stage2_response)
-        await redis_cache.set_pending(request_id, stage2_response)
-        print(f"[PHASE2] Completed successfully")
-
-        logger.info(
-            f"Phase 2 complete for {canonical_url[:60]} in {phase2['duration_ms']}ms "
-            f"(score={risk_score}, verdict={phase2['security']['verdict']})"
-        )
+        logger.info(f"Phase 2 complete for {canonical_url[:60]}")
 
     except Exception as e:
         import traceback
         print("[PHASE2 ERROR]", str(e))
         traceback.print_exc()
-        logger.error(f"Phase 2 background task failed for {canonical_url}: {e}")
-        # Store a fallback result so polling doesn't hang forever
+        
+        # Build failure fallback so polling doesn't hang
         sec1 = phase1.get("security", {})
-        await redis_cache.set_pending(request_id, {
+        stage2_response = {
             "s": 2,
             "id": request_id,
             "url": canonical_url,
             "furl": phase1.get("final_url", canonical_url),
             "hops": [{"u": h["url"], "c": h["status_code"]} for h in phase1.get("hops", [])],
-            "t": None,
-            "d": None,
-            "img": None,
-            "fav": None,
             "ss": None,
             "sec": {
                 "safe": sec1.get("is_safe", True),
                 "v": sec1.get("verdict", "green"),
                 "rs": sec1.get("risk_score", 0),
-                "tt": sec1.get("threat_type"),
                 "vf": sec1.get("vendor_flags", 0),
-                "tv": sec1.get("total_vendors", 0),
-                "age": sec1.get("ssl_cert_age_days"),
-                "sr": sec1.get("suspicious_redirects", False),
-                "ts": sec1.get("typosquatting_detected", False),
-                "r": sec1.get("reasons", ["Deep scan failed — showing heuristic result only"]),
-                "gsb": False,
-                "gsbt": None,
             },
             "ms": 0,
-        })
+        }
+    finally:
+        if stage2_response:
+            print(f"[PHASE2] Saving final result to pending")
+            await redis_cache.set_pending(request_id, stage2_response)
+            print(f"[PHASE2] Completed background task")
+
 
 
 # ============================================================
