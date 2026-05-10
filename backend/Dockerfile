@@ -1,5 +1,5 @@
 # Use the official Microsoft Playwright image with Python
-FROM mcr.microsoft.com/playwright/python:v1.43.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.48.0-jammy
 
 # Set environment variables for production
 ENV PYTHONDONTWRITEBYTECODE 1
@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Ensure playwright chromium is installed
 RUN playwright install chromium
-
+RUN python --version
 # Copy the application code
 COPY . .
 
