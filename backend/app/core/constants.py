@@ -20,6 +20,8 @@ SSL_CERT_VERY_NEW_DAYS = 2
 SSL_CERT_NEW_DAYS = 10
 SSL_CERT_RECENT_DAYS = 30
 SSL_CERT_YOUNG_DAYS = 90
+NEWLY_REGISTERED_DAYS = 14
+RECENTLY_REGISTERED_DAYS = 90
 MAX_REDIRECT_HOPS_FREE = 3
 SEVERE_VENDOR_FLAGS_THRESHOLD = 5
 
@@ -51,12 +53,16 @@ SSL_CERT_VERY_NEW_PENALTY = 30      # < 1 day
 SSL_CERT_NEW_PENALTY = 18           # < 10 days
 SSL_CERT_RECENT_PENALTY = 10        # < 30 days
 SSL_CERT_YOUNG_PENALTY = 4          # < 90 days
+NEWLY_REGISTERED_PENALTY = 50       # < 14 days
+RECENTLY_REGISTERED_PENALTY = 20    # < 90 days
 
 # Weights — multipliers for each signal category
 WEIGHT_HEURISTIC: float = 1.0       # Phase 1 signals at full weight
 WEIGHT_SSL_AGE: float = 1.0         # SSL certificate age multiplier
 WEIGHT_VT: float = 1.0              # VirusTotal vendor flags multiplier
 WEIGHT_REDIRECT_DEPTH: float = 1.0  # Redirect chain penalty multiplier
+WEIGHT_RDAP_AGE: float = 1.0        # RDAP domain age multiplier
+WEIGHT_CLOUDFLARE: float = 1.0      # Cloudflare Radar popularity multiplier
 
 # Uncertainty penalty when external sources timeout (Task 2.4)
 # Formula: U = UNCERTAINTY_PENALTY × (timed_out_sources / total_sources)
@@ -76,6 +82,8 @@ GLOBAL_DEADLINE_S: float = 2.0      # Total budget for Phase 1 + Phase 2
 PHASE1_DEADLINE_S: float = 0.5      # Phase 1 target
 SSL_CERT_TIMEOUT_S: float = 1.2     # SSL Certificate inspection budget
 VT_TIMEOUT_S: float = 1.5           # VirusTotal sub-task budget
+RDAP_TIMEOUT_S: float = 1.2         # RDAP sub-task budget
+CLOUDFLARE_TIMEOUT_S: float = 1.0    # Cloudflare Radar budget
 GSB_TIMEOUT_S: float = 1.8          # Google Safe Browsing sub-task budget
 SCREENSHOT_TIMEOUT_S: float = 15.0   # Playwright screenshot budget
 GSB_API_URL = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
