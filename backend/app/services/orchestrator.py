@@ -487,7 +487,7 @@ def compute_final_score(
             risk_score = round(risk_score * 0.85)
             reasons.append("Established popular domain")
             
-    print(f"[SCORING TRACE] {canonical_url} - After popularity dampening: {risk_score} (Popularity rank: {popularity}, Has Authoritative Threat: {has_authoritative_threat})")
+    print(f"[SCORING TRACE] {final_url} - After popularity dampening: {risk_score} (Popularity rank: {popularity}, Has Authoritative Threat: {has_authoritative_threat})")
             
     # Uncertainty penalty for timed-out sources
     ssl_uncertain = external.get("ssl_timed_out", False)
@@ -515,12 +515,12 @@ def compute_final_score(
 
     # Google Safe Browsing Scoring
     gsb_threat_type = external.get("gsb_threat_type")
-    print(f"[SCORING TRACE] {canonical_url} - GSB result: matched={bool(gsb_threats)}, type={gsb_threat_type}")
+    print(f"[SCORING TRACE] {final_url} - GSB result: matched={bool(gsb_threats)}, type={gsb_threat_type}")
     if gsb_threats and gsb_threat_type:
         min_score = GSB_THREAT_MIN_SCORES.get(gsb_threat_type, 90)
         risk_score = max(risk_score, min_score)
         reasons.append(f"CRITICAL: Flagged by Google Safe Browsing ({', '.join(gsb_threats)})")
-        print(f"[SCORING TRACE] {canonical_url} - After GSB override: {risk_score}")
+        print(f"[SCORING TRACE] {final_url} - After GSB override: {risk_score}")
 
     # Trusted platform calibration: dampen weak/noisy signals
     if is_trusted_platform:
@@ -540,7 +540,7 @@ def compute_final_score(
             ]
 
     capped_score = min(risk_score, 100)
-    print(f"[SCORING TRACE] {canonical_url} - After trusted platform cap: {capped_score} (Is Trusted Platform: {is_trusted_platform})")
+    print(f"[SCORING TRACE] {final_url} - After trusted platform cap: {capped_score} (Is Trusted Platform: {is_trusted_platform})")
 
     is_safe = True
     verdict = "green"
@@ -583,7 +583,7 @@ def compute_final_score(
         if show_uncertainty:
             reasons.append(f"Uncertainty penalty (+{penalty}): {timed_out_count}/5 sources timed out")
 
-    print(f"[SCORING TRACE] {canonical_url} - Final Verdict: {verdict}, Safe: {is_safe}, Final Score: {capped_score}")
+    print(f"[SCORING TRACE] {final_url} - Final Verdict: {verdict}, Safe: {is_safe}, Final Score: {capped_score}")
     return capped_score, verdict, is_safe, reasons
 
 
