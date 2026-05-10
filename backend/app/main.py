@@ -43,6 +43,10 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_cache = RedisCache(redis_url=REDIS_URL)
 rate_limiter = SessionRateLimiter(capacity=10, leak_rate=2.0)
 
+@app.get("/")
+async def root():
+    return {"status": "running"}
+
 # ============================================================
 # Lifespan (replaces deprecated on_event)
 # ============================================================
