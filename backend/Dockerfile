@@ -4,7 +4,6 @@ FROM mcr.microsoft.com/playwright/python:v1.43.0-jammy
 # Set environment variables for production
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
-ENV PORT 8000
 
 # Set work directory
 WORKDIR /app
