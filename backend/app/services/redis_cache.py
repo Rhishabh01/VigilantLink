@@ -27,9 +27,9 @@ HARD_TTL_S: int = 3600      # 1 hour — Redis auto-expires
 SOFT_TTL_S: int = 600       # 10 min — triggers background refresh
 PARTIAL_TTL_S: int = 300    # 5 min for stage-1 partials
 PENDING_TTL_S: int = 300    # 5 min for in-flight deep scan results
-KEY_PREFIX: str = "vl:report:"
-PENDING_PREFIX: str = "vl:pending:"
-REFRESH_LOCK_PREFIX: str = "vl:refresh_lock:"
+KEY_PREFIX: str = "vl:report:v2:"
+PENDING_PREFIX: str = "vl:pending:v2:"
+REFRESH_LOCK_PREFIX: str = "vl:refresh_lock:v2:"
 
 # Fields that are JSON-encoded lists/dicts in Redis
 _JSON_FIELDS = frozenset({"hops", "sec"})
