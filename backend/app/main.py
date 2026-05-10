@@ -309,22 +309,35 @@ async def _run_phase2_background(
         print("[PHASE2 ERROR]", str(e))
         traceback.print_exc()
         
-        # Build failure fallback so polling doesn't hang
+        # Build failure fallback so polling doesn't hang — use Phase 1 data
         sec1 = phase1.get("security", {})
+        metadata = phase1.get("metadata") or {}
         stage2_response = {
             "s": 2,
             "id": request_id,
             "url": canonical_url,
             "furl": phase1.get("final_url", canonical_url),
             "hops": [{"u": h["url"], "c": h["status_code"]} for h in phase1.get("hops", [])],
+            "t": metadata.get("title"),
+            "d": metadata.get("description"),
+            "img": metadata.get("image_url"),
+            "fav": metadata.get("favicon_url"),
             "ss": None,
             "sec": {
                 "safe": sec1.get("is_safe", True),
                 "v": sec1.get("verdict", "green"),
                 "rs": sec1.get("risk_score", 0),
+                "tt": sec1.get("threat_type"),
                 "vf": sec1.get("vendor_flags", 0),
+                "tv": sec1.get("total_vendors", 0),
+                "age": sec1.get("ssl_cert_age_days"),
+                "sr": sec1.get("suspicious_redirects", False),
+                "ts": sec1.get("typosquatting_detected", False),
+                "r": sec1.get("reasons", []) + ["Deep scan unavailable — showing preliminary result"],
+                "gsb": False,
+                "gsbt": None,
             },
-            "ms": 0,
+            "ms": phase1.get("duration_ms", 0),
         }
     finally:
         if stage2_response:
