@@ -3,8 +3,8 @@
 // Phase 2: Deep scan polling (GET /analyze/deep/{request_id}) — background poll
 
 const BACKEND_URL = "https://extension-production-4bd4.up.railway.app";
-const POLL_INTERVAL_MS = 400;
-const POLL_TIMEOUT_MS = 8000;
+const POLL_INTERVAL_MS = 1000;
+const POLL_TIMEOUT_MS = 15000;
 const BACKGROUND_POLL_MAX_MS = 30000;
 
 // Track active requests per tab with generation counter to prevent stale cleanup
@@ -93,7 +93,6 @@ async function analyzeTwoPhase(url, signal, tabId, generation) {
   // If we got a full cached result (s=2), we still honor the delay for the 'loading' feel
   // before returning.
   if (phase1Data.s === 2) {
-    await new Promise(resolve => setTimeout(resolve, 2000));
     cleanupRequest(tabId, generation);
     return phase1Data;
   }
@@ -106,9 +105,6 @@ async function analyzeTwoPhase(url, signal, tabId, generation) {
     pollForDeepScanBackground(requestId, signal, tabId, url, generation);
   }
 
-  // NOW we apply the artificial delay for the "loading" feel
-  // only for the Phase 1 UI message.
-  await new Promise(resolve => setTimeout(resolve, 2000));
   if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
   // Send Phase 1 result to content script
