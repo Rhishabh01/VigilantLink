@@ -74,6 +74,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+async def root() -> dict:
+    """Lightweight root endpoint for platform health checks."""
+    return {"status": "VigilantLink backend running"}
+
+
 # ============================================================
 # Phase 1: Instant Analysis (≤500ms)
 # ============================================================
