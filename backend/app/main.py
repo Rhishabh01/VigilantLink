@@ -225,12 +225,14 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
 async def get_deep_result(request_id: str) -> dict:
     """
     Poll endpoint for Phase 2 deep scan results.
-    Returns s=0 if not yet complete.
-    Returns s=2 with full security data when ready.
     """
     result = await redis_cache.get_pending(request_id)
     if result:
+        print(f"[POLL] Found result for {request_id}: s={result.get('s')}")
         return result
+    
+    # Log periodically or for specific debug
+    # print(f"[POLL] No result yet for {request_id}")
     return {"s": 0, "id": request_id}
 
 
