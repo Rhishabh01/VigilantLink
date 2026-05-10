@@ -31,10 +31,12 @@ from ..core.constants import (
     DEFAULT_DOMAIN_AGE_DAYS, TOTAL_VENDORS_COUNT,
     BRAND_PENALTY_SCORE, SYNERGY_PENALTY_SCORE, TYPOSQUATTING_PENALTY,
     REDIRECT_CHAIN_MAJOR_PENALTY, REDIRECT_CHAIN_MINOR_PENALTY,
-    VENDOR_FLAG_PENALTY, 
+    VENDOR_FLAG_PENALTY,
     SSL_CERT_VERY_NEW_PENALTY, SSL_CERT_NEW_PENALTY, SSL_CERT_RECENT_PENALTY, SSL_CERT_YOUNG_PENALTY,
     SSL_CERT_VERY_NEW_DAYS, SSL_CERT_NEW_DAYS, SSL_CERT_RECENT_DAYS, SSL_CERT_YOUNG_DAYS,
-    WEIGHT_HEURISTIC, WEIGHT_SSL_AGE, WEIGHT_VT, WEIGHT_REDIRECT_DEPTH,
+    NEWLY_REGISTERED_DAYS, NEWLY_REGISTERED_PENALTY,
+    RECENTLY_REGISTERED_DAYS, RECENTLY_REGISTERED_PENALTY,
+    WEIGHT_HEURISTIC, WEIGHT_SSL_AGE, WEIGHT_VT, WEIGHT_REDIRECT_DEPTH, WEIGHT_RDAP_AGE,
     UNCERTAINTY_PENALTY, TRACKING_PARAMS, PHISHING_KEYWORDS,
     TRUSTED_HOSTING_DOMAINS, TRUSTED_PLATFORMS, SUSPICIOUS_TLDS,
     DECEPTIVE_QUERY_PARAMS, SUSPICIOUS_HOSTED_PATHS, WEAK_SIGNAL_PATTERNS,
@@ -467,15 +469,21 @@ def compute_final_score(
                 reasons.append("Synergy: New domain flagged by security vendor")
 
     # Phase 2 Signal: Domain Popularity (Cloudflare Radar)
+    # Only dampen scores when there are NO authoritative threat signals.
+    # Without this guard, VT-flagged phishing on popular domains gets false-greened.
     popularity = external.get("popularity_rank")
-    if popularity is not None:
+    has_authoritative_threat = (
+        bool(gsb_threats) or
+        vendor_flags >= 3 or
+        heuristics.get("typosquatting_detected") or
+        heuristics.get("punycode_detected")
+    )
+    if popularity is not None and not has_authoritative_threat:
         if popularity < 5000:
-            # Top tier site: reduce risk drastically
-            risk_score = round(risk_score * 0.4)
-            reasons.append("Verified high-traffic global domain (Trust Signal)")
+            risk_score = round(risk_score * 0.5)
+            reasons.append("Verified high-traffic domain (Trust Signal)")
         elif popularity < 50000:
-            # Medium tier: slight trust dampening
-            risk_score = round(risk_score * 0.8)
+            risk_score = round(risk_score * 0.85)
             reasons.append("Established popular domain")
             
     # Uncertainty penalty for timed-out sources
@@ -688,12 +696,19 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
         logger.debug(f"Phase 2 external scans timed out for {root_domain}")
         external = {
             "ssl_cert_age_days": None,
+            "domain_age_days": None,
             "vendor_flags": 0,
             "total_vendors": TOTAL_VENDORS_COUNT,
             "threat_type": None,
+            "gsb_threats": [],
+            "gsb_matched": False,
+            "gsb_threat_type": None,
+            "popularity_rank": None,
             "ssl_timed_out": True,
             "vt_timed_out": True,
             "gsb_timed_out": True,
+            "rdap_timed_out": True,
+            "cf_timed_out": True,
         }
 
     # Concise structured logging for timeouts - use debug level to reduce noise
