@@ -66,25 +66,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="VigilantLink Security API", lifespan=lifespan)
 
-# Origin validation (relaxed for local dev)
-ALLOWED_EXTENSION_ID = os.getenv("EXTENSION_ID", "[MY_EXTENSION_ID]")
-ALLOWED_ORIGIN = f"chrome-extension://{ALLOWED_EXTENSION_ID}"
-
-def is_allowed_origin(origin: str) -> bool:
-    # Relaxed for local development
-    return True
-
-@app.middleware("http")
-async def verify_origin_middleware(request: Request, call_next):
-    if request.url.path == "/analyze":
-        origin = request.headers.get("origin")
-        if not is_allowed_origin(origin):
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "Forbidden: Access restricted to official Chrome Extension."}
-            )
-    return await call_next(request)
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
