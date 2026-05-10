@@ -21,10 +21,9 @@ from ..core.constants import (
     SUSPICIOUS_TLDS, DEFAULT_DOMAIN_AGE_DAYS, TOTAL_VENDORS_COUNT,
     GSB_API_URL, GSB_THREAT_TYPES, GSB_THREAT_PRIORITY, GSB_TIMEOUT_S,
     SSL_CERT_TIMEOUT_S, RDAP_TIMEOUT_S, NEWLY_REGISTERED_DAYS,
-    RECENTLY_REGISTERED_DAYS, CLOUDFLARE_TIMEOUT_S,
+    RECENTLY_REGISTERED_DAYS,
 )
 from .rdap_client import fetch_domain_age_rdap
-from .cloudflare_radar import fetch_domain_popularity
 from ..core.logging import get_logger
 
 logger = get_logger("VigilantLink")
@@ -280,7 +279,6 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
     vt_timed_out = False
     gsb_timed_out = False
     rdap_timed_out = False
-    cf_timed_out = False
  
     async def _safe_ssl() -> Optional[int]:
         nonlocal ssl_timed_out
@@ -326,20 +324,11 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
             rdap_timed_out = True
             return DEFAULT_DOMAIN_AGE_DAYS
 
-    async def _safe_cf() -> Optional[int]:
-        nonlocal cf_timed_out
-        try:
-            return await asyncio.wait_for(
-                fetch_domain_popularity(root_domain), timeout=CLOUDFLARE_TIMEOUT_S
-            )
-        except asyncio.TimeoutError:
-            cf_timed_out = True
-            return None
  
     results = await asyncio.gather(
-        _safe_ssl(), _safe_vt(), _safe_gsb(), _safe_rdap(), _safe_cf()
+        _safe_ssl(), _safe_vt(), _safe_gsb(), _safe_rdap()
     )
-    cert_age, vt_results, gsb_results, domain_age, popularity_rank = results
+    cert_age, vt_results, gsb_results, domain_age = results
     vendor_flags, total_vendors = vt_results
  
     gsb_threat_type: Optional[str] = None
@@ -368,12 +357,7 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         "gsb_threats": gsb_results,
         "gsb_matched": bool(gsb_results),
         "gsb_threat_type": gsb_threat_type,
-        "popularity_rank": popularity_rank,
-        "ssl_timed_out": ssl_timed_out,
-        "vt_timed_out": vt_timed_out,
-        "gsb_timed_out": gsb_timed_out,
         "rdap_timed_out": rdap_timed_out,
-        "cf_timed_out": cf_timed_out,
     }
 
 
