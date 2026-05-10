@@ -31,10 +31,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     analyzeTwoPhase(request.url, controller.signal, tabId, generation)
       .then(data => sendResponse({ success: true, data }))
       .catch(error => {
+        console.error("VigilantLink analyze error:", error);
+
         if (error.name === 'AbortError') {
-          sendResponse({ success: false, error: 'Request cancelled' });
+          sendResponse({
+            success: false,
+            error: 'Request cancelled'
+          });
         } else {
-          sendResponse({ success: false, error: error.message });
+          sendResponse({
+            success: false,
+            error: error?.message || String(error)
+          });
         }
       });
 
@@ -77,6 +85,7 @@ function cancelRequest(tabId) {
 
 async function analyzeTwoPhase(url, signal, tabId, generation) {
   // --- Phase 1: Instant fetch ---
+  console.log("Sending request to:", `${BACKEND_URL}/analyze`);
   const phase1Response = await fetch(`${BACKEND_URL}/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
