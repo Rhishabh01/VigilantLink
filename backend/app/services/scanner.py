@@ -20,10 +20,14 @@ from ..core.constants import (
     HIGH_RISK_KEYWORDS, HIGH_VALUE_TARGETS, SUSPICIOUS_KEYWORDS,
     SUSPICIOUS_TLDS, DEFAULT_DOMAIN_AGE_DAYS, TOTAL_VENDORS_COUNT,
     GSB_API_URL, GSB_THREAT_TYPES, GSB_THREAT_PRIORITY, GSB_TIMEOUT_S,
-    SSL_CERT_TIMEOUT_S,
+    SSL_CERT_TIMEOUT_S, RDAP_TIMEOUT_S, NEWLY_REGISTERED_DAYS,
+    RECENTLY_REGISTERED_DAYS, CLOUDFLARE_TIMEOUT_S,
 )
+from .rdap_client import fetch_domain_age_rdap
+from .cloudflare_radar import fetch_domain_popularity
+from ..core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("VigilantLink")
 
 
 def levenshtein_distance(s1: str, s2: str) -> int:
@@ -164,11 +168,11 @@ async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
             response = await client.get(url, headers=headers)
 
             if response.status_code == 429:
-                logger.warning(f"VirusTotal rate limit hit for {domain}")
+                logger.warning(f"[VT] Rate limit hit for {domain[:30]}...")
                 return 0, 70
 
             if response.status_code != 200:
-                logger.warning(f"VirusTotal API returned {response.status_code} for {domain}")
+                logger.debug(f"[VT] API returned {response.status_code} for {domain[:30]}...")
                 return 0, 70
 
             data = response.json()
@@ -179,14 +183,14 @@ async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
             return (malicious + suspicious), total
 
     except httpx.TimeoutException:
-        logger.warning(f"VirusTotal request timed out for {domain}")
+        logger.debug(f"[VT] Request timed out for {domain[:30]}...")
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 429:
-            logger.warning(f"VirusTotal rate limit hit for {domain}")
+            logger.warning(f"[VT] Rate limit hit for {domain[:30]}...")
         else:
-            logger.error(f"VirusTotal HTTP error for {domain}: {e}")
+            logger.error(f"[VT] HTTP error for {domain[:30]}...: {e}")
     except Exception as e:
-        logger.error(f"VirusTotal fetch failed for {domain}: {e}")
+        logger.error(f"[VT] Fetch failed for {domain[:30]}...: {e}")
 
     return 0, 70
 
@@ -233,11 +237,11 @@ async def check_google_safe_browsing(url: str) -> List[str]:
             )
 
             if response.status_code == 429:
-                logger.warning(f"Google Safe Browsing rate limit hit for {normalized}")
+                logger.warning(f"[GSB] Rate limit hit")
                 return []
 
             if response.status_code != 200:
-                logger.warning(f"Google Safe Browsing API returned {response.status_code} for {normalized}")
+                logger.debug(f"[GSB] API returned {response.status_code}")
                 return []
 
             data = response.json()
@@ -246,9 +250,9 @@ async def check_google_safe_browsing(url: str) -> List[str]:
             return list(dict.fromkeys([t for t in threats if t]))
 
     except httpx.TimeoutException:
-        logger.warning(f"Google Safe Browsing request timed out for {normalized}")
+        logger.debug(f"[GSB] Request timed out")
     except Exception as e:
-        logger.warning(f"Google Safe Browsing check failed for {normalized}: {e}")
+        logger.error(f"[GSB] Check failed: {e}")
 
     return []
 
@@ -275,6 +279,8 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
     ssl_timed_out = False
     vt_timed_out = False
     gsb_timed_out = False
+    rdap_timed_out = False
+    cf_timed_out = False
  
     async def _safe_ssl() -> Optional[int]:
         nonlocal ssl_timed_out
@@ -309,10 +315,31 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         except asyncio.TimeoutError:
             gsb_timed_out = True
             return []
+
+    async def _safe_rdap() -> int:
+        nonlocal rdap_timed_out
+        try:
+            return await asyncio.wait_for(
+                fetch_domain_age_rdap(root_domain), timeout=RDAP_TIMEOUT_S
+            )
+        except asyncio.TimeoutError:
+            rdap_timed_out = True
+            return DEFAULT_DOMAIN_AGE_DAYS
+
+    async def _safe_cf() -> Optional[int]:
+        nonlocal cf_timed_out
+        try:
+            return await asyncio.wait_for(
+                fetch_domain_popularity(root_domain), timeout=CLOUDFLARE_TIMEOUT_S
+            )
+        except asyncio.TimeoutError:
+            cf_timed_out = True
+            return None
  
-    cert_age, vt_results, gsb_results = await asyncio.gather(
-        _safe_ssl(), _safe_vt(), _safe_gsb()
+    results = await asyncio.gather(
+        _safe_ssl(), _safe_vt(), _safe_gsb(), _safe_rdap(), _safe_cf()
     )
+    cert_age, vt_results, gsb_results, domain_age, popularity_rank = results
     vendor_flags, total_vendors = vt_results
  
     gsb_threat_type: Optional[str] = None
@@ -329,18 +356,24 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         threat_type = f"Flagged by {vendor_flags} Security Vendors"
     elif cert_age is not None and cert_age < 7:
         threat_type = "Recently Issued SSL Certificate"
+    elif domain_age < NEWLY_REGISTERED_DAYS:
+        threat_type = "Newly Registered Domain"
  
     return {
         "ssl_cert_age_days": cert_age,
+        "domain_age_days": domain_age,
         "vendor_flags": vendor_flags,
         "total_vendors": total_vendors,
         "threat_type": threat_type,
         "gsb_threats": gsb_results,
         "gsb_matched": bool(gsb_results),
         "gsb_threat_type": gsb_threat_type,
+        "popularity_rank": popularity_rank,
         "ssl_timed_out": ssl_timed_out,
         "vt_timed_out": vt_timed_out,
         "gsb_timed_out": gsb_timed_out,
+        "rdap_timed_out": rdap_timed_out,
+        "cf_timed_out": cf_timed_out,
     }
 
 

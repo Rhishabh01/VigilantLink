@@ -26,10 +26,10 @@ logger = logging.getLogger(__name__)
 HARD_TTL_S: int = 3600      # 1 hour — Redis auto-expires
 SOFT_TTL_S: int = 600       # 10 min — triggers background refresh
 PARTIAL_TTL_S: int = 300    # 5 min for stage-1 partials
-PENDING_TTL_S: int = 60     # 60 sec for in-flight deep scan results
-KEY_PREFIX: str = "vl:report:"
-PENDING_PREFIX: str = "vl:pending:"
-REFRESH_LOCK_PREFIX: str = "vl:refresh_lock:"
+PENDING_TTL_S: int = 300    # 5 min for in-flight deep scan results
+KEY_PREFIX: str = "vl:report:v2:"
+PENDING_PREFIX: str = "vl:pending:v2:"
+REFRESH_LOCK_PREFIX: str = "vl:refresh_lock:v2:"
 
 # Fields that are JSON-encoded lists/dicts in Redis
 _JSON_FIELDS = frozenset({"hops", "sec"})
@@ -58,6 +58,8 @@ class RedisCache:
         self._redis_url = redis_url
         self._redis: Optional[redis.Redis] = None
         self._is_connected = False
+        # Fallback for when Redis is unavailable (only works for single-process)
+        self._fallback_pending: Dict[str, Any] = {}
 
     async def connect(self) -> None:
         """Initialize Redis connection pool."""
@@ -171,29 +173,50 @@ class RedisCache:
 
     async def get_pending(self, request_id: str) -> Optional[Dict[str, Any]]:
         """Get pending deep scan result by request_id."""
-        if not self._is_connected or not self._redis:
-            return None
-
-        key = f"{PENDING_PREFIX}{request_id}"
-        try:
-            raw = await self._redis.get(key)
-            return json.loads(raw) if raw else None
-        except redis.RedisError as e:
-            logger.error(f"Redis GET pending failed: {e}")
-            return None
+        print(f"[POLL READ] request_id={request_id}")
+        
+        if self._is_connected and self._redis:
+            key = f"{PENDING_PREFIX}{request_id}"
+            try:
+                raw = await self._redis.get(key)
+                if raw:
+                    res = json.loads(raw)
+                    print(f"[POLL READ] Found in Redis: s={res.get('s')}")
+                    return res
+            except redis.RedisError as e:
+                logger.error(f"Redis GET pending failed: {e}")
+        
+        # Fallback check
+        res = self._fallback_pending.get(request_id)
+        if res:
+            print(f"[POLL READ] Found in Fallback: s={res.get('s')}")
+        else:
+            print(f"[POLL READ] Not found")
+        return res
 
     async def set_pending(
         self, request_id: str, report: Dict[str, Any]
     ) -> None:
         """Store pending deep scan result for polling."""
-        if not self._is_connected or not self._redis:
-            return
-
-        key = f"{PENDING_PREFIX}{request_id}"
-        try:
-            await self._redis.set(key, json.dumps(report), ex=PENDING_TTL_S)
-        except redis.RedisError as e:
-            logger.error(f"Redis SET pending failed: {e}")
+        print(f"[PHASE2 SAVE] request_id={request_id}")
+        
+        if self._is_connected and self._redis:
+            key = f"{PENDING_PREFIX}{request_id}"
+            try:
+                await self._redis.set(key, json.dumps(report), ex=PENDING_TTL_S)
+                print(f"[PHASE2 SAVE] Stored in Redis")
+                return
+            except redis.RedisError as e:
+                logger.error(f"Redis SET pending failed: {e}")
+        
+        # Fallback storage
+        self._fallback_pending[request_id] = report
+        print(f"[PHASE2 SAVE] Stored in Fallback")
+        # Self-cleanup after 5 mins to prevent memory leak
+        async def _cleanup():
+            await asyncio.sleep(PENDING_TTL_S)
+            self._fallback_pending.pop(request_id, None)
+        asyncio.create_task(_cleanup())
 
     # ------------------------------------------------------------------
     # Background refresh (soft-TTL)
