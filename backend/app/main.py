@@ -85,102 +85,114 @@ async def root():
 
 @app.post("/analyze")
 async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
-    """
-    Phase 1: Returns instant heuristic + metadata results.
-    Kicks off Phase 2 deep scan in the background.
-
-    Features:
-      - Leaky Bucket rate limiting per session
-      - Request collapsing (deduplicate concurrent hovers)
-      - Redis cache with soft-TTL
-    """
-    # Rate limit check
-    await rate_limiter.check(request)
-
+    # ── TEMPORARY DEBUG STUB ── Remove this block and uncomment the real
+    # logic below once Railway 502 root cause is confirmed.
     url_str = str(body.url)
-
-    # Reject non-http/https schemes
-    parsed = urlparse(url_str)
-    if parsed.scheme not in ("http", "https"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported scheme: {parsed.scheme}. Only http/https URLs are supported."
-        )
-
-    # Normalize URL for cache deduplication
-    canonical = normalize_url(url_str)
-
-    # Check Redis full cache first — return complete result instantly
-    cached_full = await redis_cache.get_full(canonical)
-    if cached_full:
-        logger.info(f"Full cache hit for {canonical[:60]}")
-        return cached_full
-
-    # Check partial cache — return stage 1 instantly + re-trigger phase 2
-    cached_partial = await redis_cache.get_partial(canonical)
-    if cached_partial:
-        request_id = cached_partial.get("request_id", generate_request_id())
-        # Check if deep scan already completed
-        pending = await redis_cache.get_pending(request_id)
-        if pending:
-            return pending
-        # Re-trigger phase 2 in background
-        phase1_raw = cached_partial.get("_phase1_raw")
-        if phase1_raw is None:
-            # Stale cache from old extension version — re-run Phase 1
-            logger.info(f"Re-running Phase 1 for stale cache entry: {canonical[:60]}")
-            phase1_raw = await run_phase1(url_str)
-        asyncio.create_task(
-            _run_phase2_background(request_id, canonical, phase1_raw)
-        )
-        return cached_partial
-
-    # --- Fresh analysis (request-collapsed) ---
-    phase1 = await request_collapser.deduplicated_call(
-        canonical,
-        lambda: run_phase1(url_str),
-    )
-
-    request_id = generate_request_id()
-
-    # Build stage 1 response
-    metadata = phase1.get("metadata") or {}
-    sec = phase1["security"]
-    
-    stage1_response: Dict[str, Any] = {
+    return {
         "s": 1,
-        "id": request_id,
+        "score": 10,
+        "verdict": "SAFE",
         "url": url_str,
-        "furl": phase1["final_url"],
-        "hops": [{"u": h["url"], "c": h["status_code"]} for h in phase1["hops"]],
-        "t": metadata.get("title"),
-        "d": metadata.get("description"),
-        "img": metadata.get("image_url"),
-        "fav": metadata.get("favicon_url"),
-        "ss": None,
-        "sec": {
-            "safe": sec["is_safe"],
-            "v": sec["verdict"],
-            "rs": sec["risk_score"],
-            "tt": sec["threat_type"],
-            "vf": sec["vendor_flags"],
-            "tv": sec["total_vendors"],
-            "age": sec.get("ssl_cert_age_days"),
-            "sr": sec["suspicious_redirects"],
-            "ts": sec["typosquatting_detected"],
-            "r": sec["reasons"],
-        },
-        "ms": phase1["duration_ms"],
+        "id": "test"
     }
 
-    # Cache partial result
-    await redis_cache.set_partial(canonical, {**stage1_response, "_phase1_raw": phase1})
-
-    # Fire-and-forget Phase 2 in background
-    asyncio.create_task(_run_phase2_background(request_id, canonical, phase1))
-
-    logger.info(f"Phase 1 complete for {url_str} in {phase1['duration_ms']}ms (id={request_id})")
-    return stage1_response
+    # ── ORIGINAL LOGIC (commented out for Railway debugging) ──────────
+    # """
+    # Phase 1: Returns instant heuristic + metadata results.
+    # Kicks off Phase 2 deep scan in the background.
+    #
+    # Features:
+    #   - Leaky Bucket rate limiting per session
+    #   - Request collapsing (deduplicate concurrent hovers)
+    #   - Redis cache with soft-TTL
+    # """
+    # # Rate limit check
+    # await rate_limiter.check(request)
+    #
+    # url_str = str(body.url)
+    #
+    # # Reject non-http/https schemes
+    # parsed = urlparse(url_str)
+    # if parsed.scheme not in ("http", "https"):
+    #     raise HTTPException(
+    #         status_code=400,
+    #         detail=f"Unsupported scheme: {parsed.scheme}. Only http/https URLs are supported."
+    #     )
+    #
+    # # Normalize URL for cache deduplication
+    # canonical = normalize_url(url_str)
+    #
+    # # Check Redis full cache first — return complete result instantly
+    # cached_full = await redis_cache.get_full(canonical)
+    # if cached_full:
+    #     logger.info(f"Full cache hit for {canonical[:60]}")
+    #     return cached_full
+    #
+    # # Check partial cache — return stage 1 instantly + re-trigger phase 2
+    # cached_partial = await redis_cache.get_partial(canonical)
+    # if cached_partial:
+    #     request_id = cached_partial.get("request_id", generate_request_id())
+    #     # Check if deep scan already completed
+    #     pending = await redis_cache.get_pending(request_id)
+    #     if pending:
+    #         return pending
+    #     # Re-trigger phase 2 in background
+    #     phase1_raw = cached_partial.get("_phase1_raw")
+    #     if phase1_raw is None:
+    #         # Stale cache from old extension version — re-run Phase 1
+    #         logger.info(f"Re-running Phase 1 for stale cache entry: {canonical[:60]}")
+    #         phase1_raw = await run_phase1(url_str)
+    #     asyncio.create_task(
+    #         _run_phase2_background(request_id, canonical, phase1_raw)
+    #     )
+    #     return cached_partial
+    #
+    # # --- Fresh analysis (request-collapsed) ---
+    # phase1 = await request_collapser.deduplicated_call(
+    #     canonical,
+    #     lambda: run_phase1(url_str),
+    # )
+    #
+    # request_id = generate_request_id()
+    #
+    # # Build stage 1 response
+    # metadata = phase1.get("metadata") or {}
+    # sec = phase1["security"]
+    #
+    # stage1_response: Dict[str, Any] = {
+    #     "s": 1,
+    #     "id": request_id,
+    #     "url": url_str,
+    #     "furl": phase1["final_url"],
+    #     "hops": [{"u": h["url"], "c": h["status_code"]} for h in phase1["hops"]],
+    #     "t": metadata.get("title"),
+    #     "d": metadata.get("description"),
+    #     "img": metadata.get("image_url"),
+    #     "fav": metadata.get("favicon_url"),
+    #     "ss": None,
+    #     "sec": {
+    #         "safe": sec["is_safe"],
+    #         "v": sec["verdict"],
+    #         "rs": sec["risk_score"],
+    #         "tt": sec["threat_type"],
+    #         "vf": sec["vendor_flags"],
+    #         "tv": sec["total_vendors"],
+    #         "age": sec.get("ssl_cert_age_days"),
+    #         "sr": sec["suspicious_redirects"],
+    #         "ts": sec["typosquatting_detected"],
+    #         "r": sec["reasons"],
+    #     },
+    #     "ms": phase1["duration_ms"],
+    # }
+    #
+    # # Cache partial result
+    # await redis_cache.set_partial(canonical, {**stage1_response, "_phase1_raw": phase1})
+    #
+    # # Fire-and-forget Phase 2 in background
+    # asyncio.create_task(_run_phase2_background(request_id, canonical, phase1))
+    #
+    # logger.info(f"Phase 1 complete for {url_str} in {phase1['duration_ms']}ms (id={request_id})")
+    # return stage1_response
 
 
 # ============================================================
