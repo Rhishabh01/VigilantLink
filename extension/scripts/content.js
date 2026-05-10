@@ -299,6 +299,7 @@ document.addEventListener('click', (event) => {
 
 // Listen for messages from popup and background worker
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log("Content script received:", message);
   if (message.action === 'settings_updated') {
     closePopup();
   } else if (message.action === 'set_override') {
