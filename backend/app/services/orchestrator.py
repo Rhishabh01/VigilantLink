@@ -171,11 +171,13 @@ def _apply_uncertainty(
     base_score: int,
     ssl_uncertain: bool,
     vt_uncertain: bool,
+    rdap_uncertain: bool = False,
     gsb_uncertain: bool = False,
+    cf_uncertain: bool = False,
     is_suspicious: bool = False,
 ) -> Tuple[int, int, int]:
     """
-    Revised uncertainty penalty logic.
+    Revised uncertainty penalty logic for 5 external sources.
     Returns (total_score, ssl_penalty, security_penalty).
     """
     ssl_penalty = 0
@@ -185,14 +187,16 @@ def _apply_uncertainty(
     if ssl_uncertain and (is_suspicious or base_score >= VERDICT_YELLOW_THRESHOLD):
         ssl_penalty = 2
         
-    # Security sources (VT/GSB): +5 each only if BOTH fail OR heuristics exist OR near threshold
-    if vt_uncertain or gsb_uncertain:
-        security_fail = vt_uncertain and gsb_uncertain
+    # Security sources (VT/GSB/RDAP/CF): +5 each only if multiple fail OR heuristics exist OR near threshold
+    if vt_uncertain or gsb_uncertain or rdap_uncertain or cf_uncertain:
+        timeout_count = sum([vt_uncertain, gsb_uncertain, rdap_uncertain, cf_uncertain])
         near_threshold = base_score >= (VERDICT_YELLOW_THRESHOLD - 5)
         
-        if security_fail or is_suspicious or near_threshold:
+        if timeout_count >= 2 or is_suspicious or near_threshold:
             if vt_uncertain: security_penalty += 5
             if gsb_uncertain: security_penalty += 5
+            if rdap_uncertain: security_penalty += 5
+            if cf_uncertain: security_penalty += 5
             
     return min(base_score + ssl_penalty + security_penalty, 100), ssl_penalty, security_penalty
 
@@ -227,10 +231,10 @@ def compute_heuristic_score(
         for d in TRUSTED_PLATFORMS
     )
 
-    # NEW: Metadata Failure (dampened for trusted platforms)
+    # Metadata Availability
     if not has_metadata and not is_trusted_platform:
-        risk_score += 5
-        reasons.append("No metadata available")
+        risk_score += 10
+        reasons.append("Limited metadata available (Suspicious or obscure site)")
 
     # NEW: Suspicious TLD Detection
     for tld in SUSPICIOUS_TLDS:
@@ -441,10 +445,45 @@ def compute_final_score(
             else:
                 reasons.append(f"Young SSL certificate ({cert_age} days old)")
 
+    # Phase 2 Signal: Domain Age (RDAP)
+    domain_age = external.get("domain_age_days")
+    if domain_age is not None:
+        rdap_penalty = 0
+        if domain_age < NEWLY_REGISTERED_DAYS:
+            rdap_penalty = NEWLY_REGISTERED_PENALTY
+        elif domain_age < RECENTLY_REGISTERED_DAYS:
+            rdap_penalty = RECENTLY_REGISTERED_PENALTY
+            
+        if rdap_penalty > 0:
+            risk_score += round(WEIGHT_RDAP_AGE * rdap_penalty)
+            if domain_age < NEWLY_REGISTERED_DAYS:
+                reasons.append(f"Newly registered domain (<{domain_age + 1} days)")
+            else:
+                reasons.append(f"Recent domain registration ({domain_age} days ago)")
+                
+            # Synergy: New Domain + VT flags (even 1)
+            if domain_age < NEWLY_REGISTERED_DAYS and vendor_flags >= 1:
+                risk_score = max(risk_score, 60)
+                reasons.append("Synergy: New domain flagged by security vendor")
+
+    # Phase 2 Signal: Domain Popularity (Cloudflare Radar)
+    popularity = external.get("popularity_rank")
+    if popularity is not None:
+        if popularity < 5000:
+            # Top tier site: reduce risk drastically
+            risk_score = round(risk_score * 0.4)
+            reasons.append("Verified high-traffic global domain (Trust Signal)")
+        elif popularity < 50000:
+            # Medium tier: slight trust dampening
+            risk_score = round(risk_score * 0.8)
+            reasons.append("Established popular domain")
+            
     # Uncertainty penalty for timed-out sources
     ssl_uncertain = external.get("ssl_timed_out", False)
     vt_uncertain = external.get("vt_timed_out", False)
     gsb_uncertain = external.get("gsb_timed_out", False)
+    rdap_uncertain = external.get("rdap_timed_out", False)
+    cf_uncertain = external.get("cf_timed_out", False)
     
     is_susp_heur = (
         heuristics.get("typosquatting_detected") or 
@@ -454,13 +493,13 @@ def compute_final_score(
     )
     
     risk_score, p_ssl, p_sec = _apply_uncertainty(
-        risk_score, ssl_uncertain, vt_uncertain, gsb_uncertain, is_susp_heur
+        risk_score, ssl_uncertain, vt_uncertain, rdap_uncertain, gsb_uncertain, cf_uncertain, is_susp_heur
     )
     
     # Store uncertainty info for filtered reason display
     uncertainty_info = None
     if p_ssl > 0 or p_sec > 0:
-        timed_out_count = sum([ssl_uncertain, vt_uncertain, gsb_uncertain])
+        timed_out_count = sum([ssl_uncertain, vt_uncertain, gsb_uncertain, rdap_uncertain, cf_uncertain])
         uncertainty_info = (timed_out_count, p_ssl + p_sec)
 
     # Google Safe Browsing Scoring
@@ -528,7 +567,7 @@ def compute_final_score(
             )
         )
         if show_uncertainty:
-            reasons.append(f"Uncertainty penalty (+{penalty}): {timed_out_count}/3 sources timed out")
+            reasons.append(f"Uncertainty penalty (+{penalty}): {timed_out_count}/5 sources timed out")
 
     return capped_score, verdict, is_safe, reasons
 
@@ -664,6 +703,10 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
         logger.debug(f"VT timeout: {root_domain}")
     if external.get("gsb_timed_out"):
         logger.debug(f"GSB timeout: {root_domain}")
+    if external.get("rdap_timed_out"):
+        logger.debug(f"RDAP timeout: {root_domain}")
+    if external.get("cf_timed_out"):
+        logger.debug(f"Cloudflare timeout: {root_domain}")
 
     # Compute final weighted score with uncertainty
     risk_score, verdict, is_safe, reasons = compute_final_score(
