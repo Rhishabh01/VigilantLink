@@ -2,7 +2,7 @@
 // Phase 1: Instant analysis (POST /analyze) — returned immediately
 // Phase 2: Deep scan polling (GET /analyze/deep/{request_id}) — background poll
 
-const BACKEND_URL = "extension-production-f6ff.up.railway.app";
+const BACKEND_URL = "https://extension-production-f6ff.up.railway.app";
 const POLL_INTERVAL_MS = 400;
 const POLL_TIMEOUT_MS = 3000;
 const BACKGROUND_POLL_MAX_MS = 10000;
