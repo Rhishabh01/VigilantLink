@@ -94,7 +94,14 @@ async function analyzeTwoPhase(url, signal, tabId, generation) {
   });
 
   if (!phase1Response.ok) {
-    throw new Error(`Backend Error: ${phase1Response.statusText}`);
+    const errorText = await phase1Response.text();
+
+    console.error("Backend response status:", phase1Response.status);
+    console.error("Backend response body:", errorText);
+
+    throw new Error(
+      `Backend Error ${phase1Response.status}: ${errorText}`
+    );
   }
 
   const phase1Data = await phase1Response.json();
