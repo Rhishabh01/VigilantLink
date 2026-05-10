@@ -147,15 +147,16 @@ function cleanupRequest(tabId, generation) {
 }
 
 async function pollForDeepScanBackground(requestId, signal, tabId, url, generation) {
+  console.log("Starting phase2 polling:", requestId);
   try {
     const phase2Data = await pollForDeepScan(requestId, signal, BACKGROUND_POLL_MAX_MS);
     // Check generation — but still send if the generation entry was cleaned up
     // (can happen after a disconnect/reconnect). The content script is the
     // authoritative staleness gatekeeper via currentAnalysisUrl / currentRequestId.
     const entry = activeRequests.get(tabId);
-    const generationOk = !entry || entry.generation === generation;
-    if (generationOk && tabId) {
+    if (entry && entry.generation === generation && tabId) {
       try {
+        console.log("Sending phase2 result to content script");
         chrome.tabs.sendMessage(tabId, {
           action: "phase2_result",
           requestId: requestId,   // forward so content.js can gate on it
@@ -191,6 +192,7 @@ async function pollForDeepScan(requestId, signal, timeoutMs = POLL_TIMEOUT_MS) {
   while (Date.now() - startTime < timeoutMs) {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
+    console.log("Polling...", requestId);
     await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
 
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -208,6 +210,7 @@ async function pollForDeepScan(requestId, signal, timeoutMs = POLL_TIMEOUT_MS) {
       const data = await response.json();
 
       if (data.s === 2) {
+        console.log("Phase2 complete:", data);
         return data;
       }
       // s=0 → keep polling
