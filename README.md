@@ -179,7 +179,7 @@ The extension polls asynchronously until the deep scan completes.
 ## Dangerous Website Detection
 
 <p align="center">
-  <img src="assets\UnSafeSS.png" width="350" height="400" alt="Dangerous Website Detection"/>
+  <img src="assets\UnSafeSS.png" width="300" height="400" alt="Dangerous Website Detection"/>
 </p>
 
 ---
@@ -271,6 +271,7 @@ chrome://extensions/
 
 ```text
 backend/
+docs/
 extension/
 assets/
 ```
