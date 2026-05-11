@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="assets\SafeGif.gif" width="950" alt="VigilantLink Main Demo"/>
+  <img src="assets\SafeGif.gif" width="900" height="500" alt="VigilantLink Main Demo"/>
 </p>
 
 <p align="center">
@@ -62,7 +62,7 @@ The extension analyzes links directly on hover and provides instant security ins
 ## Safe Website Detection
 
 <p align="center">
-  <img src="assets\SafeGif.gif" width="500" height="500" alt="Safe Website Detection Demo"/>
+  <img src="assets\SafeGif.gif" width="900" alt="Safe Website Detection Demo"/>
 </p>
 
 Fast real-time analysis of trusted domains using heuristic scanning, domain intelligence, and threat reputation checks.
