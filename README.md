@@ -1,6 +1,6 @@
 # VigilantLink
 
-<p align="center">Real-time, privacy-preserving phishing detection and deep link analysis for modern browsing.</p>
+<p align="center" >Real-time, privacy-preserving phishing detection and deep link analysis for modern browsing.</p>
 
 <p align="center">
 
@@ -57,7 +57,22 @@ The extension analyzes links directly on hover and provides instant security ins
 
 ---
 
+# Documentation
+
+Detailed technical documentation is available in the [docs/](docs/) directory:
+
+*   [Architecture](docs/architecture.md) — System design and request lifecycle.
+*   [Backend](docs/backend.md) — FastAPI structure and service modules.
+*   [Extension](docs/extension.md) — Chrome MV3 architecture and messaging.
+*   [Scoring Engine](docs/scoring-engine.md) — Risk methodology and signal weights.
+*   [API Reference](docs/api-reference.md) — Endpoint schemas and JSON examples.
+*   [Deployment](docs/deployment.md) — Railway, Docker, and production setup.
+*   [Troubleshooting](docs/troubleshooting.md) — Common issues and recovery steps.
+
+---
+
 # Demo
+
 
 ## Safe Website Detection
 
