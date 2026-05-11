@@ -15,7 +15,7 @@ VigilantLink is a security project, and we take vulnerabilities seriously. If yo
 
 ### Responsible Disclosure Process
 
-1.  **Email us**: Send a detailed report to `rhishabh89@gmail.com` (replace with actual email if available).
+1.  **Email us**: Send a detailed report to `rhishabh89@gmail.com`.
 2.  **Include details**:
     *   Description of the vulnerability.
     *   Steps to reproduce.
@@ -26,7 +26,7 @@ VigilantLink is a security project, and we take vulnerabilities seriously. If yo
 
 ### Rewards
 
-Currently, VigilantLink is an open-source project and does not have a formal bug bounty program. However, we publicly acknowledge all responsible disclosures (unless requested otherwise).
+Currently, VigilantLink is an open-source project and does not have a formal bug bounty program. However, we publicly acknowledge all responsible disclosures.
 
 ## Security Disclaimers
 
