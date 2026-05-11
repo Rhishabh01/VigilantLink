@@ -1,6 +1,6 @@
 # VigilantLink
 
-> Real-time, privacy-preserving phishing detection and deep link analysis for modern browsing.
+<p align="center">Real-time, privacy-preserving phishing detection and deep link analysis for modern browsing.</p>
 
 <p align="center">
 
