@@ -171,7 +171,7 @@ The extension polls asynchronously until the deep scan completes.
 ## Safe Website Result
 
 <p align="center">
-  <img src="assets\SafeSS.png" width="400" height="400" alt="Safe Website Scan"/>
+  <img src="assets\SafeSS.png" width="350" height="400" alt="Safe Website Scan"/>
 </p>
 
 ---
