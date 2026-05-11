@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="./assets/gifs/demo-main.gif" width="950" alt="VigilantLink Main Demo"/>
+  <img src="assets\SafeGif.gif" width="950" alt="VigilantLink Main Demo"/>
 </p>
 
 <p align="center">
@@ -43,17 +43,17 @@ The extension analyzes links directly on hover and provides instant security ins
 
 # Features
 
-* ⚡ Real-time hover-based link analysis
-* 🛡️ Google Safe Browsing integration
-* 🌐 Domain age intelligence (RDAP)
-* 🔍 Redirect chain analysis
-* 🧠 Multi-source heuristic scoring
-* 🎭 Typosquatting detection
-* 🧪 Playwright-powered deep scanning
-* 🚀 Progressive Phase 1 → Phase 2 architecture
-* 🔒 Privacy-focused logging and analysis
-* ☁️ Railway-ready production deployment
-* 💻 Local standalone deployment support
+* Real-time hover-based link analysis
+* Google Safe Browsing integration
+* Domain age intelligence (RDAP)
+* Redirect chain analysis
+* Multi-source heuristic scoring
+* Typosquatting detection
+* Playwright-powered deep scanning
+* Progressive Phase 1 → Phase 2 architecture
+* Privacy-focused logging and analysis
+* Railway-ready production deployment
+* Local standalone deployment support
 
 ---
 
@@ -62,7 +62,7 @@ The extension analyzes links directly on hover and provides instant security ins
 ## Safe Website Detection
 
 <p align="center">
-  <img src="./assets/gifs/demo-safe.gif" width="900" alt="Safe Website Detection Demo"/>
+  <img src="assets\SafeGif.gif" width="900" alt="Safe Website Detection Demo"/>
 </p>
 
 Fast real-time analysis of trusted domains using heuristic scanning, domain intelligence, and threat reputation checks.
@@ -72,7 +72,7 @@ Fast real-time analysis of trusted domains using heuristic scanning, domain inte
 ## Malicious Website Detection
 
 <p align="center">
-  <img src="./assets/gifs/demo-malicious.gif" width="900" alt="Malicious Website Detection Demo"/>
+  <img src="assets\UnsafeGif.gif" width="900" alt="Malicious Website Detection Demo"/>
 </p>
 
 Detection of phishing indicators, malicious redirects, and suspicious browser behavior using the progressive deep-scan engine.
@@ -171,7 +171,7 @@ The extension polls asynchronously until the deep scan completes.
 ## Safe Website Result
 
 <p align="center">
-  <img src="./assets/SafeGif.gif" width="900" alt="Safe Website Scan"/>
+  <img src="assets\SafeSS.png" width="900" alt="Safe Website Scan"/>
 </p>
 
 ---
@@ -179,7 +179,7 @@ The extension polls asynchronously until the deep scan completes.
 ## Dangerous Website Detection
 
 <p align="center">
-  <img src="./assets/UnsafeGif.gif" width="900" alt="Dangerous Website Detection"/>
+  <img src="assets\UnsafeSS.png" width="900" alt="Dangerous Website Detection"/>
 </p>
 
 ---
@@ -205,6 +205,7 @@ The extension:
 
 ```bash
 git clone <repo-url>
+
 cd backend
 
 pip install -r requirements.txt
@@ -213,7 +214,6 @@ playwright install chromium
 
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
-
 ---
 
 ## Railway Deployment
