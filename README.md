@@ -62,7 +62,7 @@ The extension analyzes links directly on hover and provides instant security ins
 ## Safe Website Detection
 
 <p align="center">
-  <img src="assets\SafeGif.gif" width="900" alt="Safe Website Detection Demo"/>
+  <img src="assets\SafeGif.gif" width="900" height="400" alt="Safe Website Detection Demo"/>
 </p>
 
 Fast real-time analysis of trusted domains using heuristic scanning, domain intelligence, and threat reputation checks.
