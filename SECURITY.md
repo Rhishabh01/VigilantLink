@@ -15,7 +15,7 @@ VigilantLink is a security project, and we take vulnerabilities seriously. If yo
 
 ### Responsible Disclosure Process
 
-1.  **Email us**: Send a detailed report to `security@vigilantlink.org` (replace with actual email if available).
+1.  **Email us**: Send a detailed report to `rhishabh89@gmail.com` (replace with actual email if available).
 2.  **Include details**:
     *   Description of the vulnerability.
     *   Steps to reproduce.
