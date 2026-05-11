@@ -77,7 +77,7 @@ Fast real-time analysis of trusted domains using heuristic scanning, domain inte
 
 Detection of phishing indicators, malicious redirects, and suspicious browser behavior using the progressive deep-scan engine.
 
-Recommended testing source:
+Testing source (in Demo):
 
 https://testsafebrowsing.appspot.com/
 
@@ -86,7 +86,7 @@ https://testsafebrowsing.appspot.com/
 # Architecture
 
 <p align="center">
-  <img src="./assets/ArchitectureIMG.png" width="1000" alt="VigilantLink Architecture Diagram"/>
+  <img src="assets\ArchitecureIMG.png" width="1000" alt="VigilantLink Architecture Diagram"/>
 </p>
 
 ### Architecture Overview
