@@ -65,13 +65,7 @@ The extension analyzes links directly on hover and provides instant security ins
   <img src="./assets/gifs/demo-safe.gif" width="900" alt="Safe Website Detection Demo"/>
 </p>
 
-### What this demonstrates
-
-* Real-time hover analysis
-* Fast heuristic scanning
-* Trust signal recognition
-* Smooth extension workflow
-* Safe verdict generation
+Fast real-time analysis of trusted domains using heuristic scanning, domain intelligence, and threat reputation checks.
 
 ---
 
@@ -81,13 +75,7 @@ The extension analyzes links directly on hover and provides instant security ins
   <img src="./assets/gifs/demo-malicious.gif" width="900" alt="Malicious Website Detection Demo"/>
 </p>
 
-### What this demonstrates
-
-* Detection of phishing indicators
-* Google Safe Browsing escalation
-* Deep scan progression
-* Multi-source threat intelligence scoring
-* Dangerous verdict generation
+Detection of phishing indicators, malicious redirects, and suspicious browser behavior using the progressive deep-scan engine.
 
 Recommended testing source:
 
@@ -98,12 +86,12 @@ https://testsafebrowsing.appspot.com/
 # Architecture
 
 <p align="center">
-  <img src="assets\ArchitectureIMG.png" width="1000" alt="VigilantLink Architecture Diagram"/>
+  <img src="./assets/ArchitectureIMG.png" width="1000" alt="VigilantLink Architecture Diagram"/>
 </p>
 
 ### Architecture Overview
 
-VigilantLink uses a progressive multi-phase analysis pipeline.
+VigilantLink uses a progressive multi-phase security pipeline.
 
 #### Phase 1 — Fast Heuristic Engine
 
@@ -175,7 +163,7 @@ The extension polls asynchronously until the deep scan completes.
 ## Extension Popup
 
 <p align="center">
-  <img src="assets\ExtensionOptions.png" width="500" alt="Extension Popup"/>
+  <img src="./assets/ExtensionOptions.png" width="500" alt="Extension Popup"/>
 </p>
 
 ---
@@ -183,7 +171,7 @@ The extension polls asynchronously until the deep scan completes.
 ## Safe Website Result
 
 <p align="center">
-  <img src="assets\SafeGif.gif" width="900" alt="Safe Website Scan"/>
+  <img src="./assets/SafeGif.gif" width="900" alt="Safe Website Scan"/>
 </p>
 
 ---
@@ -191,7 +179,7 @@ The extension polls asynchronously until the deep scan completes.
 ## Dangerous Website Detection
 
 <p align="center">
-  <img src="assets\UnsafeGif.gif" width="900" alt="Dangerous Website Detection"/>
+  <img src="./assets/UnsafeGif.gif" width="900" alt="Dangerous Website Detection"/>
 </p>
 
 ---
@@ -285,9 +273,6 @@ chrome://extensions/
 backend/
 extension/
 assets/
-├── gifs/
-├── diagrams/
-└── screenshots/
 ```
 
 ---
