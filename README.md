@@ -179,14 +179,14 @@ The extension polls asynchronously until the deep scan completes.
 ## Dangerous Website Detection
 
 <p align="center">
-  <img src="assets\UnSafeSS.png" width="500" alt="Dangerous Website Detection"/>
+  <img src="assets\UnSafeSS.png" width="350" height="400" alt="Dangerous Website Detection"/>
 </p>
 
 ---
 
 # Privacy
 
-VigilantLink is designed with privacy as a core principle.
+VigilantLink is designed with privacy and security as a core principle.
 
 The extension:
 
