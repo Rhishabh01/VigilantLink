@@ -1,7 +1,7 @@
 # VigilantLink
 
 <p align="center" >Real-time, privacy-preserving phishing detection and deep link analysis for modern browsing.</p>
->This version is for local deployment and usage (No Minor or Patch Updates will be recived to this version only during Major Updates it will be updated ) 
+> This version is for local deployment and usage (No Minor or Patch Updates will be recived to this version only during Major Updates it will be updated ) 
 <p align="center">
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
