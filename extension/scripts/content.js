@@ -832,7 +832,7 @@ function createWarningBox(verdictClass, threatType) {
 function createRedirectsSection(redirectChain) {
   if (!redirectChain || redirectChain.length <= 1) return null;
 
-  const maxCompact = 3;
+  const maxCompact = 2;
   const showUrls = redirectChain.slice(0, maxCompact).map(r => {
     try { return new URL(r.u).hostname; } catch { return r.u; }
   });
@@ -843,17 +843,17 @@ function createRedirectsSection(redirectChain) {
   redirectsDiv.className = 'redirects';
   redirectsDiv.style.marginTop = '8px';
   redirectsDiv.style.paddingTop = '8px';
-  redirectsDiv.style.borderTop = '1px dashed #eee';
+  redirectsDiv.style.borderTop = '1px dashed var(--border)';
 
   const titleSmall = document.createElement('small');
   titleSmall.style.fontWeight = '600';
-  titleSmall.style.color = '#555';
+  titleSmall.style.color = 'var(--text)';
   titleSmall.textContent = 'Redirect Path:';
   redirectsDiv.appendChild(titleSmall);
 
   const pathDiv = document.createElement('div');
   pathDiv.style.fontSize = '11px';
-  pathDiv.style.color = '#666';
+  pathDiv.style.color = 'var(--text-muted)';
   pathDiv.style.marginTop = '4px';
   pathDiv.style.wordBreak = 'break-all';
 
@@ -866,7 +866,7 @@ function createRedirectsSection(redirectChain) {
     const moreSpan = document.createElement('span');
     moreSpan.id = 'redirects-more';
     moreSpan.style.cursor = 'pointer';
-    moreSpan.style.color = '#0056b3';
+    moreSpan.style.color = 'var(--link)';
     moreSpan.style.marginLeft = '4px';
     moreSpan.textContent = `+${hiddenCount} more`;
     pathDiv.appendChild(moreSpan);
@@ -878,10 +878,10 @@ function createRedirectsSection(redirectChain) {
     fullDiv.style.overflowY = 'auto';
     fullDiv.style.marginTop = '6px';
     fullDiv.style.padding = '6px 8px';
-    fullDiv.style.background = '#f8f9fa';
+    fullDiv.style.background = 'var(--surface)';
     fullDiv.style.borderRadius = '4px';
     fullDiv.style.fontSize = '11px';
-    fullDiv.style.color = '#666';
+    fullDiv.style.color = 'var(--text-muted)';
 
     redirectChain.forEach(r => {
       const urlDiv = document.createElement('div');
@@ -897,15 +897,16 @@ function createRedirectsSection(redirectChain) {
 
     const toggleBtn = document.createElement('button');
     toggleBtn.id = 'redirects-toggle-btn';
-    toggleBtn.style.marginTop = '6px';
-    toggleBtn.style.padding = '3px 10px';
-    toggleBtn.style.border = '1px solid #ddd';
+    toggleBtn.style.marginTop = '8px';
+    toggleBtn.style.padding = '4px 12px';
+    toggleBtn.style.border = '1px solid var(--border)';
     toggleBtn.style.borderRadius = '4px';
-    toggleBtn.style.background = '#f8f9fa';
+    toggleBtn.style.background = 'var(--surface)';
     toggleBtn.style.fontSize = '10px';
     toggleBtn.style.cursor = 'pointer';
-    toggleBtn.style.color = '#333';
+    toggleBtn.style.color = 'var(--text)';
     toggleBtn.style.fontWeight = '600';
+    toggleBtn.style.transition = 'all 0.2s';
     toggleBtn.textContent = 'Show full path';
 
     redirectsDiv.appendChild(pathDiv);
@@ -1016,12 +1017,6 @@ function updatePopupWithResult(data) {
 
   const urlDestDiv = document.createElement('div');
   urlDestDiv.className = 'url-dest';
-  urlDestDiv.style.marginBottom = '8px';
-  urlDestDiv.style.fontSize = '11px';
-  urlDestDiv.style.color = '#555';
-  urlDestDiv.style.display = 'flex';
-  urlDestDiv.style.alignItems = 'center';
-  urlDestDiv.style.gap = '6px';
 
   const destLabel = document.createElement('strong');
   destLabel.textContent = 'Dest: ';
@@ -1044,7 +1039,6 @@ function updatePopupWithResult(data) {
   const copyBtn = document.createElement('span');
   copyBtn.id = 'copy-dest-btn';
   copyBtn.style.cursor = 'pointer';
-  copyBtn.style.color = '#888';
   copyBtn.style.display = 'flex';
   copyBtn.style.alignItems = 'center';
   copyBtn.style.padding = '2px';
@@ -1086,7 +1080,7 @@ function updatePopupWithResult(data) {
 
   const makePlaceholder = () => {
     const d = document.createElement('div');
-    d.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
+    d.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-dim);font-style:italic;text-align:center;padding:0 20px';
     d.textContent = 'Preview unavailable';
     return d;
   };
@@ -1233,6 +1227,13 @@ function mergeDeepScanResult(data) {
 
       const forensicSection = createForensicSection(filteredReasons);
       if (forensicSection) existingInfo.appendChild(forensicSection);
+
+      // Restore redirects section if they exist
+      const hops = data.hops || [];
+      if (hops.length > 1) {
+        const redirectsSection = createRedirectsSection(hops);
+        if (redirectsSection) existingInfo.appendChild(redirectsSection);
+      }
     }
   }
 
@@ -1242,7 +1243,7 @@ function mergeDeepScanResult(data) {
     if (container) {
       container.textContent = '';
       const placeholderDiv = document.createElement('div');
-      placeholderDiv.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
+      placeholderDiv.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-dim);font-style:italic;text-align:center;padding:0 20px';
       placeholderDiv.textContent = 'Preview unavailable';
       container.appendChild(placeholderDiv);
 
