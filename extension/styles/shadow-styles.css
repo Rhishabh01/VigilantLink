@@ -1,16 +1,35 @@
 :host {
   all: initial;
+  --bg: #f8fafc;
+  --surface: #f1f5f9;
+  --border: rgba(0, 0, 0, 0.08);
+  --text: #0f172a;
+  --text-muted: #475569;
+  --text-dim: #94a3b8;
+  --skeleton: #e2e8f0;
+  --shadow: rgba(0, 0, 0, 0.1);
+}
+
+.vigilant-card[data-theme="dark"] {
+  --bg: #1e293b;
+  --surface: #0f172a;
+  --border: rgba(255, 255, 255, 0.1);
+  --text: #f1f5f9;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+  --skeleton: #334155;
+  --shadow: rgba(0, 0, 0, 0.4);
 }
 
 .vigilant-card {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   width: 320px;
-  background: #ffffff;
+  background: var(--bg);
   border-radius: 8px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
-  border: 1px solid #e0e0e0;
+  box-shadow: 0 10px 25px var(--shadow);
+  border: 1px solid var(--border);
   overflow: hidden;
-  color: #333;
+  color: var(--text);
   font-size: 14px;
   line-height: 1.4;
   animation: slideInCard 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -32,18 +51,18 @@
   justify-content: space-between;
   align-items: center;
   padding: 10px 12px;
-  background: #f8f9fa;
-  border-bottom: 1px solid #eee;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
   transition: background 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.green-header { border-bottom-color: #c3e6cb; background: #f0fff4; }
-.yellow-header { border-bottom-color: #ffeeba; background: #fffdf0; }
-.red-header { border-bottom-color: #f5c6cb; background: #fff0f0; }
+.green-header { border-bottom-color: #c3e6cb; background: rgba(16, 185, 129, 0.1); }
+.yellow-header { border-bottom-color: #ffeeba; background: rgba(245, 158, 11, 0.1); }
+.red-header { border-bottom-color: #f5c6cb; background: rgba(239, 68, 68, 0.1); }
 
 .logo {
   font-weight: 600;
-  color: #333;
+  color: var(--text);
   font-size: 14px;
   letter-spacing: 0px;
   flex: 1;
@@ -94,11 +113,11 @@
 .screenshot-container {
   width: 100%;
   height: 180px;
-  background: #f1f3f5;
+  background: var(--surface);
   border-radius: 6px;
   overflow: hidden;
   margin-bottom: 10px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--border);
   transition: all 0.3s ease;
 }
 
@@ -193,12 +212,12 @@
 .action-btn {
   flex: 1;
   padding: 8px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #f8f9fa;
+  background: var(--surface);
   font-size: 12px;
   font-weight: 600;
-  color: #333;
+  color: var(--text);
   cursor: pointer;
   text-align: center;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -243,7 +262,7 @@
 .skeleton-img {
   width: 100%;
   height: 180px;
-  background: linear-gradient(90deg, #e9ecef 25%, #f5f6f7 50%, #e9ecef 75%);
+  background: linear-gradient(90deg, var(--skeleton) 25%, var(--bg) 50%, var(--skeleton) 75%);
   background-size: 200% 100%;
   border-radius: 4px;
   margin-bottom: 10px;
@@ -252,7 +271,7 @@
 
 .skeleton-text {
   height: 12px;
-  background: linear-gradient(90deg, #e9ecef 25%, #f5f6f7 50%, #e9ecef 75%);
+  background: linear-gradient(90deg, var(--skeleton) 25%, var(--bg) 50%, var(--skeleton) 75%);
   background-size: 200% 100%;
   border-radius: 4px;
   margin-bottom: 8px;
@@ -275,7 +294,7 @@
 .metadata-title {
   font-weight: 700;
   font-size: 15px;
-  color: #1a1a1a;
+  color: var(--text);
   margin-bottom: 4px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -286,7 +305,7 @@
 
 .metadata-description {
   font-size: 13px;
-  color: #666;
+  color: var(--text-muted);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;

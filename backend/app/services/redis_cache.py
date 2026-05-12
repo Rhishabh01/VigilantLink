@@ -40,6 +40,8 @@ _INT_FIELDS = frozenset({"s", "ms"})
 # Internal fields excluded from deserialized output
 _INTERNAL_FIELDS = frozenset({"created_at", "refreshed_at"})
 
+TOP_DOMAINS_KEY: str = "vl:top_domains:v1"
+
 
 def _cache_key(canonical_url: str) -> str:
     """Generate Redis key from canonical URL."""
@@ -277,6 +279,33 @@ class RedisCache:
             logger.info(f"Background refresh complete for {canonical_url[:60]}")
         except Exception as e:
             logger.error(f"Background refresh failed: {e}")
+
+    # ------------------------------------------------------------------
+    # Domain Intelligence (Top Domains Set)
+    # ------------------------------------------------------------------
+
+    async def set_top_domains(self, domains: list[str]) -> None:
+        """Replace the top domains set in Redis."""
+        if not self._is_connected or not self._redis or not domains:
+            return
+        try:
+            async with self._redis.pipeline(transaction=True) as pipe:
+                await pipe.delete(TOP_DOMAINS_KEY)
+                # Chunk large lists to avoid blocking
+                for i in range(0, len(domains), 1000):
+                    await pipe.sadd(TOP_DOMAINS_KEY, *domains[i:i+1000])
+                await pipe.execute()
+        except redis.RedisError as e:
+            logger.error(f"Redis SET top domains failed: {e}")
+
+    async def is_top_domain(self, domain: str) -> bool:
+        """Check if a domain is in the top domains set."""
+        if not self._is_connected or not self._redis:
+            return False
+        try:
+            return await self._redis.sismember(TOP_DOMAINS_KEY, domain.lower())
+        except redis.RedisError:
+            return False
 
 
 # ------------------------------------------------------------------

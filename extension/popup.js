@@ -7,13 +7,32 @@ const PRESET_SITES = [
 ];
 
 async function getSettings() {
-  const data = await chrome.storage.local.get(['globalEnabled', 'disabledSites', 'customSites', 'hiddenPresets']);
+  const data = await chrome.storage.local.get(['globalEnabled', 'disabledSites', 'customSites', 'hiddenPresets', 'theme']);
   return {
     globalEnabled: data.globalEnabled !== false,
     disabledSites: data.disabledSites || [],
     customSites: data.customSites || [],
-    hiddenPresets: data.hiddenPresets || []
+    hiddenPresets: data.hiddenPresets || [],
+    theme: data.theme || 'dark'
   };
+}
+
+async function initTheme() {
+  const { theme } = await getSettings();
+  applyTheme(theme);
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const moonIcon = document.getElementById('moon-icon');
+  const sunIcon = document.getElementById('sun-icon');
+  if (theme === 'light') {
+    moonIcon.style.display = 'none';
+    sunIcon.style.display = 'block';
+  } else {
+    moonIcon.style.display = 'block';
+    sunIcon.style.display = 'none';
+  }
 }
 
 async function updateToggles() {
@@ -196,10 +215,12 @@ async function handleToggleChange(domain, isEnabled) {
   notifyTabs();
 }
 
-function notifyTabs() {
+async function notifyTabs() {
+  const { theme } = await getSettings();
   chrome.tabs.query({}, (tabs) => {
     tabs.forEach(tab => {
       chrome.tabs.sendMessage(tab.id, { action: 'settings_updated' }).catch(() => { });
+      chrome.tabs.sendMessage(tab.id, { action: 'theme_updated', theme }).catch(() => { });
     });
   });
 }
@@ -262,6 +283,12 @@ document.addEventListener('click', async (e) => {
       await chrome.storage.local.set({ hiddenPresets });
     }
     updateToggles();
+  } else if (e.target.closest('#theme-toggle')) {
+    const { theme } = await getSettings();
+    const newTheme = theme === 'dark' ? 'light' : 'dark';
+    await chrome.storage.local.set({ theme: newTheme });
+    applyTheme(newTheme);
+    notifyTabs();
   }
 });
 
@@ -269,4 +296,7 @@ chrome.storage.onChanged.addListener(() => {
   updateToggles();
 });
 
-document.addEventListener('DOMContentLoaded', updateToggles);
+document.addEventListener('DOMContentLoaded', () => {
+  initTheme();
+  updateToggles();
+});

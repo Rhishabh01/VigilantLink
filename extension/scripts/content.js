@@ -162,6 +162,39 @@ async function handleLinkMouseEnter(event) {
   if (!enabled) return;
 
   const url = target.href;
+  
+  // --- NEW: SAME-DOMAIN TRUST ---
+  // If the link destination matches the current page's domain, ignore it.
+  try {
+    const urlObj = new URL(url);
+    const currentHostname = window.location.hostname;
+    
+    // --- CONDITIONAL SAME-DOMAIN TRUST ---
+    // Only skip internal scans if we are on a 'Trusted' or 'Known' site.
+    const settings = await chrome.storage.local.get(['customSites']);
+    const customSites = settings.customSites || [];
+    const isTrustedSite = customSites.some(site => 
+      currentHostname === site.domain || currentHostname.endsWith('.' + site.domain)
+    );
+
+    // Known high-risk redirector paths that should ALWAYS be scanned
+    const FORCED_REDIRECTORS = ['/redirect', '/url', '/l.php', '/link'];
+    const isForcedPath = FORCED_REDIRECTORS.includes(urlObj.pathname);
+
+    // Check if the URL contains an EXTERNAL nested destination (Smart Redirector detection)
+    const searchStr = urlObj.search.toLowerCase();
+    const hasNestedExternalUrl = (searchStr.includes('http://') || searchStr.includes('https://')) && 
+                                 !searchStr.includes(currentHostname.toLowerCase());
+                         
+    // RULE: Only skip if (Same Domain) AND (On a Trusted Site) AND (No Redirector detected)
+    if (isSameDomain && isTrustedSite && !hasNestedExternalUrl && !isForcedPath) {
+      // It's a clean internal link on a site the user has manually trusted.
+      return;
+    }
+  } catch (e) {
+    // Invalid URL, continue to normal handling
+  }
+
   hoverTargetUrl = url;
   activeAnchor = target;
 
@@ -196,7 +229,8 @@ async function handleLinkMouseEnter(event) {
     const seq = ++requestSequence;
 
     try {
-      chrome.runtime.sendMessage({ action: 'analyze_link', url }, (response) => {
+      const source_url = window.location.href;
+      chrome.runtime.sendMessage({ action: 'analyze_link', url, source_url }, (response) => {
         if (currentAnalysisUrl !== url) return; // Stale response
         if (seq !== requestSequence) return; // Stale sequence
         if (response && response.success) {
@@ -338,6 +372,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           enterReconnectingState();
         }
       }
+    }
+  } else if (message.action === 'theme_updated') {
+    if (isPopupValid()) {
+      currentPopupContent.setAttribute('data-theme', message.theme);
     }
   }
 });
@@ -668,6 +706,14 @@ function createShadowPopup(x, y) {
 
   const content = document.createElement("div");
   content.className = "vigilant-card";
+  
+  // Apply current theme
+  chrome.storage.local.get('theme', (data) => {
+    if (content) {
+      content.setAttribute('data-theme', data.theme || 'dark');
+    }
+  });
+
   shadowRoot.appendChild(content);
 
   document.body.appendChild(container);

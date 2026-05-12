@@ -14,6 +14,11 @@ class AnalyzeRequest(BaseModel):
     url: HttpUrl
 
 
+class ScanRequest(BaseModel):
+    url: str
+    source_url: Optional[str] = None
+
+
 class RedirectHop(BaseModel):
     url: str
     status_code: int

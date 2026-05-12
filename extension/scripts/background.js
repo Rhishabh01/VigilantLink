@@ -1,8 +1,9 @@
 // Service Worker for API communication — Progressive Two-Phase Architecture
 // Phase 1: Instant analysis (POST /analyze) — returned immediately
 // Phase 2: Deep scan polling (GET /analyze/deep/{request_id}) — background poll
+//https://extension-production-4bd4.up.railway.app < actual backend website
+const BACKEND_URL = "http://localhost:8000";
 
-const BACKEND_URL = "https://extension-production-4bd4.up.railway.app";
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 15000;
 const BACKGROUND_POLL_MAX_MS = 30000;
@@ -28,7 +29,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const controller = new AbortController();
     activeRequests.set(tabId, { controller, generation });
 
-    analyzeTwoPhase(request.url, controller.signal, tabId, generation)
+    analyzeTwoPhase(request.url, request.source_url, controller.signal, tabId, generation)
       .then(data => sendResponse({ success: true, data }))
       .catch(error => {
         console.error("VigilantLink analyze error:", error);
@@ -83,13 +84,13 @@ function cancelRequest(tabId) {
   }
 }
 
-async function analyzeTwoPhase(url, signal, tabId, generation) {
+async function analyzeTwoPhase(url, source_url, signal, tabId, generation) {
   // --- Phase 1: Instant fetch ---
   console.log("Sending request to:", `${BACKEND_URL}/analyze`);
   const phase1Response = await fetch(`${BACKEND_URL}/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({ url, source_url }),
     signal
   });
 
@@ -211,7 +212,13 @@ async function pollForDeepScan(requestId, signal, timeoutMs = POLL_TIMEOUT_MS) {
       console.log("Poll data received:", data);
 
       if (data.s === 2) {
-        console.log("Phase2 complete:", data);
+        if (data.gk) {
+          console.log("🛡️ [GATEKEEPER] Phase 2 skipped: Trusted domain with low risk.");
+        } else if (Date.now() - startTime < 500) {
+          console.log("🚀 [CACHE] Instant result from Redis cache.");
+        } else {
+          console.log("🔍 [DEEP SCAN] Phase 2 complete (Full Browser Scan + API checks).");
+        }
         return data;
       }
       // s=0 → keep polling

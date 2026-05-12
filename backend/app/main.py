@@ -11,15 +11,16 @@ from urllib.parse import urlparse
 
 from .core.logging import setup_logging, get_logger
 
-from .models import AnalyzeRequest
+from .models import ScanRequest
 from .services.orchestrator import (
     run_phase1, run_phase2, generate_request_id, normalize_url, needs_screenshot,
+    should_run_phase2,
 )
 from .services.browser_pool import browser_pool
 from .services.redis_cache import RedisCache
 from .services.request_collapser import request_collapser
 from .middleware.rate_limiter import SessionRateLimiter
-from .core.constants import SCREENSHOT_TIMEOUT_S
+from .core.constants import SCREENSHOT_TIMEOUT_S, MAX_REDIRECT_HOPS_FREE
 
 # Standardized Logging
 setup_logging()
@@ -35,18 +36,19 @@ rate_limiter = SessionRateLimiter(capacity=10, leak_rate=2.0)
 
 
 
+from .services.domain_intelligence import refresh_top_domains_task, run_periodic_refresh
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────────
-    # NOTE: Chromium (BrowserPool) is intentionally NOT started here.
-    # Launching a browser at startup blocks the event loop for several
-    # seconds, causing Railway/health-check timeouts before the server
-    # is ready. Instead, browser_pool.start() is called lazily inside
-    # capture_screenshot() on first use.
     t0 = time.monotonic()
     logger.info("[STARTUP] Connecting to Redis...")
     try:
         await asyncio.wait_for(redis_cache.connect(), timeout=3.0)
+        # Initial refresh of top domains
+        asyncio.create_task(refresh_top_domains_task(redis_cache))
+        # Schedule periodic refresh
+        asyncio.create_task(run_periodic_refresh(redis_cache))
     except asyncio.TimeoutError:
         logger.warning("[STARTUP] Redis connect timed out — running in no-cache mode")
     except Exception as e:
@@ -98,8 +100,15 @@ app.add_middleware(
 # Phase 1: Instant Analysis (≤500ms)
 # ============================================================
 
+
+
 @app.post("/analyze")
-async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
+async def analyze_link(request: Request, body: ScanRequest) -> dict:
+    canonical = normalize_url(body.url)
+    source_domain = None
+    if body.source_url:
+        source_domain = urlparse(body.source_url).netloc.lower()
+
     try:
         """
         Phase 1: Returns instant heuristic + metadata results.
@@ -192,8 +201,20 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
         # Cache partial result
         await redis_cache.set_partial(canonical, {**stage1_response, "_phase1_raw": phase1})
 
-        # Fire-and-forget Phase 2 in background
-        asyncio.create_task(_run_phase2_background(request_id, canonical, phase1))
+        # Fire-and-forget Phase 2 in background (Gatekept)
+        if await should_run_phase2(phase1, redis_cache, source_domain):
+            asyncio.create_task(_run_phase2_background(request_id, canonical, phase1))
+        else:
+            # If skipping Phase 2, we still want to keep polling for the screenshot.
+            # We save it as Stage 1 (Partial) so the extension stays alive.
+            logger.info(f"[GATEKEEPER] Deep scan skipped for {canonical[:50]}. Enrichment starting...")
+            
+            # Save a 'Safe' partial result (Stage 1) that triggers Phase 2 in background
+            await redis_cache.set_partial(canonical, {**stage1_response, "_phase1_raw": phase1, "gk": True})
+            
+            # Trigger Phase 2 in "Screenshot Only" mode. 
+            # It will update the result to Stage 2 once the image is ready.
+            asyncio.create_task(_run_phase2_background(request_id, canonical, phase1, skip_external=True))
 
         logger.info(f"Phase 1 complete for {url_str} in {phase1['duration_ms']}ms (id={request_id})")
         return stage1_response
@@ -223,15 +244,34 @@ async def get_deep_result(request_id: str) -> dict:
 
 
 async def _run_phase2_background(
-    request_id: str, canonical_url: str, phase1: Dict[str, Any]
+    request_id: str, canonical_url: str, phase1: Dict[str, Any], skip_external: bool = False
 ) -> None:
     """
     Background task: runs Phase 2 deep scans and stores result for polling.
+    If skip_external=True, it skips RDAP/VirusTotal and only does Screenshot.
     """
-    logger.info(f"[PHASE2] Background scan started: {request_id}")
+    logger.info(f"[PHASE2] Background {'enrichment' if skip_external else 'scan'} started: {request_id}")
     stage2_response = None
     try:
-        phase2 = await run_phase2(canonical_url, phase1)
+        if skip_external:
+            # Fake a 'safe' external result for trusted sites
+            phase2 = {
+                "security": {
+                    "is_safe": True,
+                    "verdict": "green",
+                    "risk_score": phase1["security"]["risk_score"],
+                    "threat_type": phase1["security"]["threat_type"],
+                    "vendor_flags": 0,
+                    "total_vendors": 0,
+                    "ssl_cert_age_days": None,
+                    "suspicious_redirects": len(phase1.get("hops", [])) > MAX_REDIRECT_HOPS_FREE,
+                    "typosquatting_detected": phase1["heuristics"].get("typosquatting_detected", False),
+                    "reasons": phase1["security"]["reasons"],
+                },
+                "duration_ms": 0
+            }
+        else:
+            phase2 = await run_phase2(canonical_url, phase1)
 
         metadata = phase1.get("metadata")
         final_url = phase1["final_url"]

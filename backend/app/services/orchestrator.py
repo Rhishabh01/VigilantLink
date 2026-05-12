@@ -166,6 +166,69 @@ def detect_hosted_phishing(
     return signals
 
 
+async def should_run_phase2(phase1_result: Dict[str, Any], redis_cache: Any, source_domain: Optional[str] = None) -> bool:
+    """
+    Gatekeeper for Phase 2 (external APIs).
+    Returns True if the URL is suspicious enough to warrant hitting external quotas.
+    
+    Conditions for skipping Phase 2:
+    - Verdict is NOT 'red' (Phase 1 score < 65)
+    - Domain is in TRUSTED_PLATFORMS OR in the dynamic Redis Top Domains set
+    - OR Final URL matches the source_domain (Internal redirect trust)
+    - No critical heuristic signals (Punycode, Typosquatting, etc.)
+    """
+    sec = phase1_result["security"]
+    heuristics = phase1_result["heuristics"]
+    final_url = phase1_result["final_url"]
+    
+    # 1. If Phase 1 already flagged it as dangerous (Red), run Phase 2 to get full data
+    if sec["verdict"] == "red":
+        return True
+        
+    # 2. Check if it's a trusted platform (Static + Dynamic)
+    parsed_final = urlparse(final_url)
+    domain_lower = parsed_final.netloc.lower()
+    if ':' in domain_lower:
+        domain_lower = domain_lower.split(':')[0]
+        
+    # Check for same-domain redirect trust
+    if source_domain and (domain_lower == source_domain or domain_lower.endswith('.' + source_domain)):
+        logger.info(f"[GATEKEEPER] Internal redirect trust: {domain_lower} matches source {source_domain}")
+        return False
+
+    is_trusted_static = any(
+        domain_lower == d or domain_lower.endswith(f".{d}")
+        for d in TRUSTED_PLATFORMS
+    )
+    
+    # Dynamic check via Redis (O(1) set lookup)
+    is_trusted_dynamic = False
+    if not is_trusted_static and redis_cache:
+        is_trusted_dynamic = await redis_cache.is_top_domain(domain_lower)
+        if is_trusted_dynamic:
+            logger.info(f"[GATEKEEPER] Dynamic match: {domain_lower} is a top traffic domain.")
+    
+    is_trusted = is_trusted_static or is_trusted_dynamic
+    
+    # 3. Check for high-risk signals from heuristics
+    has_risk_signals = (
+        heuristics.get("typosquatting_detected") or
+        heuristics.get("punycode_detected") or
+        heuristics.get("synergy_detected") or
+        sec["suspicious_redirects"] or
+        sec["ssl_error"]
+    )
+    
+    # Gatekeeping logic:
+    # Skip Phase 2 if it's a trusted domain AND has a relatively low heuristic score AND no risk signals
+    if is_trusted and sec["risk_score"] < VERDICT_RED_THRESHOLD and not has_risk_signals:
+        logger.info(f"[GATEKEEPER] Skipping Phase 2 for trusted/top domain: {domain_lower}")
+        return False
+        
+    # Always run for untrusted or suspicious domains
+    return True
+
+
 # ============================================================
 # Scoring: Weighted formula S = Σ(wi · ci) + U
 # ============================================================

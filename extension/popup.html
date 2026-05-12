@@ -10,6 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
+      /* Dark Theme (Default) */
       --bg: #0f172a;
       --surface: #1e293b;
       --border: rgba(255, 255, 255, 0.08);
@@ -22,6 +23,18 @@
       --text-muted: #94a3b8;
       --text-dim: #64748b;
       --radius: 10px;
+      --btn-secondary: #334155;
+    }
+
+    [data-theme="light"] {
+      --bg: #f1f5f9;
+      --surface: #f8fafc;
+      --border: rgba(0, 0, 0, 0.08);
+      --border-hover: rgba(0, 0, 0, 0.15);
+      --text: #0f172a;
+      --text-muted: #475569;
+      --text-dim: #94a3b8;
+      --btn-secondary: #e2e8f0;
     }
 
     * {
@@ -352,8 +365,15 @@
     }
 
     .btn-cancel {
-      background: #334155;
-      color: var(--text-muted);
+      background: var(--btn-secondary);
+      color: var(--text);
+      border: 1px solid var(--border);
+      transition: all 0.2s;
+    }
+
+    .btn-cancel:hover {
+      background: var(--surface);
+      border-color: var(--text-dim);
     }
 
     .show-add-btn {
@@ -377,6 +397,30 @@
       border-color: var(--accent);
       color: var(--accent);
     }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .theme-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .theme-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
   </style>
 </head>
 
@@ -386,7 +430,13 @@
       <img src="icons/icon48.png" alt="VigilantLink Logo" class="logo">
       <h1>VigilantLink</h1>
     </div>
-    <span id="site-status-badge">ACTIVE</span>
+    <div class="header-right">
+      <button id="theme-toggle" class="theme-btn" title="Toggle Theme">
+        <svg id="moon-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        <svg id="sun-icon" style="display:none" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+      </button>
+      <span id="site-status-badge">ACTIVE</span>
+    </div>
   </div>
 
   <div class="content">
