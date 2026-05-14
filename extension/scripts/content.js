@@ -221,6 +221,22 @@ async function handleLinkMouseEnter(event) {
 
     await showLoadingPopup(x, y);
 
+    // Instant Cache Check
+    chrome.runtime.sendMessage({ action: 'analyze_link', url, cache_only: true }, (response) => {
+      if (hoverTargetUrl !== url) return; // Moved away
+      if (response && response.success && !response.data.cache_miss) {
+        console.log(`%c[CACHE HIT] Ignoring delay for: ${url}`, 'color: #8b5cf6');
+        if (activationTimer) {
+          clearTimeout(activationTimer);
+          activationTimer = null;
+        }
+        
+        currentAnalysisUrl = url;
+        currentRequestId = response.data.id || null;
+        updatePopupWithResult(response.data);
+      }
+    });
+
     console.log(`%c[HOVER] Timer started for activation: ${url}`, 'color: #3b82f6');
     activationTimer = setTimeout(async () => {
       if (hoverTargetUrl !== url) return;
@@ -237,9 +253,6 @@ async function handleLinkMouseEnter(event) {
           if (response && response.success) {
             currentRequestId = response.data.id;
             updatePopupWithResult(response.data);
-            
-            // Start polling for the deep results (Phase 2 -> Phase 3)
-            startDeepResultPolling(response.data.id, url, seq);
           } else {
             updatePopupWithError(response?.error || 'Unknown error');
           }

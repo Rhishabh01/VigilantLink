@@ -151,6 +151,9 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
             )
             return cached_partial
 
+        if body.cache_only:
+            return {"cache_miss": True}
+
         # --- Fresh analysis (request-collapsed) ---
         phase1 = await request_collapser.deduplicated_call(
             canonical,
