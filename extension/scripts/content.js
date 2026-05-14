@@ -660,19 +660,24 @@ function finalizeReconnectCard(data) {
   const screenshotContainer = document.createElement('div');
   screenshotContainer.className = 'screenshot-container';
   const placeholder = document.createElement('div');
-  placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
+  placeholder.className = 'preview-placeholder';
   const isPending = data.s === 1 || data.p3 === 'pending';
   placeholder.textContent = isPending ? 'Loading visual preview...' : 'Preview unavailable';
   screenshotContainer.appendChild(placeholder);
+  
+  const img = document.createElement('img');
+  img.className = 'preview-image';
+  img.alt = `Preview of ${final_url}`;
   const displayImage = screenshot_base64 || preview_image_url;
   if (displayImage) {
-    const img = document.createElement('img');
-    img.style.display = 'none';
-    img.alt = `Preview of ${final_url}`;
-    img.onload = () => { screenshotContainer.textContent = ''; img.style.display = ''; screenshotContainer.appendChild(img); };
+    img.onload = () => { 
+      img.classList.add('loaded');
+      placeholder.style.opacity = '0';
+    };
     img.onerror = () => { };
     img.src = displayImage;
   }
+  screenshotContainer.appendChild(img);
   bodyDiv.appendChild(screenshotContainer);
 
   const infoDiv = document.createElement('div');
@@ -1105,28 +1110,30 @@ function updatePopupWithResult(data) {
 
   const makePlaceholder = () => {
     const d = document.createElement('div');
-    d.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
+    d.className = 'preview-placeholder';
     const isPending = data.s === 1 || data.p3 === 'pending';
     d.textContent = isPending ? 'Loading visual preview...' : 'Preview unavailable';
     return d;
   };
 
-  screenshotContainer.appendChild(makePlaceholder());
+  const placeholder = makePlaceholder();
+  screenshotContainer.appendChild(placeholder);
 
+  const img = document.createElement('img');
+  img.className = 'preview-image';
+  img.alt = `Preview of ${final_url}`;
+  
   const displayImage = screenshot_base64 || preview_image_url;
   if (displayImage) {
-    const img = document.createElement('img');
-    img.style.display = 'none';
-    img.alt = `Preview of ${final_url}`;
     img.onload = () => {
-      screenshotContainer.textContent = '';
-      img.style.display = '';
-      screenshotContainer.appendChild(img);
+      img.classList.add('loaded');
+      placeholder.style.opacity = '0';
     };
     img.onerror = () => { };
     img.src = displayImage;
   }
-
+  
+  screenshotContainer.appendChild(img);
   bodyDiv.appendChild(screenshotContainer);
 
   const infoDiv = document.createElement('div');
@@ -1260,22 +1267,40 @@ function mergeDeepScanResult(data) {
   if (data.ss) {
     const container = currentPopupShadowRoot.querySelector('.screenshot-container');
     if (container) {
-      container.textContent = '';
-      const placeholderDiv = document.createElement('div');
-      placeholderDiv.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
-      placeholderDiv.textContent = 'Rendering preview...';
-      container.appendChild(placeholderDiv);
-
-      const img = document.createElement('img');
-      img.style.display = 'none';
-      img.alt = 'Site preview';
-      img.onload = () => {
-        container.textContent = '';
-        img.style.display = '';
+      let img = container.querySelector('.preview-image');
+      let placeholder = container.querySelector('.preview-placeholder');
+      
+      if (!img) {
+        img = document.createElement('img');
+        img.className = 'preview-image';
+        img.alt = 'Site preview';
         container.appendChild(img);
-      };
-      img.onerror = () => { };
-      img.src = data.ss;
+      }
+      
+      if (!placeholder) {
+        placeholder = document.createElement('div');
+        placeholder.className = 'preview-placeholder';
+        container.insertBefore(placeholder, container.firstChild);
+      }
+
+      if (img.src !== data.ss) {
+        if (!img.classList.contains('loaded')) {
+          placeholder.textContent = 'Rendering preview...';
+        }
+        
+        img.onload = () => {
+          img.classList.add('loaded');
+          placeholder.style.opacity = '0';
+        };
+        img.onerror = () => { };
+        img.src = data.ss;
+      }
+    }
+  } else {
+    const placeholder = currentPopupShadowRoot.querySelector('.preview-placeholder');
+    if (placeholder) {
+      const isPending = data.p3 === 'pending';
+      placeholder.textContent = isPending ? 'Loading visual preview...' : 'Preview unavailable';
     }
   }
 }

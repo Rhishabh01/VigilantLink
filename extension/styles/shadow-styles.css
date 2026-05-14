@@ -167,6 +167,7 @@
 }
 
 .screenshot-container {
+  position: relative;
   width: 100%;
   height: 180px;
   background: var(--v-surface);
@@ -176,12 +177,39 @@
   border: 1px solid var(--v-border);
 }
 
-.screenshot-container img {
+.preview-placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  object-position: top;
-  animation: fadeInImg 0.4s ease-out;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-style: italic;
+  text-align: center;
+  padding: 0 20px;
+  box-sizing: border-box;
+  z-index: 1;
+  transition: opacity 0.4s ease;
+}
+
+.preview-image {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.preview-image.loaded {
+  opacity: 1;
 }
 
 @keyframes fadeInImg {
