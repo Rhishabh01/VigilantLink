@@ -754,30 +754,6 @@ def needs_screenshot(
     redirect_depth: int = 0,
 ) -> bool:
     """
-    Phase 3 gatekeeper. Returns True only when visual evidence is justified.
-
-    Conditions (any triggers screenshot):
-      1. risk_score >= 70 (high risk)
-      2. risk_score >= 40 AND domain < 90 days (medium risk + new domain)
-      3. vendor_flags >= 2 AND no OG image (flagged, no preview)
-      4. redirect_depth > 3 AND domain < 90 days (chain landing on fresh domain)
+    Phase 3 gatekeeper. Now updated to be COMPULSORY for all scans.
     """
-    has_image = metadata is not None and metadata.get("image_url") is not None
-    is_new = ssl_cert_age_days is not None and ssl_cert_age_days < 90
-
-    if risk_score >= 70:
-        return True
-    if risk_score >= 40 and ssl_cert_age_days is not None and ssl_cert_age_days < 90:
-        return True
-    if vendor_flags >= 2 and not has_image:
-        return True
-    if redirect_depth > MAX_REDIRECT_HOPS_FREE and ssl_cert_age_days is not None and ssl_cert_age_days < 90:
-        return True
-    # Fallback: metadata fetch failed entirely — try screenshot for visual preview
-    if metadata is None:
-        return True
-    # Fallback: metadata exists but has no OG image — try screenshot for visual preview
-    if metadata is not None and not has_image:
-        return True
-
-    return False
+    return True
