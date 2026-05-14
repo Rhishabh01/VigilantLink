@@ -60,6 +60,8 @@ class RedisCache:
         self._is_connected = False
         # Fallback for when Redis is unavailable (only works for single-process)
         self._fallback_pending: Dict[str, Any] = {}
+        self._fallback_full: Dict[str, Any] = {}
+        self._fallback_partial: Dict[str, Any] = {}
 
     async def connect(self) -> None:
         """Initialize Redis connection pool."""
@@ -94,7 +96,7 @@ class RedisCache:
         AND triggers a background refresh (at most once per 30s lock).
         """
         if not self._is_connected or not self._redis:
-            return None
+            return self._fallback_full.get(canonical_url)
 
         key = _cache_key(canonical_url)
         try:
@@ -121,6 +123,7 @@ class RedisCache:
     ) -> None:
         """Store complete stage-2 report with hard TTL."""
         if not self._is_connected or not self._redis:
+            self._fallback_full[canonical_url] = report
             return
 
         key = _cache_key(canonical_url)
@@ -144,7 +147,7 @@ class RedisCache:
     async def get_partial(self, canonical_url: str) -> Optional[Dict[str, Any]]:
         """Get cached stage-1 partial report."""
         if not self._is_connected or not self._redis:
-            return None
+            return self._fallback_partial.get(canonical_url)
 
         key = f"{_cache_key(canonical_url)}:partial"
         try:
@@ -159,6 +162,7 @@ class RedisCache:
     ) -> None:
         """Store stage-1 partial report."""
         if not self._is_connected or not self._redis:
+            self._fallback_partial[canonical_url] = report
             return
 
         key = f"{_cache_key(canonical_url)}:partial"
