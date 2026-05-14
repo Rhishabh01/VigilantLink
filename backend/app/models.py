@@ -12,6 +12,7 @@ class AnalysisStatus(IntEnum):
 
 class AnalyzeRequest(BaseModel):
     url: HttpUrl
+    cache_only: bool = False
 
 
 class RedirectHop(BaseModel):
