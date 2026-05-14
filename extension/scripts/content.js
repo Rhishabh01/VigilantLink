@@ -648,7 +648,7 @@ function finalizeReconnectCard(data) {
   screenshotContainer.className = 'screenshot-container';
   const placeholder = document.createElement('div');
   placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
-  placeholder.textContent = 'Preview unavailable';
+  placeholder.textContent = data.p3 === 'pending' ? 'Loading visual preview...' : 'Preview unavailable';
   screenshotContainer.appendChild(placeholder);
   const displayImage = screenshot_base64 || preview_image_url;
   if (displayImage) {
@@ -1092,7 +1092,7 @@ function updatePopupWithResult(data) {
   const makePlaceholder = () => {
     const d = document.createElement('div');
     d.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
-    d.textContent = 'Preview unavailable';
+    d.textContent = data.p3 === 'pending' ? 'Loading visual preview...' : 'Preview unavailable';
     return d;
   };
 
@@ -1248,7 +1248,7 @@ function mergeDeepScanResult(data) {
       container.textContent = '';
       const placeholderDiv = document.createElement('div');
       placeholderDiv.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
-      placeholderDiv.textContent = 'Preview unavailable';
+      placeholderDiv.textContent = 'Rendering preview...';
       container.appendChild(placeholderDiv);
 
       const img = document.createElement('img');
