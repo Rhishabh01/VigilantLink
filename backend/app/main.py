@@ -231,33 +231,15 @@ async def _run_phase2_background(
     logger.info(f"[PHASE2] Background scan started: {request_id}")
     stage2_response = None
     try:
+        # 1. Run Phase 2 Intelligence
         phase2 = await run_phase2(canonical_url, phase1)
 
         metadata = phase1.get("metadata")
         final_url = phase1["final_url"]
-
-        # Phase 3: Conditional screenshot (gatekeeper)
-        screenshot_base64: Optional[str] = None
         risk_score = phase2["security"]["risk_score"]
-        ssl_age = phase2["security"].get("ssl_cert_age_days")
-        vendor_flags = phase2["security"].get("vendor_flags", 0)
-        redirect_depth = len(phase1.get("hops", []))
-
-        if needs_screenshot(metadata, risk_score, ssl_age, vendor_flags, redirect_depth):
-            logger.info(f"[PHASE2] Launching browser for screenshot: {final_url[:50]}...")
-            try:
-                screenshot_base64 = await asyncio.shield(
-                    asyncio.wait_for(
-                        browser_pool.capture_screenshot(final_url),
-                        timeout=SCREENSHOT_TIMEOUT_S,
-                    )
-                )
-                logger.debug(f"[PHASE2] Screenshot captured")
-            except Exception as e:
-                logger.warning(f"[PHASE2] Screenshot failed: {e}")
-
-        # Build complete stage 2 response
         sec2 = phase2["security"]
+
+        # 2. Build and Cache Phase 2 result IMMEDIATELY (Intelligence only)
         stage2_response = {
             "s": 2,
             "id": request_id,
@@ -268,7 +250,7 @@ async def _run_phase2_background(
             "d": (metadata or {}).get("description"),
             "img": (metadata or {}).get("image_url"),
             "fav": (metadata or {}).get("favicon_url"),
-            "ss": screenshot_base64,
+            "ss": None, # Screenshot not ready yet
             "sec": {
                 "safe": sec2["is_safe"],
                 "v": sec2["verdict"],
@@ -286,8 +268,38 @@ async def _run_phase2_background(
             "ms": phase1["duration_ms"] + phase2["duration_ms"],
         }
 
-        # Cache results
+        # Cache intelligence result
         await redis_cache.set_full(canonical_url, stage2_response)
+        await redis_cache.set_pending(request_id, stage2_response)
+        logger.info(f"[CACHE] Phase 2 result stored for {canonical_url[:50]} (id={request_id})")
+
+        # 3. Run Phase 3: Compulsory screenshot
+        screenshot_base64: Optional[str] = None
+        ssl_age = phase2["security"].get("ssl_cert_age_days")
+        vendor_flags = phase2["security"].get("vendor_flags", 0)
+        redirect_depth = len(phase1.get("hops", []))
+
+        if needs_screenshot(metadata, risk_score, ssl_age, vendor_flags, redirect_depth):
+            logger.info(f"[PHASE2] Launching browser for compulsory screenshot: {final_url[:50]}...")
+            try:
+                screenshot_base64 = await asyncio.shield(
+                    asyncio.wait_for(
+                        browser_pool.capture_screenshot(final_url),
+                        timeout=SCREENSHOT_TIMEOUT_S,
+                    )
+                )
+                
+                if screenshot_base64:
+                    # Upgrade the cache entry with the screenshot
+                    stage2_response["ss"] = screenshot_base64
+                    await redis_cache.set_full(canonical_url, stage2_response)
+                    await redis_cache.set_pending(request_id, stage2_response)
+                    logger.info(f"[CACHE] Phase 3 cache upgraded with screenshot for {request_id}")
+                else:
+                    logger.debug(f"[PHASE2] Screenshot capture returned empty")
+            except Exception as e:
+                logger.warning(f"[PHASE2] Screenshot failed: {e}")
+
         logger.info(f"[PHASE2] Deep scan complete for {canonical_url[:50]}...")
 
     except Exception as e:

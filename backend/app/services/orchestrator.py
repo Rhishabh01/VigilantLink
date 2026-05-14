@@ -74,8 +74,11 @@ def normalize_url(raw: str) -> str:
     """
     p = urlparse(raw)
     qs = parse_qs(p.query, keep_blank_values=True)
-    # Remove tracking parameters
-    filtered = {k: v for k, v in qs.items() if k.lower() not in TRACKING_PARAMS}
+    # Remove tracking parameters (prefix match for utm_)
+    filtered = {
+        k: v for k, v in qs.items() 
+        if k.lower() not in TRACKING_PARAMS and not k.lower().startswith("utm_")
+    }
     sorted_qs = urlencode(sorted(filtered.items()), doseq=True)
     return urlunparse((
         p.scheme.lower(),
@@ -83,7 +86,7 @@ def normalize_url(raw: str) -> str:
         p.path.rstrip("/") or "/",
         p.params,
         sorted_qs,
-        "",  # strip fragment
+        "",  # strip fragment for normalization
     ))
 
 
