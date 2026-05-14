@@ -525,16 +525,12 @@ def compute_final_score(
     is_safe = True
     verdict = "green"
 
-    # VirusTotal critical override (softened for trusted platforms without corroboration)
-    if vendor_flags > SEVERE_VENDOR_FLAGS_THRESHOLD:
-        has_corroboration = bool(gsb_threats) or has_phishing_keywords or len(hops) > MAX_REDIRECT_HOPS_FREE
-        if is_trusted_platform and not has_corroboration:
-            capped_score = min(capped_score, VERDICT_RED_THRESHOLD - 1)
-        else:
-            is_safe = False
-            verdict = "red"
-            capped_score = 99
-            reasons.append(f"CRITICAL: VirusTotal flagged by {vendor_flags} vendors (>{SEVERE_VENDOR_FLAGS_THRESHOLD})")
+    # VirusTotal critical override (enforced for 5+ flags)
+    if vendor_flags >= SEVERE_VENDOR_FLAGS_THRESHOLD:
+        is_safe = False
+        verdict = "red"
+        capped_score = 99
+        reasons.append(f"CRITICAL: VirusTotal flagged by {vendor_flags} vendors (>= {SEVERE_VENDOR_FLAGS_THRESHOLD})")
     elif capped_score >= VERDICT_RED_THRESHOLD:
         is_safe = False
         verdict = "red"
