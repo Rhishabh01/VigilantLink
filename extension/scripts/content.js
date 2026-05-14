@@ -1197,15 +1197,14 @@ function mergeDeepScanResult(data) {
   scanState = 'FINALIZED';
 
   // Route based on previous state:
-  // ANALYZING    → incremental patch (header + forensics only, body DOM is already full)
+  // ANALYZING / FINALIZED → incremental patch (header + forensics only, body DOM is already full)
   // RECONNECTING → in-card transition (header patch + body swap)
-  // SCANNING /
   // anything else → full rebuild (phase1 never rendered a result)
   if (prevState === 'RECONNECTING') {
     finalizeReconnectCard(data);
     return;
   }
-  if (prevState !== 'ANALYZING') {
+  if (prevState !== 'ANALYZING' && prevState !== 'FINALIZED') {
     updatePopupWithResult(data);
     return;
   }
@@ -1221,11 +1220,13 @@ function mergeDeepScanResult(data) {
     let verdictText = security.safe ? 'Safe' : 'Suspicious';
     if (verdictClass === 'red') verdictText = 'Dangerous';
 
-    // Remove old header classes and apply new
-    header.className = `header ${verdictClass}-header`;
-    badge.className = `badge ${verdictClass}`;
-    badge.textContent = verdictText;
-    logo.textContent = `Safety Score: ${100 - security.rs}/100`;
+    // Only update if changed to avoid micro-flicker
+    if (badge.textContent !== verdictText) {
+      header.className = `header ${verdictClass}-header`;
+      badge.className = `badge ${verdictClass}`;
+      badge.textContent = verdictText;
+      logo.textContent = `Safety Score: ${100 - security.rs}/100`;
+    }
   }
 
   // Update or add warning box
@@ -1234,7 +1235,8 @@ function mergeDeepScanResult(data) {
     const existingWarning = currentPopupShadowRoot.querySelector('.warning-box');
     const newWarning = createWarningBox(security.v, security.tt);
 
-    if (existingWarning && newWarning) {
+    // Only patch if warning box changed
+    if (existingWarning && newWarning && existingWarning.className !== newWarning.className) {
       existingWarning.replaceWith(newWarning);
     } else if (!existingWarning && newWarning) {
       body.insertBefore(newWarning, body.firstChild);
@@ -1245,8 +1247,6 @@ function mergeDeepScanResult(data) {
     // Update or add forensic section
     const existingInfo = currentPopupShadowRoot.querySelector('.info');
     if (existingInfo && security.r && security.r.length > 0) {
-      existingInfo.textContent = '';
-
       let filteredReasons = security.r;
 
       // Suppress uncertainty penalty and internal reasons for safe verdicts
@@ -1258,8 +1258,16 @@ function mergeDeepScanResult(data) {
         );
       }
 
-      const forensicSection = createForensicSection(filteredReasons);
-      if (forensicSection) existingInfo.appendChild(forensicSection);
+      // Check if reasons actually changed before wiping the text (prevents flicker on Phase 3)
+      const currentBadges = existingInfo.querySelectorAll('.forensic-badge');
+      const currentTexts = Array.from(currentBadges).map(b => b.textContent).join('|');
+      const newTexts = filteredReasons.join('|');
+
+      if (currentTexts !== newTexts) {
+        existingInfo.textContent = '';
+        const forensicSection = createForensicSection(filteredReasons);
+        if (forensicSection) existingInfo.appendChild(forensicSection);
+      }
     }
   }
 
