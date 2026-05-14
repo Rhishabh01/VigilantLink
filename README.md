@@ -1,7 +1,7 @@
 # VigilantLink
 
 <p align="center" >Real-time, privacy-preserving phishing detection and deep link analysis for modern browsing.</p>
-
+<p align="center">If this project helped you in any manner , consider starring the repo ⭐</p>
 <p align="center">
 
 [![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
