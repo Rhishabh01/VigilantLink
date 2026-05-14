@@ -648,7 +648,8 @@ function finalizeReconnectCard(data) {
   screenshotContainer.className = 'screenshot-container';
   const placeholder = document.createElement('div');
   placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
-  placeholder.textContent = data.p3 === 'pending' ? 'Loading visual preview...' : 'Preview unavailable';
+  const isPending = data.s === 1 || data.p3 === 'pending';
+  placeholder.textContent = isPending ? 'Loading visual preview...' : 'Preview unavailable';
   screenshotContainer.appendChild(placeholder);
   const displayImage = screenshot_base64 || preview_image_url;
   if (displayImage) {
@@ -1092,7 +1093,8 @@ function updatePopupWithResult(data) {
   const makePlaceholder = () => {
     const d = document.createElement('div');
     d.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
-    d.textContent = data.p3 === 'pending' ? 'Loading visual preview...' : 'Preview unavailable';
+    const isPending = data.s === 1 || data.p3 === 'pending';
+    d.textContent = isPending ? 'Loading visual preview...' : 'Preview unavailable';
     return d;
   };
 
