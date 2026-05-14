@@ -8,6 +8,8 @@ let currentPopupContainer = null;
 let currentPopupShadowRoot = null;
 let currentPopupContent = null;
 const HOVER_DELAY_MS = 100;
+const ACTIVATION_DELAY_MS = 1500;
+let activationTimer = null;
 let mutationObserver = null;
 const processedLinks = new WeakSet();
 let currentAnalysisUrl = null;
@@ -219,38 +221,55 @@ async function handleLinkMouseEnter(event) {
 
     await showLoadingPopup(x, y);
 
-    currentAnalysisUrl = url;
-    currentRequestId = null;
-    const seq = ++requestSequence;
+    console.log(`%c[HOVER] Timer started for activation: ${url}`, 'color: #3b82f6');
+    activationTimer = setTimeout(async () => {
+      if (hoverTargetUrl !== url) return;
 
-    try {
-      chrome.runtime.sendMessage({ action: 'analyze_link', url }, (response) => {
-        if (currentAnalysisUrl !== url) return; // Stale response
-        if (seq !== requestSequence) return; // Stale sequence
-        if (response && response.success) {
-          currentRequestId = response.data.id;
-          updatePopupWithResult(response.data);
-        } else {
-          updatePopupWithError(response?.error || 'Unknown error');
-        }
-      });
-    } catch (e) {
-      console.warn('VigilantLink: Context invalidated. Refresh page.', e);
-    }
+      console.log(`%c[SCAN] Hover threshold reached -> starting scan: ${url}`, 'color: #10b981');
+      currentAnalysisUrl = url;
+      currentRequestId = null;
+      const seq = ++requestSequence;
+
+      try {
+        chrome.runtime.sendMessage({ action: 'analyze_link', url }, (response) => {
+          if (currentAnalysisUrl !== url) return; // Stale response
+          if (seq !== requestSequence) return; // Stale sequence
+          if (response && response.success) {
+            currentRequestId = response.data.id;
+            updatePopupWithResult(response.data);
+            
+            // Start polling for the deep results (Phase 2 -> Phase 3)
+            startDeepResultPolling(response.data.id, url, seq);
+          } else {
+            updatePopupWithError(response?.error || 'Unknown error');
+          }
+        });
+      } catch (e) {
+        console.warn('VigilantLink: Context invalidated. Refresh page.', e);
+      }
+    }, ACTIVATION_DELAY_MS);
   }, HOVER_DELAY_MS);
 }
 
 function handleLinkMouseLeave(event) {
   if (hoverTimer) {
-    // Only cancel if the popup hasn't appeared yet (still in debounce window)
     clearTimeout(hoverTimer);
     hoverTimer = null;
+  }
+
+  if (activationTimer) {
+    console.log(`%c[HOVER] Cancelled before threshold: ${hoverTargetUrl}`, 'color: #94a3b8');
+    clearTimeout(activationTimer);
+    activationTimer = null;
+    // If we were waiting for activation, the scan hasn't started yet.
+    // Close the popup since the user moved away.
+    closePopup();
+  }
+
+  if (!currentAnalysisUrl && !currentRequestId) {
     hoverTargetUrl = null;
     activeAnchor = null;
     ++requestSequence;
-    // No popup shown yet — cancel the in-flight request and clear state
-    currentAnalysisUrl = null;
-    currentRequestId = null;
     clearFreezeTimer();
     clearReconnectTimer();
     scanState = 'IDLE';
