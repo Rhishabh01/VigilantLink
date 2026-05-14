@@ -528,13 +528,7 @@ def compute_final_score(
     is_safe = True
     verdict = "green"
 
-    # VirusTotal critical override (enforced for 5+ flags)
-    if vendor_flags >= SEVERE_VENDOR_FLAGS_THRESHOLD:
-        is_safe = False
-        verdict = "red"
-        capped_score = 99
-        reasons.append(f"CRITICAL: VirusTotal flagged by {vendor_flags} vendors (>= {SEVERE_VENDOR_FLAGS_THRESHOLD})")
-    elif capped_score >= VERDICT_RED_THRESHOLD:
+    if capped_score >= VERDICT_RED_THRESHOLD:
         is_safe = False
         verdict = "red"
     elif capped_score >= VERDICT_YELLOW_THRESHOLD:
