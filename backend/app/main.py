@@ -251,6 +251,7 @@ async def _run_phase2_background(
             "img": (metadata or {}).get("image_url"),
             "fav": (metadata or {}).get("favicon_url"),
             "ss": None, # Screenshot not ready yet
+            "p3": "pending", # Flag indicating Phase 3 is still running
             "sec": {
                 "safe": sec2["is_safe"],
                 "v": sec2["verdict"],
@@ -289,6 +290,9 @@ async def _run_phase2_background(
                     )
                 )
                 
+                # Update status regardless of success to signal polling can stop
+                stage2_response["p3"] = "done"
+
                 if screenshot_base64:
                     # Upgrade the cache entry with the screenshot
                     stage2_response["ss"] = screenshot_base64
@@ -297,8 +301,12 @@ async def _run_phase2_background(
                     logger.info(f"[CACHE] Phase 3 cache upgraded with screenshot for {request_id}")
                 else:
                     logger.debug(f"[PHASE2] Screenshot capture returned empty")
+                    # Still need to update pending status so pollers stop
+                    await redis_cache.set_pending(request_id, stage2_response)
             except Exception as e:
                 logger.warning(f"[PHASE2] Screenshot failed: {e}")
+                stage2_response["p3"] = "done"
+                await redis_cache.set_pending(request_id, stage2_response)
 
         logger.info(f"[PHASE2] Deep scan complete for {canonical_url[:50]}...")
 
@@ -319,6 +327,7 @@ async def _run_phase2_background(
             "img": metadata.get("image_url"),
             "fav": metadata.get("favicon_url"),
             "ss": None,
+            "p3": "done",
             "sec": {
                 "safe": sec1.get("is_safe", True),
                 "v": sec1.get("verdict", "green"),
