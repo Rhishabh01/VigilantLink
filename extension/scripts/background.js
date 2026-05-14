@@ -28,7 +28,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const controller = new AbortController();
     activeRequests.set(tabId, { controller, generation });
 
-    analyzeTwoPhase(request.url, controller.signal, tabId, generation)
+    analyzeTwoPhase(request.url, controller.signal, tabId, generation, request.cache_only)
       .then(data => sendResponse({ success: true, data }))
       .catch(error => {
         console.error("VigilantLink analyze error:", error);
@@ -83,13 +83,13 @@ function cancelRequest(tabId) {
   }
 }
 
-async function analyzeTwoPhase(url, signal, tabId, generation) {
+async function analyzeTwoPhase(url, signal, tabId, generation, cacheOnly = false) {
   // --- Phase 1: Instant fetch ---
   console.log("Sending request to:", `${BACKEND_URL}/analyze`);
   const phase1Response = await fetch(`${BACKEND_URL}/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({ url, cache_only: cacheOnly }),
     signal
   });
 
@@ -106,8 +106,12 @@ async function analyzeTwoPhase(url, signal, tabId, generation) {
 
   const phase1Data = await phase1Response.json();
 
-  // If we got a full cached result (s=2), we still honor the delay for the 'loading' feel
-  // before returning.
+  if (phase1Data.cache_miss) {
+    cleanupRequest(tabId, generation);
+    return phase1Data;
+  }
+
+  // If we got a full cached result (s=2), return instantly
   if (phase1Data.s === 2) {
     cleanupRequest(tabId, generation);
     return phase1Data;
@@ -149,7 +153,7 @@ function cleanupRequest(tabId, generation) {
 async function pollForDeepScanBackground(requestId, signal, tabId, url, generation) {
   console.log("Starting phase2 polling:", requestId);
   try {
-    const phase2Data = await pollForDeepScan(requestId, signal, BACKGROUND_POLL_MAX_MS);
+    const phase2Data = await pollForDeepScan(requestId, signal, tabId, url, BACKGROUND_POLL_MAX_MS);
     // Check generation — but still send if the generation entry was cleaned up
     // (can happen after a disconnect/reconnect). The content script is the
     // authoritative staleness gatekeeper via currentAnalysisUrl / currentRequestId.
@@ -186,7 +190,7 @@ async function pollForDeepScanBackground(requestId, signal, tabId, url, generati
   }
 }
 
-async function pollForDeepScan(requestId, signal, timeoutMs = POLL_TIMEOUT_MS) {
+async function pollForDeepScan(requestId, signal, tabId, url, timeoutMs = POLL_TIMEOUT_MS) {
   const startTime = Date.now();
 
   while (Date.now() - startTime < timeoutMs) {
@@ -211,7 +215,20 @@ async function pollForDeepScan(requestId, signal, timeoutMs = POLL_TIMEOUT_MS) {
       console.log("Poll data received:", data);
 
       if (data.s === 2) {
-        console.log("Phase2 complete:", data);
+        if (data.p3 === "pending") {
+          console.log("Phase2 intelligence ready, Phase3 pending. Sending update...");
+          // Send partial result so UI shows intelligence immediately
+          chrome.tabs.sendMessage(tabId, {
+            action: "phase2_result",
+            requestId: requestId,
+            url: url,
+            data: data
+          });
+          // Continue loop to wait for Phase3
+          continue;
+        }
+
+        console.log("Phase2 and Phase3 complete:", data);
         return data;
       }
       // s=0 → keep polling

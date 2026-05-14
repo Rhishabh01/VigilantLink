@@ -7,13 +7,43 @@ const PRESET_SITES = [
 ];
 
 async function getSettings() {
-  const data = await chrome.storage.local.get(['globalEnabled', 'disabledSites', 'customSites', 'hiddenPresets']);
+  const data = await chrome.storage.local.get(['globalEnabled', 'disabledSites', 'customSites', 'hiddenPresets', 'theme']);
+  
+  // Determine default theme based on system preference
+  const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  
   return {
     globalEnabled: data.globalEnabled !== false,
     disabledSites: data.disabledSites || [],
     customSites: data.customSites || [],
-    hiddenPresets: data.hiddenPresets || []
+    hiddenPresets: data.hiddenPresets || [],
+    theme: data.theme || systemTheme
   };
+}
+
+async function initTheme() {
+  const { theme } = await getSettings();
+  applyTheme(theme);
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const moonIcon = document.getElementById('moon-icon');
+  const sunIcon = document.getElementById('sun-icon');
+  if (theme === 'light') {
+    moonIcon.style.display = 'none';
+    sunIcon.style.display = 'block';
+  } else {
+    moonIcon.style.display = 'block';
+    sunIcon.style.display = 'none';
+  }
+}
+
+async function toggleTheme() {
+  const { theme } = await getSettings();
+  const newTheme = theme === 'light' ? 'dark' : 'light';
+  await chrome.storage.local.set({ theme: newTheme });
+  applyTheme(newTheme);
 }
 
 async function updateToggles() {
@@ -262,6 +292,8 @@ document.addEventListener('click', async (e) => {
       await chrome.storage.local.set({ hiddenPresets });
     }
     updateToggles();
+  } else if (e.target.closest('#theme-toggle')) {
+    toggleTheme();
   }
 });
 
@@ -269,4 +301,7 @@ chrome.storage.onChanged.addListener(() => {
   updateToggles();
 });
 
-document.addEventListener('DOMContentLoaded', updateToggles);
+document.addEventListener('DOMContentLoaded', () => {
+  initTheme();
+  updateToggles();
+});
