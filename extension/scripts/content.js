@@ -195,28 +195,35 @@ async function handleLinkMouseEnter(event) {
   hoverTimer = setTimeout(async () => {
     if (hoverTargetUrl !== url) return;
 
-    const rect = target.getBoundingClientRect();
-    let x = rect.right + 10;
-    let y = rect.top;
+    const cursorX = event.clientX;
+    const cursorY = event.clientY;
+
+    let x = cursorX + 15;
+    let y = cursorY + 15;
 
     const POPUP_WIDTH = 360;
     const POPUP_HEIGHT = 450;
 
-    // Position popup with edge detection
+    // Horizontal positioning
     if (x + POPUP_WIDTH > window.innerWidth) {
-      x = rect.left - POPUP_WIDTH - 10;
+      // Try to flip to the left of the cursor
+      x = cursorX - POPUP_WIDTH - 15;
+      if (x < 0) {
+        // If it doesn't fit on either side, snap to the right edge
+        x = window.innerWidth - POPUP_WIDTH - 10;
+        if (x < 10) x = 10;
+      }
     }
-    if (x < 0) x = 10;
 
-    // Vertical positioning with flip-to-top detection
+    // Vertical positioning
     if (y + POPUP_HEIGHT > window.innerHeight) {
-      // Not enough room below, try spawning above the anchor
-      y = rect.top - POPUP_HEIGHT - 10;
-    }
-    
-    // Safety check for top overflow
-    if (y < 0) {
-      y = 10;
+      // Try to flip above the cursor
+      y = cursorY - POPUP_HEIGHT - 15;
+      if (y < 0) {
+        // If it doesn't fit above either, snap to the bottom edge
+        y = window.innerHeight - POPUP_HEIGHT - 10;
+        if (y < 10) y = 10;
+      }
     }
 
     await showLoadingPopup(x, y);
@@ -239,6 +246,7 @@ async function handleLinkMouseEnter(event) {
 
     console.log(`%c[HOVER] Timer started for activation: ${url}`, 'color: #3b82f6');
     activationTimer = setTimeout(async () => {
+      activationTimer = null; // Mark timer as fired
       if (hoverTargetUrl !== url) return;
 
       console.log(`%c[SCAN] Hover threshold reached -> starting scan: ${url}`, 'color: #10b981');
@@ -337,7 +345,7 @@ document.addEventListener('mousemove', (event) => {
     if (!closeTimer) {
       closeTimer = setTimeout(() => {
         closePopup();
-      }, 300);
+      }, 500); // 500ms grace period to move cursor to popup
     }
   } else {
     if (closeTimer) {
