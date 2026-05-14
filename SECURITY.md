@@ -6,8 +6,8 @@ We currently provide security updates for the following versions:
 
 | Version | Supported |
 | ------- | --------- |
-| 1.0.x   | ✅ Yes    |
-| < 1.0   | ❌ No     |
+| 1.2.x   | ✅ Yes    |
+| < 1.2   | ❌ No     |
 
 ## Reporting a Vulnerability
 
