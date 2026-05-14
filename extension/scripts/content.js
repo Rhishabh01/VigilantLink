@@ -89,6 +89,28 @@ async function isEnabledForSite() {
   });
 }
 
+// Get the effective theme (stored or system default)
+async function getTheme() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['theme'], (result) => {
+      if (result.theme) return resolve(result.theme);
+
+      // Fallback to system preference
+      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      resolve(isDark ? 'dark' : 'light');
+    });
+  });
+}
+
+// Watch for theme changes to update active popups
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.theme && currentPopupContainer) {
+    const newTheme = changes.theme.newValue;
+    currentPopupContainer.classList.remove('theme-light', 'theme-dark');
+    currentPopupContainer.classList.add(`theme-${newTheme}`);
+  }
+});
+
 // Initialize MutationObserver for AJAX-loaded and Shadow DOM links
 function initializeMutationObserver() {
   if (mutationObserver) return;
@@ -175,7 +197,7 @@ async function handleLinkMouseEnter(event) {
     let x = rect.right + 10;
     let y = rect.top;
 
-    const POPUP_WIDTH = 340;
+    const POPUP_WIDTH = 360;
     const POPUP_HEIGHT = 450;
 
     // Position popup with edge detection
@@ -184,12 +206,18 @@ async function handleLinkMouseEnter(event) {
     }
     if (x < 0) x = 10;
 
+    // Vertical positioning with flip-to-top detection
     if (y + POPUP_HEIGHT > window.innerHeight) {
-      y = rect.bottom - POPUP_HEIGHT;
+      // Not enough room below, try spawning above the anchor
+      y = rect.top - POPUP_HEIGHT - 10;
     }
-    if (y < 0) y = 10;
+    
+    // Safety check for top overflow
+    if (y < 0) {
+      y = 10;
+    }
 
-    showLoadingPopup(x, y);
+    await showLoadingPopup(x, y);
 
     currentAnalysisUrl = url;
     currentRequestId = null;
@@ -639,18 +667,21 @@ function finalizeReconnectCard(data) {
   if (final_url) attachPopupEventHandlers(final_url);
 }
 
-function createShadowPopup(x, y) {
-  closePopup();
+async function createShadowPopup(x, y) {
+  if (currentPopupContainer) {
+    closePopup();
+  }
 
-  let styleUrl = "";
-  try {
-    styleUrl = chrome.runtime.getURL("styles/shadow-styles.css");
-  } catch (e) {
-    console.warn("VigilantLink: Extension context invalidated. Please refresh the page.");
+  const styleUrl = chrome.runtime.getURL("styles/shadow-styles.css");
+  if (!styleUrl) {
+    console.error("VigilantLink: Shadow styles not found!");
     return;
   }
 
+  const theme = await getTheme();
+
   const container = document.createElement("div");
+  container.className = `theme-${theme}`;
   // Container positioning
   container.style.position = "fixed";
   container.style.left = `${x}px`;
@@ -676,8 +707,8 @@ function createShadowPopup(x, y) {
   currentPopupContent = content;
 }
 
-function showLoadingPopup(x, y) {
-  createShadowPopup(x, y);
+async function showLoadingPopup(x, y) {
+  await createShadowPopup(x, y);
   if (!currentPopupContent) return;
 
   clearFreezeTimer();
@@ -704,7 +735,7 @@ function showLoadingPopup(x, y) {
   headerDiv.appendChild(logoDiv);
 
   const badgeDiv = document.createElement('div');
-  badgeDiv.className = 'badge gray';
+  badgeDiv.className = 'badge gray loading-badge';
   badgeDiv.textContent = 'Analyzing...';
   headerDiv.appendChild(badgeDiv);
 
@@ -972,7 +1003,7 @@ function updatePopupWithResult(data) {
   urlDestDiv.className = 'url-dest';
   urlDestDiv.style.marginBottom = '8px';
   urlDestDiv.style.fontSize = '11px';
-  urlDestDiv.style.color = '#555';
+  urlDestDiv.style.color = 'var(--v-text-primary)';
   urlDestDiv.style.display = 'flex';
   urlDestDiv.style.alignItems = 'center';
   urlDestDiv.style.gap = '6px';
@@ -992,6 +1023,7 @@ function updatePopupWithResult(data) {
   linkEl.style.maxWidth = '210px';
   linkEl.style.display = 'inline-block';
   linkEl.style.verticalAlign = 'middle';
+  linkEl.style.color = 'var(--v-accent)';
   linkEl.textContent = final_url;
   urlDestDiv.appendChild(linkEl);
 

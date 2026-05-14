@@ -10,18 +10,31 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
+      /* Dark Theme (Default) */
       --bg: #0f172a;
       --surface: #1e293b;
       --border: rgba(255, 255, 255, 0.08);
       --border-hover: rgba(255, 255, 255, 0.15);
-      --accent: #10b981;
-      --accent-dim: rgba(16, 185, 129, 0.15);
+      --accent: #3b82f6;
+      --accent-dim: rgba(59, 130, 246, 0.15);
       --danger: #ef4444;
       --danger-dim: rgba(239, 68, 68, 0.15);
       --text: #f1f5f9;
       --text-muted: #94a3b8;
       --text-dim: #64748b;
       --radius: 10px;
+    }
+
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: rgba(0, 0, 0, 0.08);
+      --border-hover: rgba(0, 0, 0, 0.15);
+      --accent: #2563eb;
+      --accent-dim: rgba(37, 99, 235, 0.15);
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --text-dim: #94a3b8;
     }
 
     * {
@@ -37,6 +50,7 @@
       color: var(--text);
       -webkit-font-smoothing: antialiased;
       padding-top: 4px;
+      transition: background 0.3s ease, color 0.3s ease;
     }
 
     .header {
@@ -64,6 +78,30 @@
     .header h1 {
       font-size: 14px;
       font-weight: 600;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .theme-toggle {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 6px;
+      color: var(--text-muted);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    .theme-toggle:hover {
+      background: var(--border);
+      color: var(--text);
     }
 
     #site-status-badge {
@@ -109,12 +147,16 @@
       border: 1px solid var(--border);
       border-radius: var(--radius);
       margin-bottom: 12px;
-      transition: border-color 0.2s;
+      transition: border-color 0.2s, background 0.2s;
     }
 
     .toggle-section:hover {
       border-color: var(--border-hover);
       background: rgba(255, 255, 255, 0.03);
+    }
+
+    [data-theme="light"] .toggle-section:hover {
+      background: rgba(0, 0, 0, 0.02);
     }
 
     .toggle-section .toggle {
@@ -125,11 +167,6 @@
       content: '';
       width: 2px;
       flex-shrink: 0;
-    }
-
-    .toggle-label {
-      font-size: 13px;
-      font-weight: 500;
     }
 
     .toggle-label {
@@ -168,6 +205,10 @@
       transition: background 0.25s;
     }
 
+    [data-theme="light"] .slider {
+      background: #e2e8f0;
+    }
+
     .slider:before {
       content: "";
       position: absolute;
@@ -178,6 +219,7 @@
       background: white;
       border-radius: 50%;
       transition: transform 0.25s;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
 
     .toggle input:checked+.slider {
@@ -220,7 +262,7 @@
 
     .preset-list::-webkit-scrollbar-thumb,
     .custom-list::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.1);
+      background: var(--border-hover);
       border-radius: 999px;
     }
 
@@ -241,12 +283,18 @@
       border: 1px solid var(--border);
       border-radius: var(--radius);
       flex-shrink: 0;
-      transition: border-color 0.2s;
+      transition: border-color 0.2s, background 0.2s;
     }
 
+    .preset-item:hover,
     .custom-site-item:hover {
       border-color: var(--border-hover);
       background: rgba(255, 255, 255, 0.03);
+    }
+
+    [data-theme="light"] .preset-item:hover,
+    [data-theme="light"] .custom-site-item:hover {
+      background: rgba(0, 0, 0, 0.02);
     }
 
     .site-name {
@@ -353,7 +401,12 @@
 
     .btn-cancel {
       background: #334155;
-      color: var(--text-muted);
+      color: white;
+    }
+
+    [data-theme="light"] .btn-cancel {
+      background: #e2e8f0;
+      color: #64748b;
     }
 
     .show-add-btn {
@@ -386,7 +439,13 @@
       <img src="icons/icon48.png" alt="VigilantLink Logo" class="logo">
       <h1>VigilantLink</h1>
     </div>
-    <span id="site-status-badge">ACTIVE</span>
+    <div class="header-actions">
+      <button id="theme-toggle" class="theme-toggle" title="Toggle Theme">
+        <svg id="moon-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        <svg id="sun-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+      </button>
+      <span id="site-status-badge">ACTIVE</span>
+    </div>
   </div>
 
   <div class="content">
@@ -407,8 +466,7 @@
         <line x1="12" y1="16" x2="12" y2="12"></line>
         <line x1="12" y1="8" x2="12.01" y2="8"></line>
       </svg>
-      Enables or disables link hover checks on this site. Toggling off temporarily disables link checks re-enable to
-      resume or when you visit the site again.
+      Check links on this site.
     </div>
 
     <div class="preset-sites">
