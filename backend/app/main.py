@@ -15,6 +15,7 @@ from .models import AnalyzeRequest
 from .services.orchestrator import (
     run_phase1, run_phase2, generate_request_id, normalize_url, needs_screenshot,
 )
+from .services.scanner import start_phishtank_sync, stop_phishtank_sync
 from .services.browser_pool import browser_pool
 from .services.redis_cache import RedisCache
 from .services.request_collapser import request_collapser
@@ -44,6 +45,7 @@ async def lifespan(app: FastAPI):
     # is ready. Instead, browser_pool.start() is called lazily inside
     # capture_screenshot() on first use.
     t0 = time.monotonic()
+    start_phishtank_sync()
     logger.info("[STARTUP] Connecting to Redis...")
     try:
         await asyncio.wait_for(redis_cache.connect(), timeout=3.0)
@@ -54,6 +56,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"[STARTUP] Initialization ready in {time.monotonic() - t0:.2f}s")
     yield
     # ── Shutdown ─────────────────────────────────────────────────────────
+    stop_phishtank_sync()
     await browser_pool.stop()
     await redis_cache.close()
 
@@ -182,12 +185,12 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
                 "v": sec["verdict"],
                 "rs": sec["risk_score"],
                 "tt": sec["threat_type"],
-                "vf": sec["vendor_flags"],
-                "tv": sec["total_vendors"],
                 "age": sec.get("ssl_cert_age_days"),
                 "sr": sec["suspicious_redirects"],
                 "ts": sec["typosquatting_detected"],
                 "r": sec["reasons"],
+                "ptu": sec.get("pt_url_match", False),
+                "ptd": sec.get("pt_domain_match", False),
             },
             "ms": phase1["duration_ms"],
         }
@@ -260,14 +263,14 @@ async def _run_phase2_background(
                 "v": sec2["verdict"],
                 "rs": sec2["risk_score"],
                 "tt": sec2["threat_type"],
-                "vf": sec2["vendor_flags"],
-                "tv": sec2["total_vendors"],
                 "age": sec2.get("ssl_cert_age_days"),
                 "sr": sec2["suspicious_redirects"],
                 "ts": sec2["typosquatting_detected"],
                 "r": sec2["reasons"],
                 "gsb": sec2.get("gsb_matched", False),
                 "gsbt": sec2.get("gsb_threat_type", None),
+                "ptu": sec2.get("pt_url_match", False),
+                "ptd": sec2.get("pt_domain_match", False),
             },
             "ms": phase1["duration_ms"] + phase2["duration_ms"],
         }
@@ -280,10 +283,9 @@ async def _run_phase2_background(
         # 3. Run Phase 3: Compulsory screenshot
         screenshot_base64: Optional[str] = None
         ssl_age = phase2["security"].get("ssl_cert_age_days")
-        vendor_flags = phase2["security"].get("vendor_flags", 0)
         redirect_depth = len(phase1.get("hops", []))
 
-        if needs_screenshot(metadata, risk_score, ssl_age, vendor_flags, redirect_depth):
+        if needs_screenshot(metadata, risk_score, ssl_age, redirect_depth):
             logger.info(f"[PHASE2] Launching browser for compulsory screenshot: {final_url[:50]}...")
             try:
                 screenshot_base64 = await asyncio.shield(
@@ -336,14 +338,14 @@ async def _run_phase2_background(
                 "v": sec1.get("verdict", "green"),
                 "rs": sec1.get("risk_score", 0),
                 "tt": sec1.get("threat_type"),
-                "vf": sec1.get("vendor_flags", 0),
-                "tv": sec1.get("total_vendors", 0),
                 "age": sec1.get("ssl_cert_age_days"),
                 "sr": sec1.get("suspicious_redirects", False),
                 "ts": sec1.get("typosquatting_detected", False),
                 "r": sec1.get("reasons", []) + ["Deep scan unavailable — showing preliminary result"],
                 "gsb": False,
                 "gsbt": None,
+                "ptu": False,
+                "ptd": False,
             },
             "ms": phase1.get("duration_ms", 0),
         }

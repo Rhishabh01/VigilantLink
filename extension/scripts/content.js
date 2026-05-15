@@ -812,7 +812,8 @@ function getBadgeColor(reason) {
   if (reason.includes('Synergy') || reason.includes('Homograph')) return 'red';
   if (reason.includes('Recently issued') || reason.includes('SSL certificate')) return 'orange';
   if (reason.includes('not encrypted') || reason.includes('HTTP')) return 'orange';
-  if (reason.includes('Flagged')) return 'orange';
+  if (reason.includes('Flagged') || reason.includes('phishing')) return 'orange';
+  if (reason.includes('Known phishing URL')) return 'red';
   return 'gray';
 }
 
@@ -828,7 +829,8 @@ function cleanThreatExplanation(reason) {
     'Phishing keyword': 'Phishing attempt',
     'CRITICAL: Punycode': 'Punycode domain trick',
     'CRITICAL: Flagged': 'Flagged by security vendors',
-    'CRITICAL: VirusTotal': 'Flagged by VirusTotal',
+    'CRITICAL: Known phishing URL': 'Known phishing URL',
+    'WARNING: Known phishing infrastructure': 'Known phishing infrastructure',
     'Flagged by': 'Flagged by vendors',
     'Recently issued SSL certificate': 'New SSL certificate',
     'Young SSL certificate': 'Young SSL certificate',

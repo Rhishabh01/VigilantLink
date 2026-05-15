@@ -42,8 +42,6 @@ Runs Phase 1 analysis. Kicks off Phase 2 as a background task.
     "v": "green",
     "rs": 5,
     "tt": null,
-    "vf": 0,
-    "tv": 0,
     "age": null,
     "sr": false,
     "ts": false,
@@ -94,8 +92,6 @@ Poll endpoint. Returns the Phase 2 result when ready.
     "v": "green",
     "rs": 8,
     "tt": null,
-    "vf": 0,
-    "tv": 70,
     "age": 542,
     "sr": false,
     "ts": false,
@@ -151,8 +147,6 @@ Used by Railway health checks. Always returns HTTP 200 while the server is runni
 | `v` | string | Verdict: `"green"`, `"yellow"`, or `"red"` |
 | `rs` | int | Risk score (0–100) |
 | `tt` | string\|null | Primary threat type label |
-| `vf` | int | VirusTotal malicious + suspicious vendor count |
-| `tv` | int | Total VirusTotal vendors checked |
 | `age` | int\|null | SSL certificate age in days. `null` if unavailable |
 | `sr` | bool | `true` if redirect chain depth exceeds threshold |
 | `ts` | bool | `true` if typosquatting detected |
