@@ -21,7 +21,8 @@ from ..core.constants import (
     SUSPICIOUS_TLDS, DEFAULT_DOMAIN_AGE_DAYS,
     GSB_API_URL, GSB_THREAT_TYPES, GSB_THREAT_PRIORITY, GSB_TIMEOUT_S,
     SSL_CERT_TIMEOUT_S, RDAP_TIMEOUT_S, NEWLY_REGISTERED_DAYS,
-    RECENTLY_REGISTERED_DAYS, PHISHTANK_FEED_URL, PHISHTANK_REFRESH_INTERVAL_S
+    RECENTLY_REGISTERED_DAYS, PHISHTANK_FEED_URL, PHISHTANK_REFRESH_INTERVAL_S,
+    TRUSTED_PLATFORMS
 )
 from .rdap_client import fetch_domain_age_rdap
 from ..core.logging import get_logger
@@ -318,7 +319,10 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
  
     norm_url = _normalize_gsb_url(gsb_url)
     pt_url_match = norm_url in _phishtank_urls if norm_url else False
-    pt_domain_match = target_domain in _phishtank_domains
+    
+    # Domain match: only if NOT a trusted platform (prevents open redirect false positives)
+    is_trusted = any(target_domain == d or target_domain.endswith(f".{d}") for d in TRUSTED_PLATFORMS)
+    pt_domain_match = (target_domain in _phishtank_domains) and not is_trusted
 
     gsb_threat_type: Optional[str] = None
     if gsb_results:
