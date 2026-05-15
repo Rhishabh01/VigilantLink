@@ -696,7 +696,7 @@ function finalizeReconnectCard(data) {
       !r.includes('Uncertainty penalty') && !r.includes('timed out') && !r.includes('Limited security data')
     );
   }
-  const forensicSection = createForensicSection(filteredReasons);
+  const forensicSection = createForensicSection(filteredReasons, verdictClass);
   if (forensicSection) infoDiv.appendChild(forensicSection);
   const redirectsSection = createRedirectsSection(redirect_chain);
   if (redirectsSection) infoDiv.appendChild(redirectsSection);
@@ -837,6 +837,10 @@ function cleanThreatExplanation(reason) {
     'does not resolve': 'Domain invalid',
     'Suspicious TLD': 'Suspicious domain extension',
     'Uncertainty penalty': 'Limited security data',
+    'Domain visually similar': 'Visual similarity to known brand',
+    'Recently registered domain': 'New domain',
+    'TLD commonly associated with abuse': 'Suspicious domain extension',
+    'Excessive redirect chain detected': 'Suspicious redirect chain',
   };
 
   for (const [key, value] of Object.entries(explanations)) {
@@ -844,6 +848,14 @@ function cleanThreatExplanation(reason) {
   }
 
   return reason.length > 50 ? reason.substring(0, 47) + '...' : reason;
+}
+
+// Use subdued badge colors when the overall verdict is green
+function getForensicBadgeColor(reason, verdictClass) {
+  if (verdictClass === 'green' || verdictClass === 'gray') {
+    return 'gray';
+  }
+  return getBadgeColor(reason);
 }
 
 function createWarningBox(verdictClass, threatType) {
@@ -951,7 +963,7 @@ function createRedirectsSection(redirectChain) {
   return redirectsDiv;
 }
 
-function createForensicSection(reasons) {
+function createForensicSection(reasons, verdictClass) {
   if (!reasons || reasons.length === 0) return null;
 
   const reasonsDiv = document.createElement('div');
@@ -968,7 +980,9 @@ function createForensicSection(reasons) {
   reasons.forEach(r => {
     const cleaned = cleanThreatExplanation(r);
     const badge = document.createElement('span');
-    badge.className = `forensic-badge ${getBadgeColor(r)}`;
+    const color = verdictClass === 'green' || verdictClass === 'gray'
+      ? 'gray' : getBadgeColor(r);
+    badge.className = `forensic-badge ${color}`;
     badge.textContent = cleaned;
     badge.title = r;
     badgeListDiv.appendChild(badge);
@@ -1160,7 +1174,7 @@ function updatePopupWithResult(data) {
     );
   }
 
-  const forensicSection = createForensicSection(filteredReasons);
+  const forensicSection = createForensicSection(filteredReasons, verdictClass);
   if (forensicSection) infoDiv.appendChild(forensicSection);
 
   const redirectsSection = createRedirectsSection(redirect_chain);
@@ -1275,7 +1289,7 @@ function mergeDeepScanResult(data) {
 
       if (currentTexts !== newTexts) {
         existingInfo.textContent = '';
-        const forensicSection = createForensicSection(filteredReasons);
+        const forensicSection = createForensicSection(filteredReasons, security.v);
         if (forensicSection) existingInfo.appendChild(forensicSection);
       }
     }

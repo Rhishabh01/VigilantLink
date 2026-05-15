@@ -120,9 +120,12 @@ NEWLY_REGISTERED_DAYS = 14
 RECENTLY_REGISTERED_DAYS = 90
 MAX_REDIRECT_HOPS_FREE = 3
 
-VERDICT_RED_THRESHOLD = 65
-VERDICT_YELLOW_THRESHOLD = 35
+VERDICT_RED_THRESHOLD = 72
+VERDICT_YELLOW_THRESHOLD = 50
 PUNYCODE_MIN_SCORE = 75
+
+# Weak signals can never independently produce yellow/red verdicts
+WEAK_SIGNAL_MAX_SCORE = 30
 
 # Trusted platform cap — uncorroborated weak signals cannot exceed yellow-1
 TRUSTED_PLATFORM_CAP = 34

@@ -25,7 +25,8 @@ from .tracer import trace_url
 from .metadata_fetcher import fetch_metadata
 from .scanner import run_heuristics, run_external_scans
 from ..core.constants import (
-    VERDICT_RED_THRESHOLD, VERDICT_YELLOW_THRESHOLD, PUNYCODE_MIN_SCORE,
+    VERDICT_RED_THRESHOLD, VERDICT_YELLOW_THRESHOLD, WEAK_SIGNAL_MAX_SCORE,
+    PUNYCODE_MIN_SCORE,
     MAX_REDIRECT_HOPS_FREE, TRUSTED_PLATFORM_CAP,
     DEFAULT_DOMAIN_AGE_DAYS,
     BRAND_PENALTY_SCORE, SYNERGY_PENALTY_SCORE, TYPOSQUATTING_PENALTY,
@@ -132,6 +133,7 @@ def _extract_signals(
     imp_severity = heuristics.get("impersonation_severity", "none")
     imp_brand = heuristics.get("impersonation_brand")
     imp_technique = heuristics.get("impersonation_technique")
+    imp_contextual_confidence = heuristics.get("impersonation_contextual_confidence", 0.0)
     
     is_suspicious_path = any(path_lower.startswith(sp) for sp in SUSPICIOUS_HOSTED_PATHS)
     is_trusted_hosting = any(domain_lower == d or domain_lower.endswith(f".{d}") for d in TRUSTED_HOSTING_DOMAINS)
@@ -162,6 +164,7 @@ def _extract_signals(
             "imp_severity": imp_severity,
             "imp_brand": imp_brand,
             "imp_technique": imp_technique,
+            "imp_contextual_confidence": imp_contextual_confidence,
             "suspicious_path": is_suspicious_path,
             "trusted_hosting": is_trusted_hosting,
             "trusted_platform": is_trusted_platform,
@@ -181,7 +184,26 @@ def _extract_signals(
 
 
 def _evaluate_correlations(signals: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Evaluates signals against correlation rules. Returns matched rules."""
+    """
+    Evaluates signals against correlation rules using a strict signal hierarchy.
+
+    STRONG signals can independently escalate to yellow/red verdicts:
+      - impersonation WITH contextual phishing confidence (>= 0.5)
+      - punycode homograph
+      - TLD + keyword synergy
+      - fresh phishing infrastructure (new domain + phishing keywords)
+      - hosted phishing (trusted hosting + phishing path/keywords)
+      - redirect cloaking (shortener + cross-domain)
+
+    WEAK signals amplify suspicion but NEVER independently create yellow/red:
+      - low-confidence impersonation (< 0.5)
+      - new domain / new SSL alone
+      - suspicious TLD alone
+      - excessive redirects alone
+      - phishing keywords alone (no other context)
+      - SSL errors, DNS failures, HTTP-only
+      - no metadata
+    """
     matches = []
     infra = signals["infra"]
     behavior = signals["behavior"]
@@ -191,19 +213,25 @@ def _evaluate_correlations(signals: Dict[str, Any]) -> List[Dict[str, Any]]:
     has_keywords = bool(phish["keywords"])
     has_behavior = behavior["excessive_redirects"] or behavior["cross_domain"]
 
-    # --- CRITICAL: Impersonation / Brand Abuse ---
-    if phish["impersonation"]:
-        sev = phish["imp_severity"]
+    imp_confidence = phish.get("imp_contextual_confidence", 0.0)
+
+    # ================================================================
+    # STRONG SIGNALS — can independently produce yellow/red verdicts
+    # ================================================================
+
+    # --- CRITICAL: High-Confidence Impersonation ---
+    if phish["impersonation"] and imp_confidence >= 0.5:
         brand = phish["imp_brand"] or "unknown"
-        base = 75 if sev == "high" else 55
+        base = 70 if imp_confidence >= 0.7 else 55
         if has_keywords: base += 10
         if has_behavior: base += 5
         if has_infra_concern: base += 5
         matches.append({
             "id": "impersonation",
-            "score": min(base, 100),
+            "score": min(base, 95),
             "reason": phish.get("brand_penalty_reason") or f"Brand impersonation targeting {brand}",
             "confidence": "critical" if base >= 80 else "strong",
+            "strong": True,
         })
 
     # --- CRITICAL: Punycode Homograph ---
@@ -213,139 +241,185 @@ def _evaluate_correlations(signals: Dict[str, Any]) -> List[Dict[str, Any]]:
             "score": 85,
             "reason": "Punycode homograph attack detected",
             "confidence": "critical",
+            "strong": True,
         })
 
     # --- STRONG: TLD + Keyword Synergy ---
     if phish["synergy"]:
         matches.append({
             "id": "tld_keyword_synergy",
-            "score": 60,
+            "score": 55,
             "reason": phish["synergy_reason"] or "Suspicious TLD combined with phishing keywords in domain",
             "confidence": "strong",
+            "strong": True,
         })
 
-    # --- STRONG: Fresh Phishing Infrastructure ---
+    # --- STRONG: Fresh Phishing Infrastructure (new infra + keywords) ---
     if has_infra_concern and has_keywords:
         already_imp = any(m["id"] == "impersonation" for m in matches)
         if not already_imp:
             very_fresh = infra["very_new_domain"] or infra["very_new_ssl"]
-            score = 65 if very_fresh else 45
+            score = 55 if very_fresh else 42
             if has_behavior: score += 10
             matches.append({
                 "id": "fresh_phishing_infra",
-                "score": score,
+                "score": min(score, 75),
                 "reason": "Fresh infrastructure combined with credential harvesting indicators",
-                "confidence": "strong" if very_fresh else "moderate",
+                "confidence": "strong",
+                "strong": True,
             })
 
     # --- STRONG: Hosted Phishing ---
     if phish["trusted_hosting"] and (has_keywords or phish["suspicious_path"]):
-        score = 55
-        if phish["suspicious_path"] and has_keywords: score = 70
+        score = 50
+        if phish["suspicious_path"] and has_keywords: score = 65
         if behavior["redirect_chain"]: score += 10
         matches.append({
             "id": "hosted_phishing",
-            "score": score,
+            "score": min(score, 80),
             "reason": "Phishing content or credential-stealing path on trusted hosting platform",
-            "confidence": "strong" if score >= 65 else "moderate",
+            "confidence": "strong" if score >= 60 else "moderate",
+            "strong": True,
         })
 
-    # --- MODERATE: Redirect Cloaking ---
+    # --- STRONG: Redirect Cloaking ---
     if behavior["shortened"] and behavior["cross_domain"]:
         score = 45
-        if behavior["excessive_redirects"]: score += 15
+        if behavior["excessive_redirects"]: score += 10
         if has_keywords: score += 10
         matches.append({
             "id": "redirect_cloaking",
-            "score": score,
+            "score": min(score, 65),
             "reason": "URL shortener with cross-domain redirects used to disguise destination",
-            "confidence": "strong" if score >= 60 else "moderate",
+            "confidence": "strong" if score >= 55 else "moderate",
+            "strong": True,
         })
 
-    # --- MODERATE: Connection Security Failure ---
+    # ================================================================
+    # WEAK / AMPLIFYING SIGNALS — never independently produce yellow/red
+    # ================================================================
+
+    # Weak: Low-confidence impersonation (edit distance / similarity only)
+    if phish["impersonation"] and imp_confidence < 0.5:
+        brand = phish["imp_brand"] or "unknown"
+        matches.append({
+            "id": "low_confidence_impersonation",
+            "score": 15,
+            "reason": f"Domain visually similar to {brand}",
+            "confidence": "weak",
+            "strong": False,
+        })
+
+    # Weak: New infrastructure without phishing behavior
+    if infra["very_new_domain"] or infra["very_new_ssl"]:
+        matches.append({
+            "id": "new_infra_only",
+            "score": 12,
+            "reason": "Recently registered domain or SSL certificate",
+            "confidence": "weak",
+            "strong": False,
+        })
+
+    # Weak: Suspicious TLD alone
+    if infra["suspicious_tld"]:
+        matches.append({
+            "id": "suspicious_tld_only",
+            "score": 8,
+            "reason": "TLD commonly associated with abuse",
+            "confidence": "weak",
+            "strong": False,
+        })
+
+    # Weak: Excessive redirects (non-shortened)
+    if behavior["excessive_redirects"] and not behavior["shortened"]:
+        matches.append({
+            "id": "excessive_redirects_only",
+            "score": 12,
+            "reason": "Excessive redirect chain detected",
+            "confidence": "weak",
+            "strong": False,
+        })
+
+    # Weak: Phishing keywords without other strong signals
+    if has_keywords and not phish["trusted_hosting"]:
+        matches.append({
+            "id": "phishing_keywords_only",
+            "score": 10,
+            "reason": f"Phishing-related keywords: {', '.join(phish['keywords'][:3])}",
+            "confidence": "weak",
+            "strong": False,
+        })
+
+    # Weak: SSL certificate error
     if infra["ssl_error"]:
-        score = 30
-        if has_keywords: score += 15
+        score = 15 if has_keywords else 8
         matches.append({
             "id": "ssl_error",
             "score": score,
             "reason": "Invalid SSL certificate" + (" with phishing indicators" if has_keywords else ""),
-            "confidence": "moderate" if not has_keywords else "strong",
+            "confidence": "weak",
+            "strong": False,
         })
+
+    # Weak: DNS resolution failure
     if infra["dns_failed"]:
         matches.append({
             "id": "dns_failure",
-            "score": 40,
+            "score": 20,
             "reason": "Domain does not resolve to an active server",
-            "confidence": "moderate",
+            "confidence": "weak",
+            "strong": False,
         })
+
+    # Weak: HTTP-only connection
     if infra["http_only"] and not phish["trusted_platform"]:
-        score = 15
-        if has_keywords: score = 30
+        score = 10 if has_keywords else 5
         matches.append({
             "id": "no_encryption",
             "score": score,
             "reason": "Unencrypted connection" + (" serving login/auth content" if has_keywords else ""),
-            "confidence": "moderate" if has_keywords else "weak",
+            "confidence": "weak",
+            "strong": False,
         })
 
-    # --- WEAK: Isolated signals (only if no stronger rules fired) ---
-    strong_ids = {"impersonation", "homograph_attack", "tld_keyword_synergy",
-                  "fresh_phishing_infra", "hosted_phishing", "redirect_cloaking"}
-    has_strong = any(m["id"] in strong_ids for m in matches)
-
-    if not has_strong:
-        if infra["very_new_domain"] or infra["very_new_ssl"]:
-            matches.append({
-                "id": "new_infra_only",
-                "score": 20,
-                "reason": "Recently registered domain or SSL certificate",
-                "confidence": "weak",
-            })
-        if infra["suspicious_tld"]:
-            matches.append({
-                "id": "suspicious_tld_only",
-                "score": 12,
-                "reason": "TLD commonly associated with abuse",
-                "confidence": "weak",
-            })
-        if behavior["excessive_redirects"] and not behavior["shortened"]:
-            matches.append({
-                "id": "excessive_redirects_only",
-                "score": 18,
-                "reason": "Excessive redirect chain detected",
-                "confidence": "weak",
-            })
-        if has_keywords and not phish["trusted_hosting"]:
-            matches.append({
-                "id": "phishing_keywords_only",
-                "score": 15,
-                "reason": f"Phishing-related keywords: {', '.join(phish['keywords'][:3])}",
-                "confidence": "weak",
-            })
-        if phish["no_metadata"]:
-            matches.append({
-                "id": "no_metadata",
-                "score": 8,
-                "reason": "No metadata available from site",
-                "confidence": "weak",
-            })
+    # Weak: No metadata
+    if phish["no_metadata"]:
+        matches.append({
+            "id": "no_metadata",
+            "score": 5,
+            "reason": "No metadata available from site",
+            "confidence": "weak",
+            "strong": False,
+        })
 
     return matches
 
 
 def _compute_correlation_score(matches: List[Dict[str, Any]]) -> Tuple[int, List[str]]:
-    """Compute score from correlation matches using strongest-signal-first."""
+    """
+    Compute score from correlation matches using strongest-signal-first.
+    Weak-signal-only results are capped below WEAK_SIGNAL_MAX_SCORE to
+    prevent isolated weak infrastructure signals from producing yellow/red.
+    """
     if not matches:
         return 0, []
 
-    matches.sort(key=lambda x: x["score"], reverse=True)
-    risk_score = matches[0]["score"]
+    has_strong = any(m.get("strong", False) for m in matches)
 
-    # Add diminishing weight for supporting signals
-    for i, m in enumerate(matches[1:3], 1):
-        weight = 5 if m["confidence"] in ("strong", "critical") else 3
-        risk_score += weight
+    matches.sort(key=lambda x: x["score"], reverse=True)
+
+    if has_strong:
+        risk_score = matches[0]["score"]
+        # Weak signals amplify strong ones with diminishing weight
+        for i, m in enumerate(matches[1:4], 1):
+            weight = 5 if m.get("strong", False) else 3
+            risk_score += weight
+    else:
+        # Weak signals only — capped below yellow threshold
+        risk_score = matches[0]["score"]
+        for i, m in enumerate(matches[1:3], 1):
+            risk_score += 2
+        risk_score = min(risk_score, WEAK_SIGNAL_MAX_SCORE)
 
     reasons = [m["reason"] for m in matches[:4]]
     return min(risk_score, 100), reasons

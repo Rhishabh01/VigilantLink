@@ -159,17 +159,21 @@ def _check_repeated_or_missing_chars(domain_name: str, brand: str) -> Optional[s
     return None
 
 
-def detect_impersonation(domain: str) -> Dict[str, Any]:
+def detect_impersonation(domain: str, tld: str = "", has_suspicious_keywords: bool = False) -> Dict[str, Any]:
     """
-    Advanced impersonation detection combining multiple techniques:
+    Advanced impersonation detection combining multiple techniques with
+    contextual confidence scoring. Edit-distance alone is treated as weak;
+    escalation requires phishing behavior context (auth keywords, suspicious TLDs,
+    redirects, hosted phishing behavior, credential collection indicators).
+
     1. Levenshtein distance (edit distance 1 or 2)
     2. Homoglyph/character substitution
     3. Brand + phishing word appenders
     4. Repeated/missing character attacks
 
-    Returns detection result with reason and matched brand.
+    Returns detection result with contextual_confidence (0.0-1.0).
+    confidence >= 0.5 is treated as a strong phishing signal.
     """
-    # Extract just the registrable name (no TLD)
     parts = domain.split('.')
     if len(parts) > 2:
         root_domain = f"{parts[-2]}.{parts[-1]}"
@@ -178,12 +182,20 @@ def detect_impersonation(domain: str) -> Dict[str, Any]:
 
     domain_name = _strip_tld(root_domain)
 
-    result = {
+    # Pre-compute phishing context
+    tld_is_suspicious = tld in SUSPICIOUS_TLDS if tld else False
+    domain_has_auth_keywords = any(kw in domain_name for kw in
+        ['login', 'signin', 'verify', 'auth', 'secure', 'account',
+         'password', 'credential', '2fa', 'mfa', 'otp', 'wallet'])
+    domain_has_any_keywords = domain_has_auth_keywords or has_suspicious_keywords
+
+    best = {
         "detected": False,
         "brand": None,
         "reason": None,
         "technique": None,
         "severity": "none",
+        "contextual_confidence": 0.0,
     }
 
     for target in HIGH_VALUE_TARGETS:
@@ -194,64 +206,88 @@ def detect_impersonation(domain: str) -> Dict[str, Any]:
         if root_domain == target_domain or domain_name == target_name:
             continue
 
-        # 1. Levenshtein distance check (distance 1 = strong, distance 2 = moderate)
-        dist = levenshtein_distance(root_domain, target_domain)
-        if dist == 1:
-            return {
-                "detected": True,
-                "brand": target,
-                "reason": f"Typosquatting: 1 edit away from {target}",
-                "technique": "levenshtein",
-                "severity": "high",
-            }
-        if dist == 2:
-            # Only flag distance-2 if the domain name part is also close
-            name_dist = levenshtein_distance(domain_name, target_name)
-            if name_dist <= 2:
-                result = {
-                    "detected": True,
-                    "brand": target,
-                    "reason": f"Possible typosquatting: 2 edits from {target}",
-                    "technique": "levenshtein_2",
-                    "severity": "moderate",
-                }
-                # Don't return yet — a stronger match might exist
+        techniques = []
 
-        # 2. Homoglyph substitution check
+        # 1. Homoglyph substitution (visual match — weak without phishing context)
         sub_reason = _check_homoglyph_substitution(domain_name, target_name)
         if sub_reason:
-            return {
-                "detected": True,
-                "brand": target,
+            base = 0.40
+            if tld_is_suspicious: base += 0.25
+            if domain_has_auth_keywords: base += 0.25
+            elif domain_has_any_keywords: base += 0.10
+            techniques.append({
                 "reason": sub_reason,
                 "technique": "homoglyph",
-                "severity": "high",
-            }
+                "confidence": min(base, 1.0),
+            })
 
-        # 3. Brand + appender check
+        # 2. Distance-1 Levenshtein
+        dist = levenshtein_distance(root_domain, target_domain)
+        if dist == 1:
+            base = 0.40
+            if tld_is_suspicious: base += 0.25
+            if domain_has_auth_keywords: base += 0.25
+            elif domain_has_any_keywords: base += 0.10
+            techniques.append({
+                "reason": f"Typosquatting: 1 edit away from {target}",
+                "technique": "levenshtein",
+                "confidence": min(base, 1.0),
+            })
+
+        # 3. Brand + phishing appender
         app_reason = _check_brand_appender(domain_name, target_name)
         if app_reason:
-            return {
-                "detected": True,
-                "brand": target,
+            base = 0.35
+            if tld_is_suspicious: base += 0.25
+            if domain_has_auth_keywords: base += 0.25
+            elif domain_has_any_keywords: base += 0.10
+            techniques.append({
                 "reason": app_reason,
                 "technique": "appender",
-                "severity": "high",
-            }
+                "confidence": min(base, 1.0),
+            })
 
-        # 4. Repeated/missing chars check
+        # 4. Distance-2 with name closeness
+        if dist == 2:
+            name_dist = levenshtein_distance(domain_name, target_name)
+            if name_dist <= 2:
+                base = 0.20
+                if tld_is_suspicious: base += 0.20
+                if domain_has_auth_keywords: base += 0.25
+                elif domain_has_any_keywords: base += 0.10
+                techniques.append({
+                    "reason": f"Possible typosquatting: 2 edits from {target}",
+                    "technique": "levenshtein_2",
+                    "confidence": min(base, 1.0),
+                })
+
+        # 5. Repeated/missing character attacks
         rep_reason = _check_repeated_or_missing_chars(domain_name, target_name)
         if rep_reason:
-            if result["severity"] != "high":  # Don't downgrade
-                result = {
+            base = 0.20
+            if tld_is_suspicious: base += 0.20
+            if domain_has_auth_keywords: base += 0.25
+            elif domain_has_any_keywords: base += 0.10
+            techniques.append({
+                "reason": rep_reason,
+                "technique": "char_manipulation",
+                "confidence": min(base, 1.0),
+            })
+
+        # Pick the best technique for this target
+        if techniques:
+            best_tech = max(techniques, key=lambda t: t["confidence"])
+            if best_tech["confidence"] > best["contextual_confidence"]:
+                best = {
                     "detected": True,
                     "brand": target,
-                    "reason": rep_reason,
-                    "technique": "char_manipulation",
-                    "severity": "moderate",
+                    "reason": best_tech["reason"],
+                    "technique": best_tech["technique"],
+                    "severity": "high" if best_tech["confidence"] >= 0.5 else "moderate",
+                    "contextual_confidence": best_tech["confidence"],
                 }
 
-    return result
+    return best
 
 
 # ============================================================
@@ -276,24 +312,13 @@ def run_heuristics(url: str) -> Dict[str, Any]:
     else:
         root_domain = domain
 
-    # Advanced Impersonation Detection
-    impersonation = detect_impersonation(domain)
-    typosquatting_detected = impersonation["detected"]
-    brand_penalty_reason = impersonation["reason"]
-    impersonation_severity = impersonation["severity"]
-    impersonation_brand = impersonation["brand"]
-    impersonation_technique = impersonation["technique"]
-
-    # Synergy Check (TLD + Keywords)
-    synergy_detected = False
-    synergy_reason = None
     tld = f".{parts[-1]}" if parts else ""
-    if tld in SUSPICIOUS_TLDS and any(kw in domain for kw in HIGH_RISK_KEYWORDS):
-        synergy_detected = True
-        synergy_reason = "High-Risk TLD & Keyword Synergy (Phishing Pattern)"
+    domain_name_for_context = parts[-2] if len(parts) >= 2 else ""
 
-    # Punycode / Homograph detection
-    punycode_detected = "xn--" in domain
+    # Compute phishing context for impersonation scoring
+    has_auth_context = any(kw in domain_name_for_context.lower() for kw in
+        ['login', 'signin', 'verify', 'auth', 'secure', 'account',
+         'password', 'credential', '2fa', 'mfa', 'otp', 'wallet'])
 
     # Suspicious keywords in domain
     has_suspicious_keywords = (
@@ -301,12 +326,34 @@ def run_heuristics(url: str) -> Dict[str, Any]:
         and root_domain not in [f"{t}.com" for t in HIGH_VALUE_TARGETS]
     )
 
+    # Advanced Impersonation Detection with contextual confidence
+    has_context_for_imp = has_auth_context or has_suspicious_keywords
+    impersonation = detect_impersonation(domain, tld=tld, has_suspicious_keywords=has_context_for_imp)
+    typosquatting_detected = impersonation["detected"]
+    brand_penalty_reason = impersonation["reason"]
+    impersonation_severity = impersonation["severity"]
+    impersonation_brand = impersonation["brand"]
+    impersonation_technique = impersonation["technique"]
+    impersonation_contextual_confidence = impersonation.get("contextual_confidence", 0.0)
+
+    # Synergy Check (TLD + Keywords)
+    synergy_detected = False
+    synergy_reason = None
+    if tld in SUSPICIOUS_TLDS and any(kw in domain for kw in HIGH_RISK_KEYWORDS):
+        synergy_detected = True
+        synergy_reason = "High-Risk TLD & Keyword Synergy (Phishing Pattern)"
+
+    # Punycode / Homograph detection
+    punycode_detected = "xn--" in domain
+
     return {
         "typosquatting_detected": typosquatting_detected,
         "brand_penalty_reason": brand_penalty_reason,
         "impersonation_severity": impersonation_severity,
         "impersonation_brand": impersonation_brand,
         "impersonation_technique": impersonation_technique,
+        "impersonation_contextual_confidence": impersonation_contextual_confidence,
+        "impersonation_has_auth_context": has_auth_context,
         "synergy_detected": synergy_detected,
         "synergy_reason": synergy_reason,
         "punycode_detected": punycode_detected,
