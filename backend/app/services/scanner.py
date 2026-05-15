@@ -222,7 +222,7 @@ async def check_google_safe_browsing(url: str) -> List[str]:
         },
         "threatInfo": {
             "threatTypes": GSB_THREAT_TYPES,
-            "platformTypes": ["ANY_PLATFORM"],
+            "platformTypes": ["ANY_PLATFORM", "WINDOWS", "LINUX", "OSX", "ANDROID", "IOS", "CHROME"],
             "threatEntryTypes": ["URL"],
             "threatEntries": [{"url": normalized}],
         },
