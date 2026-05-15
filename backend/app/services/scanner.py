@@ -1,7 +1,8 @@
 """
 Scanner: Heuristic analysis engine + external scan orchestration.
 
-Tier 1 (CPU): Pure heuristics — typosquatting, punycode, TLD/keyword synergy.
+Tier 1 (CPU): Pure heuristics — typosquatting, punycode, TLD/keyword synergy,
+              homoglyph detection, brand appender detection, char substitution.
 Tier 2 (Network): RDAP + GSB in parallel (asyncwhois removed).
 """
 
@@ -22,7 +23,7 @@ from ..core.constants import (
     GSB_API_URL, GSB_THREAT_TYPES, GSB_THREAT_PRIORITY, GSB_TIMEOUT_S,
     SSL_CERT_TIMEOUT_S, RDAP_TIMEOUT_S, NEWLY_REGISTERED_DAYS,
     RECENTLY_REGISTERED_DAYS, PHISHTANK_FEED_URL, PHISHTANK_REFRESH_INTERVAL_S,
-    TRUSTED_PLATFORMS
+    TRUSTED_PLATFORMS, PHISHING_APPENDERS, HOMOGLYPH_MAP,
 )
 from .rdap_client import fetch_domain_age_rdap
 from ..core.logging import get_logger
@@ -50,13 +51,217 @@ def levenshtein_distance(s1: str, s2: str) -> int:
 
 
 # ============================================================
+# Advanced Impersonation Detection
+# ============================================================
+
+def _strip_tld(domain: str) -> str:
+    """Extract the registrable name without TLD. e.g. 'paypa1.xyz' -> 'paypa1'"""
+    parts = domain.split('.')
+    if len(parts) >= 2:
+        return parts[-2]
+    return domain
+
+
+def _check_homoglyph_substitution(domain_name: str, brand: str) -> Optional[str]:
+    """
+    Detects character substitution attacks.
+    e.g. paypa1.com (l->1), g00gle.com (o->0), amaz0n.com (o->0)
+    """
+    if len(domain_name) != len(brand):
+        return None
+
+    diffs = []
+    for i, (dc, bc) in enumerate(zip(domain_name, brand)):
+        if dc != bc:
+            diffs.append((i, dc, bc))
+
+    if not diffs or len(diffs) > 2:
+        return None
+
+    for _, dc, bc in diffs:
+        # Check if the substituted char is a known homoglyph for the brand char
+        if bc in HOMOGLYPH_MAP and dc in HOMOGLYPH_MAP[bc]:
+            continue
+        # Check single-char visual confusion (reverse direction)
+        if dc in HOMOGLYPH_MAP and bc in HOMOGLYPH_MAP[dc]:
+            continue
+        # Not a recognized substitution
+        return None
+
+    subs = ", ".join(f"'{bc}'→'{dc}'" for _, dc, bc in diffs)
+    return f"Character substitution impersonating {brand} ({subs})"
+
+
+def _normalize_homoglyphs(text: str) -> str:
+    """Normalize common homoglyph substitutions back to ascii for comparison."""
+    replacements = {'0': 'o', '1': 'l', '3': 'e', '4': 'a', '5': 's', '7': 't', '8': 'b', '9': 'g', '@': 'a', '$': 's'}
+    return ''.join(replacements.get(c, c) for c in text)
+
+
+def _check_brand_appender(domain_name: str, brand: str) -> Optional[str]:
+    """
+    Detects brand + phishing word patterns.
+    e.g. paypal-login.com, google-verify.net, amazon-security.xyz, amaz0n-security.xyz
+    """
+    # Strip separators for comparison
+    clean = domain_name.replace('-', '').replace('_', '').replace('.', '')
+
+    # Check both raw and homoglyph-normalized versions
+    normalized = _normalize_homoglyphs(clean)
+    matched_brand = brand in clean or brand in normalized
+
+    if not matched_brand:
+        return None
+
+    # The domain contains the brand — check if phishing words are appended/prepended
+    remainder = normalized.replace(brand, '', 1) if brand in normalized else clean.replace(brand, '', 1)
+    if not remainder:
+        return None
+
+    for appender in PHISHING_APPENDERS:
+        if appender in remainder:
+            was_obfuscated = brand not in clean and brand in normalized
+            prefix = "Obfuscated brand" if was_obfuscated else "Brand name"
+            return f"{prefix} '{brand}' combined with phishing keyword '{appender}'"
+
+    return None
+
+
+def _check_repeated_or_missing_chars(domain_name: str, brand: str) -> Optional[str]:
+    """
+    Detects repeated/missing character attacks.
+    e.g. gooogle.com (extra o), amazn.com (missing a), paypall.com (extra l)
+    """
+    if abs(len(domain_name) - len(brand)) not in (1, 2):
+        return None
+
+    # Check character frequency similarity
+    from collections import Counter
+    dc = Counter(domain_name)
+    bc = Counter(brand)
+
+    diff_chars = set()
+    for ch in set(list(dc.keys()) + list(bc.keys())):
+        delta = abs(dc.get(ch, 0) - bc.get(ch, 0))
+        if delta > 0:
+            diff_chars.add(ch)
+
+    # If only 1-2 characters differ in count, it's likely a repeat/omission attack
+    if len(diff_chars) <= 2:
+        # Verify with edit distance as confirmation
+        dist = levenshtein_distance(domain_name, brand)
+        if dist <= 2:
+            if len(domain_name) > len(brand):
+                return f"Repeated character attack impersonating {brand}"
+            else:
+                return f"Missing character attack impersonating {brand}"
+
+    return None
+
+
+def detect_impersonation(domain: str) -> Dict[str, Any]:
+    """
+    Advanced impersonation detection combining multiple techniques:
+    1. Levenshtein distance (edit distance 1 or 2)
+    2. Homoglyph/character substitution
+    3. Brand + phishing word appenders
+    4. Repeated/missing character attacks
+
+    Returns detection result with reason and matched brand.
+    """
+    # Extract just the registrable name (no TLD)
+    parts = domain.split('.')
+    if len(parts) > 2:
+        root_domain = f"{parts[-2]}.{parts[-1]}"
+    else:
+        root_domain = domain
+
+    domain_name = _strip_tld(root_domain)
+
+    result = {
+        "detected": False,
+        "brand": None,
+        "reason": None,
+        "technique": None,
+        "severity": "none",
+    }
+
+    for target in HIGH_VALUE_TARGETS:
+        target_domain = f"{target}.com" if '.' not in target else target
+        target_name = _strip_tld(target_domain)
+
+        # Skip exact matches
+        if root_domain == target_domain or domain_name == target_name:
+            continue
+
+        # 1. Levenshtein distance check (distance 1 = strong, distance 2 = moderate)
+        dist = levenshtein_distance(root_domain, target_domain)
+        if dist == 1:
+            return {
+                "detected": True,
+                "brand": target,
+                "reason": f"Typosquatting: 1 edit away from {target}",
+                "technique": "levenshtein",
+                "severity": "high",
+            }
+        if dist == 2:
+            # Only flag distance-2 if the domain name part is also close
+            name_dist = levenshtein_distance(domain_name, target_name)
+            if name_dist <= 2:
+                result = {
+                    "detected": True,
+                    "brand": target,
+                    "reason": f"Possible typosquatting: 2 edits from {target}",
+                    "technique": "levenshtein_2",
+                    "severity": "moderate",
+                }
+                # Don't return yet — a stronger match might exist
+
+        # 2. Homoglyph substitution check
+        sub_reason = _check_homoglyph_substitution(domain_name, target_name)
+        if sub_reason:
+            return {
+                "detected": True,
+                "brand": target,
+                "reason": sub_reason,
+                "technique": "homoglyph",
+                "severity": "high",
+            }
+
+        # 3. Brand + appender check
+        app_reason = _check_brand_appender(domain_name, target_name)
+        if app_reason:
+            return {
+                "detected": True,
+                "brand": target,
+                "reason": app_reason,
+                "technique": "appender",
+                "severity": "high",
+            }
+
+        # 4. Repeated/missing chars check
+        rep_reason = _check_repeated_or_missing_chars(domain_name, target_name)
+        if rep_reason:
+            if result["severity"] != "high":  # Don't downgrade
+                result = {
+                    "detected": True,
+                    "brand": target,
+                    "reason": rep_reason,
+                    "technique": "char_manipulation",
+                    "severity": "moderate",
+                }
+
+    return result
+
+
+# ============================================================
 # TIER 1: Pure CPU heuristics — instant, no network calls
 # ============================================================
 
 def run_heuristics(url: str) -> Dict[str, Any]:
     """
     Pure CPU heuristic analysis. No network calls.
-    Runs typosquatting detection, punycode check, TLD/keyword synergy.
+    Runs advanced impersonation detection, punycode check, TLD/keyword synergy.
     Target: <1ms execution time.
     """
     parsed = urllib.parse.urlparse(url)
@@ -71,18 +276,13 @@ def run_heuristics(url: str) -> Dict[str, Any]:
     else:
         root_domain = domain
 
-    # Brand Protection (Levenshtein)
-    typosquatting_detected = False
-    brand_penalty_reason = None
-    for target in HIGH_VALUE_TARGETS:
-        target_domain = f"{target}.com" if '.' not in target else target
-        if root_domain == target_domain:
-            continue
-        dist = levenshtein_distance(root_domain, target_domain)
-        if dist == 1:
-            typosquatting_detected = True
-            brand_penalty_reason = f"Potential Typosquatting detected (Levenshtein distance 1 from {target})"
-            break
+    # Advanced Impersonation Detection
+    impersonation = detect_impersonation(domain)
+    typosquatting_detected = impersonation["detected"]
+    brand_penalty_reason = impersonation["reason"]
+    impersonation_severity = impersonation["severity"]
+    impersonation_brand = impersonation["brand"]
+    impersonation_technique = impersonation["technique"]
 
     # Synergy Check (TLD + Keywords)
     synergy_detected = False
@@ -104,6 +304,9 @@ def run_heuristics(url: str) -> Dict[str, Any]:
     return {
         "typosquatting_detected": typosquatting_detected,
         "brand_penalty_reason": brand_penalty_reason,
+        "impersonation_severity": impersonation_severity,
+        "impersonation_brand": impersonation_brand,
+        "impersonation_technique": impersonation_technique,
         "synergy_detected": synergy_detected,
         "synergy_reason": synergy_reason,
         "punycode_detected": punycode_detected,

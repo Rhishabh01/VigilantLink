@@ -2,14 +2,14 @@
 Orchestrator: Deterministic tiered execution engine for VigilantLink.
 
 Phase 1 (≤500ms): URL parsing + heuristics + redirect trace + metadata fetch
-Phase 2 (~2s):     RDAP + GSB → final weighted risk score
+Phase 2 (~2s):     RDAP + GSB → correlation-based risk score
 Phase 3 (optional): Playwright screenshot (shielded, semaphore-gated)
 
 Key patterns:
   - asyncio.TaskGroup for structured concurrency (Python 3.11+)
   - Request collapsing via RequestCollapser (deduplicate concurrent hovers)
   - asyncio.shield() for Phase 3 so screenshots survive request cancellation
-  - Uncertainty penalty when external sources timeout
+  - Signal correlation engine for pattern-based detection
   - URL normalization for cache deduplication
 """
 
@@ -72,7 +72,6 @@ def normalize_url(raw: str) -> str:
     """
     p = urlparse(raw)
     qs = parse_qs(p.query, keep_blank_values=True)
-    # Remove tracking parameters (prefix match for utm_)
     filtered = {
         k: v for k, v in qs.items() 
         if k.lower() not in TRACKING_PARAMS and not k.lower().startswith("utm_")
@@ -84,7 +83,7 @@ def normalize_url(raw: str) -> str:
         p.path.rstrip("/") or "/",
         p.params,
         sorted_qs,
-        "",  # strip fragment for normalization
+        "",
     ))
 
 
@@ -102,236 +101,312 @@ def _extract_signals(
     metadata: Optional[Dict[str, Any]] = None,
     ssl_error: bool = False,
 ) -> Dict[str, Any]:
-    """
-    Extracts and categorizes signals from all available data sources.
-    """
+    """Extracts and categorizes signals from all available data sources."""
     parsed_final = urlparse(final_url)
     domain_lower = parsed_final.netloc.lower()
     path_lower = parsed_final.path.lower()
     
-    # Infrastructure Signals
     domain_age = external.get("domain_age_days")
     ssl_age = external.get("ssl_cert_age_days")
-    
-    is_new_domain = domain_age is not None and domain_age < RECENTLY_REGISTERED_DAYS
-    is_very_new_domain = domain_age is not None and domain_age < NEWLY_REGISTERED_DAYS
-    is_new_ssl = ssl_age is not None and ssl_age < SSL_CERT_RECENT_DAYS
-    is_very_new_ssl = ssl_age is not None and ssl_age < SSL_CERT_NEW_DAYS
-    
     is_suspicious_tld = any(domain_lower.endswith(tld if tld.startswith('.') else f".{tld}") for tld in SUSPICIOUS_TLDS)
     is_punycode = heuristics.get("punycode_detected", False) or "xn--" in final_url
     
-    # Behavioral Signals
     num_hops = len(hops)
-    has_redirect_chain = num_hops > 1
-    is_excessive_redirects = num_hops > MAX_REDIRECT_HOPS_FREE
-    
-    # Cross-domain check
     is_cross_domain = False
-    if has_redirect_chain:
-        start_domain = urlparse(hops[0]["url"]).netloc.lower()
-        is_cross_domain = start_domain != domain_lower
+    if num_hops > 1:
+        is_cross_domain = urlparse(hops[0]["url"]).netloc.lower() != domain_lower
 
-    # Shortener check
-    shorteners = {"bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd", "buff.ly", "rebrandly.com"}
+    shorteners = {"bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd", "buff.ly", "rebrandly.com", "shorturl.at", "tiny.cc"}
     is_shortened = any(urlparse(hop["url"]).netloc.lower() in shorteners for hop in hops)
 
-    # Phishing Signals
     found_keywords = []
     content_to_check = [path_lower, parsed_final.query.lower()]
     if metadata:
         if metadata.get("title"): content_to_check.append(metadata["title"].lower())
         if metadata.get("description"): content_to_check.append(metadata["description"].lower())
-            
     for kw in PHISHING_KEYWORDS:
         if any(kw in text for text in content_to_check):
             found_keywords.append(kw)
     
-    is_impersonation = heuristics.get("brand_penalty_reason") is not None or heuristics.get("typosquatting_detected", False)
+    imp_detected = heuristics.get("typosquatting_detected", False)
+    imp_severity = heuristics.get("impersonation_severity", "none")
+    imp_brand = heuristics.get("impersonation_brand")
+    imp_technique = heuristics.get("impersonation_technique")
     
     is_suspicious_path = any(path_lower.startswith(sp) for sp in SUSPICIOUS_HOSTED_PATHS)
-    
     is_trusted_hosting = any(domain_lower == d or domain_lower.endswith(f".{d}") for d in TRUSTED_HOSTING_DOMAINS)
     is_trusted_platform = any(domain_lower == d or domain_lower.endswith(f".{d}") for d in TRUSTED_PLATFORMS)
 
-    # Intelligence Signals
-    gsb_threats = external.get("gsb_threats", [])
-    pt_url_match = external.get("pt_url_match", False)
-    pt_domain_match = external.get("pt_domain_match", False)
-
     return {
         "infra": {
-            "new_domain": is_new_domain,
-            "very_new_domain": is_very_new_domain,
-            "new_ssl": is_new_ssl,
-            "very_new_ssl": is_very_new_ssl,
+            "new_domain": domain_age is not None and domain_age < RECENTLY_REGISTERED_DAYS,
+            "very_new_domain": domain_age is not None and domain_age < NEWLY_REGISTERED_DAYS,
+            "new_ssl": ssl_age is not None and ssl_age < SSL_CERT_RECENT_DAYS,
+            "very_new_ssl": ssl_age is not None and ssl_age < SSL_CERT_NEW_DAYS,
             "suspicious_tld": is_suspicious_tld,
             "punycode": is_punycode,
             "dns_failed": not dns_resolves,
             "ssl_error": ssl_error,
-            "domain_age": domain_age,
-            "ssl_age": ssl_age,
+            "http_only": parsed_final.scheme == "http",
         },
         "behavior": {
-            "redirect_chain": has_redirect_chain,
-            "excessive_redirects": is_excessive_redirects,
+            "redirect_chain": num_hops > 1,
+            "excessive_redirects": num_hops > MAX_REDIRECT_HOPS_FREE,
             "cross_domain": is_cross_domain,
             "shortened": is_shortened,
             "num_hops": num_hops,
         },
         "phishing": {
             "keywords": found_keywords,
-            "impersonation": is_impersonation,
+            "impersonation": imp_detected,
+            "imp_severity": imp_severity,
+            "imp_brand": imp_brand,
+            "imp_technique": imp_technique,
             "suspicious_path": is_suspicious_path,
             "trusted_hosting": is_trusted_hosting,
             "trusted_platform": is_trusted_platform,
             "no_metadata": not has_metadata and not is_trusted_platform,
+            "synergy": heuristics.get("synergy_detected", False),
+            "synergy_reason": heuristics.get("synergy_reason"),
+            "has_suspicious_keywords": heuristics.get("has_suspicious_keywords", False),
         },
         "intel": {
-            "gsb_threats": gsb_threats,
-            "gsb_hit": bool(gsb_threats),
-            "pt_url_hit": pt_url_match,
-            "pt_domain_hit": pt_domain_match,
+            "gsb_threats": external.get("gsb_threats", []),
+            "gsb_hit": bool(external.get("gsb_threats", [])),
+            "pt_url_hit": external.get("pt_url_match", False),
+            "pt_domain_hit": external.get("pt_domain_match", False),
             "gsb_threat_type": external.get("gsb_threat_type"),
         }
     }
 
+
 def _evaluate_correlations(signals: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """
-    Evaluates signals against correlation rules.
-    Returns a list of matched rules with scores and reasons.
-    """
+    """Evaluates signals against correlation rules. Returns matched rules."""
     matches = []
     infra = signals["infra"]
     behavior = signals["behavior"]
     phish = signals["phishing"]
-    intel = signals["intel"]
 
-    # Rule: Fresh Phishing Infrastructure
-    if (infra["new_domain"] or infra["new_ssl"] or infra["suspicious_tld"]) and phish["keywords"]:
-        matches.append({
-            "id": "fresh_phishing_infra",
-            "score": 65 if infra["very_new_domain"] or infra["very_new_ssl"] else 45,
-            "reason": "Fresh infrastructure combined with phishing behavior",
-            "confidence": "strong" if infra["very_new_domain"] else "moderate"
-        })
+    has_infra_concern = infra["new_domain"] or infra["new_ssl"] or infra["suspicious_tld"]
+    has_keywords = bool(phish["keywords"])
+    has_behavior = behavior["excessive_redirects"] or behavior["cross_domain"]
 
-    # Rule: Hosted Phishing
-    if phish["trusted_hosting"] and (phish["keywords"] or phish["suspicious_path"]):
-        score = 55
-        if behavior["redirect_chain"]: score += 15
-        matches.append({
-            "id": "hosted_phishing",
-            "score": score,
-            "reason": "Suspicious content or auth path hosted on trusted platform",
-            "confidence": "strong" if score > 60 else "moderate"
-        })
-
-    # Rule: Credential Harvesting / Impersonation
+    # --- CRITICAL: Impersonation / Brand Abuse ---
     if phish["impersonation"]:
-        score = 65
-        if phish["keywords"] or behavior["redirect_chain"]:
-            score += 20
+        sev = phish["imp_severity"]
+        brand = phish["imp_brand"] or "unknown"
+        base = 75 if sev == "high" else 55
+        if has_keywords: base += 10
+        if has_behavior: base += 5
+        if has_infra_concern: base += 5
         matches.append({
-            "id": "credential_harvesting",
-            "score": score,
-            "reason": "Brand impersonation combined with suspicious behavior",
-            "confidence": "critical" if score >= 85 else "strong"
+            "id": "impersonation",
+            "score": min(base, 100),
+            "reason": phish.get("brand_penalty_reason") or f"Brand impersonation targeting {brand}",
+            "confidence": "critical" if base >= 80 else "strong",
         })
 
-    # Rule: Redirect Cloaking
-    if behavior["shortened"] and behavior["excessive_redirects"] and behavior["cross_domain"]:
-        matches.append({
-            "id": "redirect_cloaking",
-            "score": 50,
-            "reason": "URL shortener and excessive redirects used to cloak destination",
-            "confidence": "moderate"
-        })
-
-    # Rule: Punycode / Homograph Attack (Critical)
+    # --- CRITICAL: Punycode Homograph ---
     if infra["punycode"]:
         matches.append({
             "id": "homograph_attack",
             "score": 85,
-            "reason": "Punycode homograph attack detected (impersonated domain)",
-            "confidence": "critical"
+            "reason": "Punycode homograph attack detected",
+            "confidence": "critical",
         })
 
-    # Rule: Infrastructure Weakness (Low Confidence)
-    if not any(m["id"] in ["fresh_phishing_infra", "homograph_attack"] for m in matches):
-        if infra["very_new_domain"] or infra["very_new_ssl"]:
+    # --- STRONG: TLD + Keyword Synergy ---
+    if phish["synergy"]:
+        matches.append({
+            "id": "tld_keyword_synergy",
+            "score": 60,
+            "reason": phish["synergy_reason"] or "Suspicious TLD combined with phishing keywords in domain",
+            "confidence": "strong",
+        })
+
+    # --- STRONG: Fresh Phishing Infrastructure ---
+    if has_infra_concern and has_keywords:
+        already_imp = any(m["id"] == "impersonation" for m in matches)
+        if not already_imp:
+            very_fresh = infra["very_new_domain"] or infra["very_new_ssl"]
+            score = 65 if very_fresh else 45
+            if has_behavior: score += 10
             matches.append({
-                "id": "new_infra_only",
-                "score": 25,
-                "reason": "Recently registered domain or SSL certificate",
-                "confidence": "weak"
-            })
-        elif infra["suspicious_tld"]:
-            matches.append({
-                "id": "suspicious_tld_only",
-                "score": 15,
-                "reason": "Site uses a TLD commonly associated with phishing",
-                "confidence": "weak"
+                "id": "fresh_phishing_infra",
+                "score": score,
+                "reason": "Fresh infrastructure combined with credential harvesting indicators",
+                "confidence": "strong" if very_fresh else "moderate",
             })
 
-    # Rule: Behavioral Suspicion (Low Confidence)
-    if not any(m["id"] == "redirect_cloaking" for m in matches):
-        if behavior["excessive_redirects"]:
-            matches.append({
-                "id": "excessive_redirects_only",
-                "score": 20,
-                "reason": "Excessive redirect chain detected",
-                "confidence": "weak"
-            })
+    # --- STRONG: Hosted Phishing ---
+    if phish["trusted_hosting"] and (has_keywords or phish["suspicious_path"]):
+        score = 55
+        if phish["suspicious_path"] and has_keywords: score = 70
+        if behavior["redirect_chain"]: score += 10
+        matches.append({
+            "id": "hosted_phishing",
+            "score": score,
+            "reason": "Phishing content or credential-stealing path on trusted hosting platform",
+            "confidence": "strong" if score >= 65 else "moderate",
+        })
 
-    # Rule: Phishing Intent (Low Confidence)
-    if not any(m["id"] in ["fresh_phishing_infra", "hosted_phishing", "credential_harvesting"] for m in matches):
-        if phish["keywords"]:
-            matches.append({
-                "id": "phishing_keywords_only",
-                "score": 20,
-                "reason": f"Phishing-related keywords detected: {', '.join(phish['keywords'][:2])}",
-                "confidence": "weak"
-            })
+    # --- MODERATE: Redirect Cloaking ---
+    if behavior["shortened"] and behavior["cross_domain"]:
+        score = 45
+        if behavior["excessive_redirects"]: score += 15
+        if has_keywords: score += 10
+        matches.append({
+            "id": "redirect_cloaking",
+            "score": score,
+            "reason": "URL shortener with cross-domain redirects used to disguise destination",
+            "confidence": "strong" if score >= 60 else "moderate",
+        })
 
-    # Rule: Connection Security
+    # --- MODERATE: Connection Security Failure ---
     if infra["ssl_error"]:
+        score = 30
+        if has_keywords: score += 15
         matches.append({
             "id": "ssl_error",
-            "score": 30,
-            "reason": "Invalid or expired SSL certificate",
-            "confidence": "moderate"
+            "score": score,
+            "reason": "Invalid SSL certificate" + (" with phishing indicators" if has_keywords else ""),
+            "confidence": "moderate" if not has_keywords else "strong",
         })
-    elif infra["dns_failed"]:
+    if infra["dns_failed"]:
         matches.append({
             "id": "dns_failure",
             "score": 40,
             "reason": "Domain does not resolve to an active server",
-            "confidence": "moderate"
+            "confidence": "moderate",
         })
+    if infra["http_only"] and not phish["trusted_platform"]:
+        score = 15
+        if has_keywords: score = 30
+        matches.append({
+            "id": "no_encryption",
+            "score": score,
+            "reason": "Unencrypted connection" + (" serving login/auth content" if has_keywords else ""),
+            "confidence": "moderate" if has_keywords else "weak",
+        })
+
+    # --- WEAK: Isolated signals (only if no stronger rules fired) ---
+    strong_ids = {"impersonation", "homograph_attack", "tld_keyword_synergy",
+                  "fresh_phishing_infra", "hosted_phishing", "redirect_cloaking"}
+    has_strong = any(m["id"] in strong_ids for m in matches)
+
+    if not has_strong:
+        if infra["very_new_domain"] or infra["very_new_ssl"]:
+            matches.append({
+                "id": "new_infra_only",
+                "score": 20,
+                "reason": "Recently registered domain or SSL certificate",
+                "confidence": "weak",
+            })
+        if infra["suspicious_tld"]:
+            matches.append({
+                "id": "suspicious_tld_only",
+                "score": 12,
+                "reason": "TLD commonly associated with abuse",
+                "confidence": "weak",
+            })
+        if behavior["excessive_redirects"] and not behavior["shortened"]:
+            matches.append({
+                "id": "excessive_redirects_only",
+                "score": 18,
+                "reason": "Excessive redirect chain detected",
+                "confidence": "weak",
+            })
+        if has_keywords and not phish["trusted_hosting"]:
+            matches.append({
+                "id": "phishing_keywords_only",
+                "score": 15,
+                "reason": f"Phishing-related keywords: {', '.join(phish['keywords'][:3])}",
+                "confidence": "weak",
+            })
+        if phish["no_metadata"]:
+            matches.append({
+                "id": "no_metadata",
+                "score": 8,
+                "reason": "No metadata available from site",
+                "confidence": "weak",
+            })
 
     return matches
 
+
+def _compute_correlation_score(matches: List[Dict[str, Any]]) -> Tuple[int, List[str]]:
+    """Compute score from correlation matches using strongest-signal-first."""
+    if not matches:
+        return 0, []
+
+    matches.sort(key=lambda x: x["score"], reverse=True)
+    risk_score = matches[0]["score"]
+
+    # Add diminishing weight for supporting signals
+    for i, m in enumerate(matches[1:3], 1):
+        weight = 5 if m["confidence"] in ("strong", "critical") else 3
+        risk_score += weight
+
+    reasons = [m["reason"] for m in matches[:4]]
+    return min(risk_score, 100), reasons
+
+
 def _apply_intelligence_overrides(risk_score: int, intel: Dict[str, Any]) -> Tuple[int, List[str]]:
-    """
-    Applies overrides for high-confidence intelligence signals (GSB, PhishTank).
-    """
+    """Applies overrides for high-confidence intelligence signals (GSB, PhishTank)."""
     reasons = []
-    
     if intel["gsb_hit"]:
         gsb_type = intel["gsb_threat_type"]
         min_score = GSB_THREAT_MIN_SCORES.get(gsb_type, 90)
         risk_score = max(risk_score, min_score)
         reasons.append(f"CRITICAL: Flagged by Google Safe Browsing ({', '.join(intel['gsb_threats'])})")
-    
     if intel["pt_url_hit"]:
         risk_score = max(risk_score, PHISHTANK_URL_PENALTY)
         reasons.append("CRITICAL: Confirmed phishing URL in PhishTank database")
     elif intel["pt_domain_hit"]:
         risk_score = max(risk_score, PHISHTANK_DOMAIN_PENALTY)
         reasons.append("WARNING: Known phishing infrastructure (PhishTank)")
-        
     return risk_score, reasons
+
+
+def _apply_trusted_dampening(
+    risk_score: int, verdict: str, reasons: List[str],
+    signals: Dict[str, Any], matches: List[Dict[str, Any]],
+) -> Tuple[int, str, List[str]]:
+    """
+    Trusted platform dampening — ONLY suppresses weak/isolated signals.
+    NEVER suppresses strong correlations, impersonation, intel hits, or hosted phishing.
+    """
+    if not signals["phishing"]["trusted_platform"]:
+        return risk_score, verdict, reasons
+
+    # These ALWAYS bypass dampening
+    bypass_ids = {"impersonation", "homograph_attack", "hosted_phishing",
+                  "tld_keyword_synergy", "fresh_phishing_infra", "redirect_cloaking"}
+    has_bypass = any(m["id"] in bypass_ids for m in matches)
+    has_strong = any(m["confidence"] in ("strong", "critical") for m in matches)
+    has_intel = signals["intel"]["gsb_hit"] or signals["intel"]["pt_url_hit"]
+
+    if has_bypass or has_strong or has_intel:
+        return risk_score, verdict, reasons
+
+    # Only dampen weak/isolated signals on trusted platforms
+    risk_score = min(risk_score, TRUSTED_PLATFORM_CAP)
+    verdict = "green"
+    reasons = [r for r in reasons if not any(p.lower() in r.lower() for p in WEAK_SIGNAL_PATTERNS)]
+    return risk_score, verdict, reasons
+
+
+def _make_verdict(score: int) -> Tuple[str, bool]:
+    if score >= VERDICT_RED_THRESHOLD:
+        return "red", False
+    elif score >= VERDICT_YELLOW_THRESHOLD:
+        return "yellow", False
+    return "green", True
+
+
+# ============================================================
+# Unified Scoring — Used by BOTH Phase 1 and Phase 2
+# ============================================================
 
 def compute_heuristic_score(
     heuristics: Dict[str, Any],
@@ -342,49 +417,24 @@ def compute_heuristic_score(
     metadata: Optional[Dict[str, Any]] = None,
     ssl_error: bool = False,
 ) -> Tuple[int, str, bool, List[str]]:
-    """
-    Refactored Phase 1 Score using correlation signals.
-    """
-    # Extract available signals (external data will be empty/defaults for Phase 1)
-    signals = _extract_signals(
-        heuristics, {}, hops, final_url, dns_resolves, has_metadata, metadata, ssl_error
-    )
-    
-    # Evaluate correlations
+    """Phase 1 Score — correlation-based, no external data."""
+    signals = _extract_signals(heuristics, {}, hops, final_url, dns_resolves, has_metadata, metadata, ssl_error)
     matches = _evaluate_correlations(signals)
-    
-    # Calculate score based on strongest correlation
-    if not matches:
-        risk_score = 0
-        reasons = []
-    else:
-        # Use max score for primary signal + small additive for others
-        matches.sort(key=lambda x: x["score"], reverse=True)
-        risk_score = matches[0]["score"]
-        
-        # Add slight weight for additional suspicious signals (max +10 total)
-        if len(matches) > 1:
-            additional_weight = min(len(matches) - 1, 2) * 5
-            risk_score += additional_weight
-            
-        reasons = [m["reason"] for m in matches[:3]]
+    risk_score, reasons = _compute_correlation_score(matches)
 
-    # Trusted platform dampening for uncorroborated signals
-    if signals["phishing"]["trusted_platform"]:
-        has_strong_match = any(m["confidence"] in ["strong", "critical"] for m in matches)
-        if not has_strong_match:
-            risk_score = min(risk_score, TRUSTED_PLATFORM_CAP)
-            # Filter weak reasons for trusted platforms
-            reasons = [r for r in reasons if not any(p.lower() in r.lower() for p in WEAK_SIGNAL_PATTERNS)]
+    # Trusted platform dampening
+    risk_score, verdict_override, reasons = _apply_trusted_dampening(
+        risk_score, "", reasons, signals, matches
+    )
 
-    capped_score = min(risk_score, 100)
-    verdict = "green"
-    if capped_score >= VERDICT_RED_THRESHOLD:
-        verdict = "red"
-    elif capped_score >= VERDICT_YELLOW_THRESHOLD:
-        verdict = "yellow"
-        
-    return capped_score, verdict, capped_score < VERDICT_YELLOW_THRESHOLD, reasons
+    score = min(risk_score, 100)
+    verdict, is_safe = _make_verdict(score)
+    if verdict_override:
+        verdict = verdict_override
+        is_safe = verdict == "green"
+
+    return score, verdict, is_safe, reasons
+
 
 def compute_final_score(
     heuristics: Dict[str, Any],
@@ -396,69 +446,38 @@ def compute_final_score(
     metadata: Optional[Dict[str, Any]] = None,
     ssl_error: bool = False,
 ) -> Tuple[int, str, bool, List[str]]:
-    """
-    Refactored Phase 2 Final Score using correlation + intelligence.
-    """
-    # Extract all signals
-    signals = _extract_signals(
-        heuristics, external, hops, final_url, dns_resolves, has_metadata, metadata, ssl_error
-    )
-    
-    # Evaluate correlations
+    """Phase 2 Final Score — same correlation engine + intelligence + uncertainty."""
+    signals = _extract_signals(heuristics, external, hops, final_url, dns_resolves, has_metadata, metadata, ssl_error)
     matches = _evaluate_correlations(signals)
-    
-    # Calculate base correlation score
-    if not matches:
-        risk_score = 0
-        reasons = []
-    else:
-        matches.sort(key=lambda x: x["score"], reverse=True)
-        risk_score = matches[0]["score"]
-        if len(matches) > 1:
-            additional_weight = min(len(matches) - 1, 2) * 5
-            risk_score += additional_weight
-        reasons = [m["reason"] for m in matches[:3]]
+    risk_score, reasons = _compute_correlation_score(matches)
 
-    # Apply Intelligence Overrides (GSB / PhishTank)
+    # Intelligence overrides (GSB / PhishTank)
     risk_score, intel_reasons = _apply_intelligence_overrides(risk_score, signals["intel"])
     reasons = intel_reasons + reasons
 
-    # Apply uncertainty penalty for timed-out sources
+    # Uncertainty penalty
     ssl_uncertain = external.get("ssl_timed_out", False)
     gsb_uncertain = external.get("gsb_timed_out", False)
     rdap_uncertain = external.get("rdap_uncertain", False)
-    
-    # Uncertainty only if site already shows suspicion or multiple timeouts
     timeout_count = sum([ssl_uncertain, gsb_uncertain, rdap_uncertain])
     if timeout_count >= 2 or risk_score >= (VERDICT_YELLOW_THRESHOLD - 5):
         penalty = 0
         if ssl_uncertain: penalty += 2
         if gsb_uncertain: penalty += 5
         if rdap_uncertain: penalty += 5
-        
         if penalty > 0:
             risk_score = min(risk_score + penalty, 100)
             if timeout_count >= 2:
                 reasons.append(f"Limited security data ({timeout_count}/3 sources timed out)")
 
-    # Final verdict determination
-    capped_score = min(risk_score, 100)
-    verdict = "green"
-    if capped_score >= VERDICT_RED_THRESHOLD:
-        verdict = "red"
-    elif capped_score >= VERDICT_YELLOW_THRESHOLD:
-        verdict = "yellow"
+    score = min(risk_score, 100)
+    verdict, is_safe = _make_verdict(score)
 
-    # Trusted platform final check
-    if signals["phishing"]["trusted_platform"]:
-        has_strong_intel = signals["intel"]["gsb_hit"] or signals["intel"]["pt_url_hit"]
-        has_strong_match = any(m["confidence"] in ["strong", "critical"] for m in matches)
-        if not (has_strong_intel or has_strong_match):
-            risk_score = min(risk_score, TRUSTED_PLATFORM_CAP)
-            verdict = "green"
-            reasons = [r for r in reasons if not any(p.lower() in r.lower() for p in WEAK_SIGNAL_PATTERNS)]
+    # Trusted platform dampening
+    score, verdict, reasons = _apply_trusted_dampening(score, verdict, reasons, signals, matches)
+    is_safe = verdict == "green"
 
-    return min(risk_score, 100), verdict, verdict == "green", reasons
+    return score, verdict, is_safe, reasons
 
 
 # ============================================================
@@ -473,7 +492,6 @@ async def run_phase1(url: str) -> Dict[str, Any]:
     """
     start = time.monotonic()
 
-    # Run trace + metadata + dns in parallel
     domain_to_check = urlparse(url).netloc
     if ':' in domain_to_check:
         domain_to_check = domain_to_check.split(':')[0]
@@ -490,7 +508,6 @@ async def run_phase1(url: str) -> Dict[str, Any]:
     final_url = trace_result["final_url"]
     hops = trace_result["hops"]
 
-    # If domain changed during redirect, re-fetch metadata for final URL
     final_domain = urlparse(final_url).netloc
     if ':' in final_domain:
         final_domain = final_domain.split(':')[0]
@@ -504,17 +521,13 @@ async def run_phase1(url: str) -> Dict[str, Any]:
         dns_resolves = dns_task2.result()
         
     has_metadata = metadata is not None
-
-    # CPU heuristics — instant
     heuristics = run_heuristics(final_url)
 
-    # Compute initial score (heuristics only — preliminary)
     risk_score, verdict, is_safe, reasons = compute_heuristic_score(
         heuristics, hops, final_url, dns_resolves, has_metadata, 
         metadata=metadata, ssl_error=trace_result.get("ssl_error", False)
     )
 
-    # Determine threat type from intelligent reasons
     threat_type: Optional[str] = None
     if not is_safe and reasons:
         threat_type = reasons[0]
@@ -563,7 +576,7 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
     try:
         external = await asyncio.wait_for(
             run_external_scans(final_url),
-            timeout=3.0  # Hard limit for entire Phase 2
+            timeout=3.0
         )
     except asyncio.TimeoutError:
         logger.warning(f"[PHASE2] External scans timed out for {root_domain}")
@@ -581,7 +594,6 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             "cf_timed_out": True,
         }
 
-    # Concise structured logging for timeouts - use debug level to reduce noise
     if external.get("ssl_timed_out"):
         logger.debug(f"[PHASE2] SSL cert age timeout: {root_domain}")
     if external.get("gsb_timed_out"):
@@ -589,7 +601,6 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
     if external.get("rdap_timed_out"):
         logger.debug(f"[PHASE2] RDAP timeout: {root_domain}")
 
-    # Compute final weighted score with uncertainty
     risk_score, verdict, is_safe, reasons = compute_final_score(
         heuristics, external, hops, final_url,
         phase1_result.get("dns_resolves", True),
@@ -598,8 +609,6 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
         ssl_error=phase1_result["security"].get("ssl_error", False)
     )
 
-    # Determine threat type (external threats override heuristic-only threats)
-    # Determine threat type from intelligent reasons
     threat_type: Optional[str] = None
     if not is_safe and reasons:
         threat_type = reasons[0]

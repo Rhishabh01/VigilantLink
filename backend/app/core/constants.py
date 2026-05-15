@@ -1,18 +1,111 @@
 # ============================================================
 # Threat Intelligence Lists
 # ============================================================
-SUSPICIOUS_TLDS = ['.top', '.xyz', '.biz', '.zip', '.click', '.gq', '.tk', '.work', '.country']
-HIGH_RISK_KEYWORDS = ['verify', 'login', 'bank', 'secure', 'account']
-HIGH_VALUE_TARGETS = ['google', 'amazon', 'paypal', 'github', 'microsoft', 'apple']
-SUSPICIOUS_KEYWORDS = ["free", "login", "update", "verify", "secure", "account"]
-PHISHING_KEYWORDS = [
-    "login", "verify", "password", "account", "security", "wallet", "banking", "auth",
-    "billing", "subscription", "payment", "invoice", "customer"
+SUSPICIOUS_TLDS = [
+    '.top', '.xyz', '.biz', '.zip', '.click', '.gq', '.tk', '.work', '.country',
+    '.ml', '.cf', '.ga', '.buzz', '.surf', '.icu', '.cam', '.rest', '.monster',
+    '.quest', '.sbs', '.cfd', '.lol', '.fun', '.cyou', '.bond', '.makeup',
+    '.hair', '.boats', '.beauty', '.skin', '.mom', '.bar', '.autos',
 ]
-TRUSTED_HOSTING_DOMAINS = ["docs.google.com", "github.io", "pages.dev", "notion.site", "pastebin.com"]
+
+HIGH_RISK_KEYWORDS = [
+    'verify', 'login', 'bank', 'secure', 'account', 'signin', 'password',
+    'wallet', 'crypto', 'auth', 'confirm', 'billing', 'payment', 'support',
+]
+
+HIGH_VALUE_TARGETS = [
+    # Tech
+    'google', 'amazon', 'paypal', 'github', 'microsoft', 'apple',
+    'facebook', 'instagram', 'twitter', 'linkedin', 'netflix', 'spotify',
+    'dropbox', 'adobe', 'zoom', 'slack', 'notion', 'discord', 'twitch',
+    'reddit', 'tiktok', 'snapchat', 'pinterest', 'whatsapp', 'telegram',
+    # Finance
+    'chase', 'wellsfargo', 'bankofamerica', 'citibank', 'capitalone',
+    'americanexpress', 'venmo', 'cashapp', 'stripe', 'coinbase', 'binance',
+    'robinhood', 'schwab', 'fidelity',
+    # Services
+    'fedex', 'ups', 'usps', 'dhl', 'walmart', 'ebay', 'bestbuy',
+    'target', 'costco', 'ikea', 'homedepot',
+    # Cloud/Enterprise
+    'salesforce', 'atlassian', 'jira', 'confluence', 'okta', 'docusign',
+    'intuit', 'turbotax', 'quickbooks',
+]
+
+SUSPICIOUS_KEYWORDS = [
+    "free", "login", "update", "verify", "secure", "account", "signin",
+    "confirm", "wallet", "crypto", "billing", "support", "helpdesk",
+]
+
+PHISHING_KEYWORDS = [
+    # Auth/credential
+    "login", "signin", "sign-in", "log-in", "verify", "password", "passwd",
+    "credential", "auth", "authenticate", "authorization", "2fa", "mfa", "otp",
+    # Account
+    "account", "myaccount", "my-account", "profile", "dashboard", "settings",
+    "suspend", "suspended", "locked", "disabled", "restricted", "unusual",
+    "unauthorized", "compromised", "breach",
+    # Financial
+    "billing", "payment", "invoice", "refund", "subscription", "renew",
+    "expire", "expired", "overdue", "outstanding", "charge", "transaction",
+    "wallet", "banking", "wire", "transfer", "withdrawal",
+    # Security lures
+    "security", "secure", "protect", "safety", "warning", "alert", "urgent",
+    "immediate", "required", "mandatory", "action-required",
+    # Customer/support
+    "customer", "support", "helpdesk", "help-desk", "service", "resolution",
+    "ticket", "case", "dispute", "claim",
+    # Crypto
+    "airdrop", "giveaway", "reward", "bonus", "mining", "staking",
+    "metamask", "phantom", "trustwallet", "seed-phrase", "recovery-phrase",
+    # Delivery
+    "tracking", "shipment", "delivery", "package", "parcel", "customs",
+    "reschedule", "redelivery",
+]
+
+# Words commonly appended to brand names in phishing domains
+PHISHING_APPENDERS = [
+    "login", "signin", "verify", "secure", "account", "auth", "update",
+    "support", "help", "helpdesk", "service", "billing", "payment",
+    "security", "alert", "confirm", "online", "web", "my", "portal",
+    "app", "mail", "cloud", "team", "admin", "manage", "center",
+    "recovery", "restore", "wallet", "pay", "checkout", "safe",
+]
+
+# Common character substitutions used in phishing domains
+HOMOGLYPH_MAP = {
+    'a': ['@', '4', 'à', 'á', 'â', 'ã', 'ä'],
+    'e': ['3', 'è', 'é', 'ê', 'ë'],
+    'i': ['1', '!', 'l', 'í', 'ì', 'î', 'ï'],
+    'o': ['0', 'ò', 'ó', 'ô', 'õ', 'ö'],
+    'l': ['1', 'I', '|'],
+    's': ['5', '$', 'z'],
+    'g': ['9', 'q'],
+    't': ['7', '+'],
+    'b': ['8', 'd'],
+    'n': ['m'],
+    'c': ['k'],
+    'u': ['v', 'ü', 'ù', 'ú', 'û'],
+    'w': ['vv'],
+    'rn': ['m'],
+}
+
+TRUSTED_HOSTING_DOMAINS = [
+    "docs.google.com", "github.io", "pages.dev", "notion.site", "pastebin.com",
+    "sites.google.com", "forms.gle", "docs.google.com", "drive.google.com",
+    "appspot.com", "web.app", "firebaseapp.com",
+    "vercel.app", "netlify.app", "herokuapp.com", "glitch.me",
+    "replit.co", "onrender.com", "fly.dev",
+    "blogspot.com", "wordpress.com", "wixsite.com", "weebly.com",
+    "sharepoint.com", "1drv.ms", "onedrive.live.com",
+    "ipfs.io", "arweave.net",
+]
+
 TRUSTED_PLATFORMS = [
     "youtube.com", "google.com", "github.com", "microsoft.com",
     "cloudflare.com", "discord.com", "linkedin.com",
+    "facebook.com", "twitter.com", "instagram.com",
+    "reddit.com", "amazon.com", "apple.com",
+    "stackoverflow.com", "wikipedia.org", "medium.com",
 ]
 
 # ============================================================
@@ -102,8 +195,17 @@ DECEPTIVE_QUERY_PARAMS = frozenset({
 
 # Suspicious hosted paths — login/auth pages on trusted hosting platforms
 SUSPICIOUS_HOSTED_PATHS = [
-    "/login", "/signin", "/auth", "/authenticate",
+    "/login", "/signin", "/sign-in", "/log-in",
+    "/auth", "/authenticate", "/oauth", "/sso",
     "/password", "/credential", "/account",
+    "/verify", "/verification", "/confirm", "/confirmation",
+    "/billing", "/payment", "/invoice", "/checkout",
+    "/wallet", "/connect-wallet", "/seed", "/recovery",
+    "/secure", "/security", "/alert", "/warning",
+    "/support", "/helpdesk", "/help-desk", "/ticket",
+    "/update", "/upgrade", "/renew", "/reactivate",
+    "/unlock", "/restore", "/recover", "/reset",
+    "/admin", "/panel", "/dashboard",
 ]
 
 # Weak signal patterns to filter from trusted platform reasons
@@ -111,6 +213,7 @@ WEAK_SIGNAL_PATTERNS = [
     "No metadata", "Preview unavailable", "SSL certificate",
     "Young SSL", "Recently issued", "uncertainty", "Uncertainty",
     "timed out", "Limited security data", "metadata", "screenshot",
+    "commonly associated",
 ]
 
 # ============================================================
