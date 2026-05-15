@@ -155,7 +155,7 @@ async def sync_phishtank_feed() -> None:
     while True:
         try:
             logger.info("[PHISHTANK] Starting feed sync...")
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
                 response = await client.get(PHISHTANK_FEED_URL)
                 if response.status_code == 200:
                     data = response.json()
