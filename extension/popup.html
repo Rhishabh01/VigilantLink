@@ -1,13 +1,494 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
+
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VigilantLink</title>
-  <script type="module" crossorigin src="./assets/popup-D4Yy2q2n.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/popup-Bga4Z6rx.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      /* Dark Theme (Default) */
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-hover: rgba(255, 255, 255, 0.15);
+      --accent: #3b82f6;
+      --accent-dim: rgba(59, 130, 246, 0.15);
+      --danger: #ef4444;
+      --danger-dim: rgba(239, 68, 68, 0.15);
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --radius: 10px;
+    }
+
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: rgba(0, 0, 0, 0.08);
+      --border-hover: rgba(0, 0, 0, 0.15);
+      --accent: #2563eb;
+      --accent-dim: rgba(37, 99, 235, 0.15);
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --text-dim: #94a3b8;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      width: 340px;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      padding-top: 4px;
+      transition: background 0.3s ease, color 0.3s ease;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logo {
+      width: 24px;
+      height: 24px;
+      border-radius: 20%;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+
+    .header h1 {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .theme-toggle {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 6px;
+      color: var(--text-muted);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    .theme-toggle:hover {
+      background: var(--border);
+      color: var(--text);
+    }
+
+    #site-status-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .content {
+      padding: 14px 20px 18px;
+    }
+
+    .current-site-label {
+      font-size: 11px;
+      color: var(--text-dim);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      text-align: center;
+    }
+
+    .domain {
+      font-size: 16px;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      margin-bottom: 14px;
+      text-align: center;
+    }
+
+    .toggle-section {
+      min-height: 50px;
+      max-height: 50px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 12px;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .toggle-section:hover {
+      border-color: var(--border-hover);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    [data-theme="light"] .toggle-section:hover {
+      background: rgba(0, 0, 0, 0.02);
+    }
+
+    .toggle-section .toggle {
+      margin-left: auto;
+    }
+
+    .toggle-section::after {
+      content: '';
+      width: 2px;
+      flex-shrink: 0;
+    }
+
+    .toggle-label {
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .toggle-hint {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin-bottom: 16px;
+      display: flex;
+      gap: 6px;
+    }
+
+    .toggle {
+      position: relative;
+      width: 42px;
+      height: 22px;
+      flex-shrink: 0;
+    }
+
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background: #334155;
+      border-radius: 22px;
+      transition: background 0.25s;
+    }
+
+    [data-theme="light"] .slider {
+      background: #e2e8f0;
+    }
+
+    .slider:before {
+      content: "";
+      position: absolute;
+      height: 16px;
+      width: 16px;
+      left: 3px;
+      bottom: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.25s;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .toggle input:checked+.slider {
+      background: var(--accent);
+    }
+
+    .toggle input:checked+.slider:before {
+      transform: translateX(20px);
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 8px;
+    }
+
+    .preset-list,
+    .custom-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 12px;
+      height: 158px;
+      overflow-y: overlay;
+      overflow-x: hidden;
+    }
+
+    .preset-list::-webkit-scrollbar,
+    .custom-list::-webkit-scrollbar {
+      width: 3px;
+    }
+
+    .preset-list::-webkit-scrollbar-track,
+    .custom-list::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .preset-list::-webkit-scrollbar-thumb,
+    .custom-list::-webkit-scrollbar-thumb {
+      background: var(--border-hover);
+      border-radius: 999px;
+    }
+
+    .preset-item .toggle {
+      margin-left: auto;
+    }
+
+    .preset-item,
+    .custom-site-item {
+      min-height: 50px;
+      max-height: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      flex-shrink: 0;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .preset-item:hover,
+    .custom-site-item:hover {
+      border-color: var(--border-hover);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    [data-theme="light"] .preset-item:hover,
+    [data-theme="light"] .custom-site-item:hover {
+      background: rgba(0, 0, 0, 0.02);
+    }
+
+    .site-name {
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .site-domain {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .remove {
+      cursor: pointer;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      color: var(--danger);
+      opacity: 0.4;
+      transition: opacity 0.2s;
+    }
+
+    .remove:hover {
+      opacity: 1;
+      background: var(--danger-dim);
+    }
+
+    .add-site-form {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 14px;
+      border-radius: var(--radius);
+      margin-bottom: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      animation: slideDown 0.2s ease-out;
+    }
+
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-8px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    input[type="text"] {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      padding: 9px 12px;
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      transition: border-color 0.2s;
+    }
+
+    input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .form-buttons {
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 9px;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+      transition: opacity 0.2s;
+    }
+
+    .btn:hover {
+      opacity: 0.8;
+    }
+
+    .btn-add {
+      background: var(--accent);
+      color: white;
+    }
+
+    .btn-cancel {
+      background: #334155;
+      color: white;
+    }
+
+    [data-theme="light"] .btn-cancel {
+      background: #e2e8f0;
+      color: #64748b;
+    }
+
+    .show-add-btn {
+      width: 100%;
+      padding: 10px;
+      background: transparent;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      color: var(--text-dim);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .show-add-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+  </style>
 </head>
-<body class="bg-[#0b1121]">
-  <div id="root"></div>
+
+<body>
+  <div class="header">
+    <div class="logo-container">
+      <img src="icons/icon48.png" alt="VigilantLink Logo" class="logo">
+      <h1>VigilantLink</h1>
+    </div>
+    <div class="header-actions">
+      <button id="theme-toggle" class="theme-toggle" title="Toggle Theme">
+        <svg id="moon-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        <svg id="sun-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+      </button>
+      <span id="site-status-badge">ACTIVE</span>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="current-site-label" style="padding-bottom: 8px;">Current Website</div>
+    <div class="domain" id="current-domain">Detecting...</div>
+
+    <div class="toggle-section">
+      <span class="toggle-label">Link Checking</span>
+      <label class="toggle">
+        <input type="checkbox" id="site-toggle">
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="toggle-hint">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="16" x2="12" y2="12"></line>
+        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+      </svg>
+      Check links on this site.
+    </div>
+
+    <div class="preset-sites">
+      <div class="section-title">Websites</div>
+      <div class="preset-list" id="preset-list"></div>
+
+      <div class="add-site-form" id="add-form" style="display: none;">
+        <input type="text" id="site-name-input" placeholder="e.g. My Secure Bank">
+        <input type="text" id="site-domain-input" placeholder="e.g. bank.com">
+        <div class="form-buttons">
+          <button class="btn btn-add" id="save-site-btn">Add Site</button>
+          <button class="btn btn-cancel" id="cancel-btn">Cancel</button>
+        </div>
+      </div>
+
+      <button class="show-add-btn" id="show-add-btn">
+        <span>+</span> Add Website
+      </button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
 </body>
+
 </html>

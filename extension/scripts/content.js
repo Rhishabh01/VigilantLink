@@ -19,6 +19,7 @@ let lastPhase1Result = null;
 let freezeTimer = null;
 const FREEZE_TIMEOUT_MS = 12000;
 let activeAnchor = null;
+let currentVtReportUrl = null;
 let lastLocation = location.href;
 let spaPatched = false;
 let spaInterval = null;
@@ -59,6 +60,19 @@ function throttle(func, limit) {
       setTimeout(() => inThrottle = false, limit);
     }
   };
+}
+
+async function computeVtUrl(url) {
+  try {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(url);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return `https://www.virustotal.com/gui/url/${hashHex}`;
+  } catch {
+    return null;
+  }
 }
 
 const DEFAULT_SETTINGS = {
@@ -229,20 +243,24 @@ async function handleLinkMouseEnter(event) {
     await showLoadingPopup(x, y);
 
     // Instant Cache Check
-    chrome.runtime.sendMessage({ action: 'analyze_link', url, cache_only: true }, (response) => {
-      if (hoverTargetUrl !== url) return; // Moved away
-      if (response && response.success && !response.data.cache_miss) {
-        console.log(`%c[CACHE HIT] Ignoring delay for: ${url}`, 'color: #8b5cf6');
-        if (activationTimer) {
-          clearTimeout(activationTimer);
-          activationTimer = null;
+    (async () => {
+      const vtUrl = await computeVtUrl(url);
+      chrome.runtime.sendMessage({ action: 'analyze_link', url, cache_only: true }, (response) => {
+        if (hoverTargetUrl !== url) return;
+        if (response && response.success && !response.data.cache_miss) {
+          console.log(`%c[CACHE HIT] Ignoring delay for: ${url}`, 'color: #8b5cf6');
+          if (activationTimer) {
+            clearTimeout(activationTimer);
+            activationTimer = null;
+          }
+
+          currentVtReportUrl = vtUrl;
+          currentAnalysisUrl = url;
+          currentRequestId = response.data.id || null;
+          updatePopupWithResult(response.data, vtUrl);
         }
-        
-        currentAnalysisUrl = url;
-        currentRequestId = response.data.id || null;
-        updatePopupWithResult(response.data);
-      }
-    });
+      });
+    })();
 
     console.log(`%c[HOVER] Timer started for activation: ${url}`, 'color: #3b82f6');
     activationTimer = setTimeout(async () => {
@@ -250,17 +268,18 @@ async function handleLinkMouseEnter(event) {
       if (hoverTargetUrl !== url) return;
 
       console.log(`%c[SCAN] Hover threshold reached -> starting scan: ${url}`, 'color: #10b981');
+      currentVtReportUrl = await computeVtUrl(url);
       currentAnalysisUrl = url;
       currentRequestId = null;
       const seq = ++requestSequence;
 
       try {
         chrome.runtime.sendMessage({ action: 'analyze_link', url }, (response) => {
-          if (currentAnalysisUrl !== url) return; // Stale response
-          if (seq !== requestSequence) return; // Stale sequence
+          if (currentAnalysisUrl !== url) return;
+          if (seq !== requestSequence) return;
           if (response && response.success) {
             currentRequestId = response.data.id;
-            updatePopupWithResult(response.data);
+            updatePopupWithResult(response.data, currentVtReportUrl);
           } else {
             updatePopupWithError(response?.error || 'Unknown error');
           }
@@ -378,7 +397,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ override: window.sessionStorage.getItem('vigilantlink_override') });
   } else if (message.action === 'phase1_result') {
     if (isPopupValid() && currentAnalysisUrl && message.url === currentAnalysisUrl) {
-      updatePopupWithResult(message.data);
+      updatePopupWithResult(message.data, currentVtReportUrl);
     }
   } else if (message.action === 'phase2_result') {
     if (!isPopupValid()) return;
@@ -389,7 +408,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     if (matchesId || matchesUrl) {
       if (matchesUrl && message.requestId) currentRequestId = message.requestId;
-      mergeDeepScanResult(message.data);
+      mergeDeepScanResult(message.data, currentVtReportUrl);
     }
   } else if (message.action === 'phase2_error') {
     if (isPopupValid() && message.url === currentAnalysisUrl) {
@@ -702,6 +721,9 @@ function finalizeReconnectCard(data) {
   if (redirectsSection) infoDiv.appendChild(redirectsSection);
   bodyDiv.appendChild(infoDiv);
 
+  const vtSection = createVirusTotalSection(security, currentVtReportUrl);
+  if (vtSection) bodyDiv.appendChild(vtSection);
+
   // Swap: remove old body (reconnect message) and insert fresh result body
   const existingBody = currentPopupShadowRoot.querySelector('.body');
   if (existingBody) {
@@ -976,7 +998,148 @@ function createForensicSection(reasons) {
   return reasonsDiv;
 }
 
-function updatePopupWithResult(data) {
+function createVirusTotalSection(sec, vtUrl) {
+  const container = document.createElement('div');
+  container.className = 'vt-section';
+
+  const hasData = sec && sec.vf != null && sec.tv != null;
+
+  // ── Divider ──────────────────────────────────────────
+  const divider = document.createElement('div');
+  divider.className = 'vt-divider';
+  const dl1 = document.createElement('div');
+  dl1.className = 'vt-divider-line';
+  const dlLabel = document.createElement('span');
+  dlLabel.className = 'vt-divider-label';
+  dlLabel.textContent = 'External Signal';
+  const dl2 = document.createElement('div');
+  dl2.className = 'vt-divider-line';
+  divider.appendChild(dl1);
+  divider.appendChild(dlLabel);
+  divider.appendChild(dl2);
+  container.appendChild(divider);
+
+  // ── Header ───────────────────────────────────────────
+  const header = document.createElement('div');
+  header.className = 'vt-header';
+
+  const titleGroup = document.createElement('div');
+  titleGroup.className = 'vt-title-group';
+
+  const shieldSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  shieldSvg.setAttribute('width', '14');
+  shieldSvg.setAttribute('height', '14');
+  shieldSvg.setAttribute('viewBox', '0 0 24 24');
+  shieldSvg.setAttribute('fill', 'none');
+  shieldSvg.setAttribute('stroke', '#60a5fa');
+  shieldSvg.setAttribute('stroke-width', '2');
+  shieldSvg.setAttribute('stroke-linecap', 'round');
+  shieldSvg.setAttribute('stroke-linejoin', 'round');
+  svgPath(shieldSvg, 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z');
+  shieldSvg.style.flexShrink = '0';
+  titleGroup.appendChild(shieldSvg);
+
+  const titleSpan = document.createElement('span');
+  titleSpan.className = 'vt-title';
+  titleSpan.textContent = 'VirusTotal';
+  const viaSpan = document.createElement('span');
+  viaSpan.className = 'vt-subtitle';
+  viaSpan.textContent = '(via API)';
+  titleSpan.appendChild(document.createTextNode(' '));
+  titleSpan.appendChild(viaSpan);
+  titleGroup.appendChild(titleSpan);
+  header.appendChild(titleGroup);
+
+  // Info tooltip
+  const infoWrap = document.createElement('span');
+  infoWrap.className = 'vt-info-wrap';
+  infoWrap.setAttribute('tabindex', '0');
+  infoWrap.setAttribute('role', 'tooltip');
+  infoWrap.setAttribute('aria-label', 'VirusTotal provides third-party vendor detection data. This is not VigilantLink\'s own verdict.');
+
+  const infoSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  infoSvg.setAttribute('width', '14');
+  infoSvg.setAttribute('height', '14');
+  infoSvg.setAttribute('viewBox', '0 0 24 24');
+  infoSvg.setAttribute('fill', 'none');
+  infoSvg.setAttribute('stroke', 'currentColor');
+  infoSvg.setAttribute('stroke-width', '2');
+  infoSvg.setAttribute('stroke-linecap', 'round');
+  infoSvg.setAttribute('stroke-linejoin', 'round');
+  svgPath(infoSvg, 'M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z');
+  svgPath(infoSvg, 'M12 16V12');
+  svgPath(infoSvg, 'M12 8H12.01');
+  infoSvg.style.color = '#64748b';
+  infoWrap.appendChild(infoSvg);
+
+  const tooltip = document.createElement('span');
+  tooltip.className = 'vt-tooltip';
+  tooltip.textContent = 'VirusTotal provides third-party vendor detection data. This is not VigilantLink\'s own security verdict.';
+  infoWrap.appendChild(tooltip);
+  header.appendChild(infoWrap);
+  container.appendChild(header);
+
+  // ── Score ────────────────────────────────────────────
+  if (hasData) {
+    const scoreBox = document.createElement('div');
+    scoreBox.className = 'vt-score-box';
+
+    const scoreRow = document.createElement('div');
+    scoreRow.className = 'vt-score-row';
+    scoreRow.innerHTML = `<span class="vt-score-val">${sec.vf}</span><span class="vt-score-sep">&nbsp;/ ${sec.tv}</span>`;
+    scoreBox.appendChild(scoreRow);
+
+    const label = document.createElement('p');
+    label.className = 'vt-score-label';
+    label.textContent = sec.vf === 1 ? 'vendor flagged this URL' : 'vendors flagged this URL';
+    scoreBox.appendChild(label);
+    container.appendChild(scoreBox);
+  } else {
+    const noData = document.createElement('p');
+    noData.className = 'vt-nodata';
+    noData.textContent = 'VirusTotal data unavailable';
+    container.appendChild(noData);
+  }
+
+  // ── External link ────────────────────────────────────
+  if (vtUrl) {
+    const link = document.createElement('a');
+    link.href = vtUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.className = 'vt-link';
+    link.setAttribute('aria-label', 'View full VirusTotal report in a new tab');
+
+    const linkText = document.createElement('span');
+    linkText.textContent = 'View full report';
+    link.appendChild(linkText);
+
+    const extSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    extSvg.setAttribute('width', '10');
+    extSvg.setAttribute('height', '10');
+    extSvg.setAttribute('viewBox', '0 0 24 24');
+    extSvg.setAttribute('fill', 'none');
+    extSvg.setAttribute('stroke', 'currentColor');
+    extSvg.setAttribute('stroke-width', '2');
+    extSvg.setAttribute('stroke-linecap', 'round');
+    extSvg.setAttribute('stroke-linejoin', 'round');
+    svgPath(extSvg, 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6');
+    svgPath(extSvg, 'M15 3h6v6');
+    svgPath(extSvg, 'M10 14 21 3');
+    link.appendChild(extSvg);
+    container.appendChild(link);
+  }
+
+  return container;
+}
+
+function svgPath(svgEl, d) {
+  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p.setAttribute('d', d);
+  svgEl.appendChild(p);
+}
+
+function updatePopupWithResult(data, vtReportUrl) {
   if (!isPopupValid()) return;
 
   clearFreezeTimer();
@@ -1165,6 +1328,11 @@ function updatePopupWithResult(data) {
   if (redirectsSection) infoDiv.appendChild(redirectsSection);
 
   bodyDiv.appendChild(infoDiv);
+
+  // VirusTotal compliance section
+  const vtSection = createVirusTotalSection(security, vtReportUrl || currentVtReportUrl);
+  if (vtSection) bodyDiv.appendChild(vtSection);
+
   currentPopupContent.appendChild(bodyDiv);
 
   attachPopupEventHandlers(final_url);
@@ -1191,7 +1359,7 @@ function resolvePhase1AsFinal(data) {
  * Merges Phase 2 deep scan results into the existing popup.
  * Updates badge color, risk score, and forensic details with smooth transitions.
  */
-function mergeDeepScanResult(data) {
+function mergeDeepScanResult(data, vtReportUrl) {
   if (!isPopupValid()) return;
   clearFreezeTimer();
   clearReconnectTimer();
@@ -1318,6 +1486,19 @@ function mergeDeepScanResult(data) {
       const isPending = data.p3 === 'pending';
       placeholder.textContent = isPending ? 'Loading visual preview...' : 'Preview unavailable';
     }
+  }
+
+  // Update or add VirusTotal section
+  const bodyEl = currentPopupShadowRoot.querySelector('.body');
+  const existingVt = currentPopupShadowRoot.querySelector('.vt-section');
+  if (existingVt && bodyEl) {
+    const newVt = createVirusTotalSection(security, currentVtReportUrl);
+    if (newVt) {
+      existingVt.replaceWith(newVt);
+    }
+  } else if (bodyEl && !existingVt && security) {
+    const newVt = createVirusTotalSection(security, currentVtReportUrl);
+    if (newVt) bodyEl.appendChild(newVt);
   }
 }
 
