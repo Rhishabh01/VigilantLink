@@ -5,7 +5,10 @@ SUSPICIOUS_TLDS = ['.top', '.xyz', '.biz', '.zip', '.click', '.gq', '.tk', '.wor
 HIGH_RISK_KEYWORDS = ['verify', 'login', 'bank', 'secure', 'account']
 HIGH_VALUE_TARGETS = ['google', 'amazon', 'paypal', 'github', 'microsoft', 'apple']
 SUSPICIOUS_KEYWORDS = ["free", "login", "update", "verify", "secure", "account"]
-PHISHING_KEYWORDS = ["login", "verify", "password", "account", "security", "wallet", "banking", "auth"]
+PHISHING_KEYWORDS = [
+    "login", "verify", "password", "account", "security", "wallet", "banking", "auth",
+    "billing", "subscription", "payment", "invoice", "customer"
+]
 TRUSTED_HOSTING_DOMAINS = ["docs.google.com", "github.io", "pages.dev", "notion.site", "pastebin.com"]
 TRUSTED_PLATFORMS = [
     "youtube.com", "google.com", "github.com", "microsoft.com",
@@ -118,6 +121,7 @@ GSB_THREAT_TYPES = [
     "SOCIAL_ENGINEERING",
     "UNWANTED_SOFTWARE",
     "POTENTIALLY_HARMFUL_APPLICATION",
+    "TRICK_TO_BILL",
 ]
 
 # Minimum score enforced when GSB returns a match for the given threat type.
@@ -127,6 +131,7 @@ GSB_THREAT_MIN_SCORES: dict[str, int] = {
     "SOCIAL_ENGINEERING": 90,
     "POTENTIALLY_HARMFUL_APPLICATION": 80,
     "UNWANTED_SOFTWARE": 75,
+    "TRICK_TO_BILL": 85,
 }
 
 # Priority order used when multiple threat types are returned in one GSB response.
@@ -136,6 +141,7 @@ GSB_THREAT_PRIORITY = [
     "SOCIAL_ENGINEERING",
     "POTENTIALLY_HARMFUL_APPLICATION",
     "UNWANTED_SOFTWARE",
+    "TRICK_TO_BILL",
 ]
 
 # ============================================================
