@@ -45,6 +45,7 @@ The extension analyzes links directly on hover and provides instant security ins
 
 *   **Real-time hover-based link analysis**
 *   **Google Safe Browsing integration**
+*   **PhishTank offline intelligence feed**
 *   **Domain age intelligence (RDAP)**
 *   **Redirect chain analysis**
 *   **Multi-source heuristic scoring**

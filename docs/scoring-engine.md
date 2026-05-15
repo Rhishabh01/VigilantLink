@@ -54,6 +54,8 @@ Starts from the heuristic base score produced by Pass 1, then applies external s
 | SSL cert age | Certificate issued recently | `WEIGHT_SSL_AGE × penalty` (tiered) |
 | Domain age (RDAP) | Domain registered recently | `WEIGHT_RDAP_AGE × penalty` (tiered) |
 | Google Safe Browsing | Match found | Score overridden to `GSB_THREAT_MIN_SCORES[threat_type]` |
+| PhishTank Match (URL) | Exact URL found in local feed | Score overridden to `PHISHTANK_URL_PENALTY` (95) |
+| PhishTank Match (Domain) | Domain found in local feed | Score floored at `PHISHTANK_DOMAIN_PENALTY` (60) |
 | Uncertainty penalty | Timed-out sources × conditions | +2 to +5 per source |
 | Trusted platform cap | Strong signals absent | Score capped at `TRUSTED_PLATFORM_CAP`, weak reasons removed |
 
@@ -116,11 +118,23 @@ This ensures GSB matches always produce at least a `red` verdict regardless of h
 
 ---
 
+## PhishTank Offline Intelligence
+
+The backend maintains a local copy of the **PhishTank** verified phishing feed, synchronized every 30 minutes. This provides high-confidence detection for known phishing URLs without additional network latency during scans.
+
+| Match Type | Penalty / Override | Description |
+|---|---|---|
+| **Exact URL** | `PHISHTANK_URL_PENALTY` (95) | The specific URL is flagged as a verified phish. |
+| **Domain Level** | `PHISHTANK_DOMAIN_PENALTY` (60) | The infrastructure is flagged (excluded for `TRUSTED_PLATFORMS`). |
+
+---
+
 ## Trusted Platform Dampening
 
 Domains matching `TRUSTED_PLATFORMS` (e.g., `github.com`, `google.com`) have their score capped at `TRUSTED_PLATFORM_CAP` unless any of the following strong signals are present:
 
 - GSB match
+- PhishTank URL match
 - Redirect chain depth > `MAX_REDIRECT_HOPS_FREE`
 - Punycode detected
 - Brand penalty applied

@@ -32,6 +32,7 @@ graph TD
     L --> L1[SSL cert age]
     L --> L3[Google Safe Browsing]
     L --> L4[RDAP domain age]
+    L --> L5[PhishTank Match]
 
     L1 & L3 & L4 --> M[compute_final_score]
     M --> N{needs_screenshot?}
@@ -69,6 +70,7 @@ graph TD
    - SSL certificate age via async TLS handshake
    - Google Safe Browsing v4 threatMatches lookup
    - RDAP domain registration age
+   - PhishTank offline match (URL and Domain level)
 2. `compute_final_score` merges heuristic base score with external signals
 3. `needs_screenshot` gatekeeper decides if Playwright capture is justified
 4. If triggered: `BrowserPool.capture_screenshot` runs under a semaphore
@@ -138,7 +140,8 @@ URL Input
   └─ run_external_scans()
         ├─ SSL cert age (notBefore)
         ├─ Google Safe Browsing v4 threatMatches
-        └─ RDAP domain registration date
+        ├─ RDAP domain registration date
+        └─ PhishTank Offline Match (URL/Domain)
   └─ compute_final_score()
         ├─ Weighted signal aggregation
         ├─ GSB authoritative override

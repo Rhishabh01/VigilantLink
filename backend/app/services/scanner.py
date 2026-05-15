@@ -208,13 +208,9 @@ async def check_google_safe_browsing(url: str) -> List[str]:
     """Check a URL against Google Safe Browsing v4 threatMatches."""
     api_key = os.getenv("GOOGLE_SAFE_BROWSING_API_KEY")
     normalized = _normalize_gsb_url(url)
-    if not api_key:
-        logger.error("[GSB] GOOGLE_SAFE_BROWSING_API_KEY is not set in environment!")
-        return []
-    if not normalized:
+    if not api_key or not normalized:
         return []
 
-    logger.info(f"[GSB] Checking URL: {normalized}")
     payload = {
         "client": {
             "clientId": "vigilantlink",
@@ -222,7 +218,7 @@ async def check_google_safe_browsing(url: str) -> List[str]:
         },
         "threatInfo": {
             "threatTypes": GSB_THREAT_TYPES,
-            "platformTypes": ["ANY_PLATFORM", "WINDOWS", "LINUX", "OSX", "ANDROID", "IOS", "CHROME"],
+            "platformTypes": ["ANY_PLATFORM"],
             "threatEntryTypes": ["URL"],
             "threatEntries": [{"url": normalized}],
         },
@@ -242,29 +238,18 @@ async def check_google_safe_browsing(url: str) -> List[str]:
                 return []
 
             if response.status_code != 200:
-                logger.error(f"[GSB] API returned {response.status_code}: {response.text}")
+                logger.debug(f"[GSB] API returned {response.status_code}")
                 return []
 
             data = response.json()
-            logger.info(f"[GSB] Raw Response: {data}")
             matches = data.get("matches", [])
-            
-            if matches:
-                logger.info(f"[GSB] Found {len(matches)} matches for {normalized[:50]}...")
-                for m in matches:
-                    logger.debug(f"[GSB] Match: {m.get('threatType')} on {m.get('platformType')}")
-            
             threats = [match.get("threatType") for match in matches if match.get("threatType") in GSB_THREAT_TYPES]
-            results = list(dict.fromkeys([t for t in threats if t]))
-            
-            if results:
-                logger.info(f"[GSB] Matched threats: {results}")
-            return results
+            return list(dict.fromkeys([t for t in threats if t]))
 
     except httpx.TimeoutException:
-        logger.warning(f"[GSB] Request timed out for {normalized[:50]}...")
+        logger.debug(f"[GSB] Request timed out")
     except Exception as e:
-        logger.error(f"[GSB] Check failed: {type(e).__name__}: {e}")
+        logger.error(f"[GSB] Check failed: {e}")
 
     return []
 
