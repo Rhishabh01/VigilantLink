@@ -214,6 +214,7 @@ async def check_google_safe_browsing(url: str) -> List[str]:
     if not normalized:
         return []
 
+    logger.info(f"[GSB] Checking URL: {normalized}")
     payload = {
         "client": {
             "clientId": "vigilantlink",
@@ -245,6 +246,7 @@ async def check_google_safe_browsing(url: str) -> List[str]:
                 return []
 
             data = response.json()
+            logger.info(f"[GSB] Raw Response: {data}")
             matches = data.get("matches", [])
             
             if matches:
