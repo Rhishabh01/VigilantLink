@@ -35,9 +35,9 @@ TRUSTED_PLATFORM_CAP = 34
 # Weighted Scoring — Signal Penalties (Task 5)
 # ============================================================
 # Phase 1 (heuristic) signal values
-BRAND_PENALTY_SCORE = 50
-SYNERGY_PENALTY_SCORE = 40
-TYPOSQUATTING_PENALTY = 50
+BRAND_PENALTY_SCORE = 65
+SYNERGY_PENALTY_SCORE = 60
+TYPOSQUATTING_PENALTY = 65
 REDIRECT_CHAIN_MAJOR_PENALTY = 20   # Cross-domain redirect hop
 REDIRECT_CHAIN_MINOR_PENALTY = 5    # Same-domain redirect hop
 

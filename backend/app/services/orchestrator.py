@@ -265,15 +265,14 @@ def compute_heuristic_score(
             found_keywords.append(kw)
     
     if found_keywords:
-        risk_score += 20
+        risk_score += 25
         reasons.append(f"Phishing keyword(s) detected: {', '.join(found_keywords[:3])}")
         
-        # Synergy: Keyword + Suspicious/New Domain
-        # (New domain check happens in Phase 2, but suspicious TLD is Phase 1)
+        # Synergy: Keyword + Suspicious TLD/Typosquatting
         is_suspicious_domain = any(domain_lower.endswith(tld if tld.startswith('.') else f".{tld}") for tld in SUSPICIOUS_TLDS)
         if is_suspicious_domain or heuristics.get("typosquatting_detected"):
-            risk_score += 15
-            reasons.append("Synergy: Phishing keyword on suspicious domain")
+            risk_score += 30
+            reasons.append("High-Risk Synergy: Phishing keyword on suspicious/impersonated domain")
 
     # Signal 1: Brand impersonation (Levenshtein distance = 1)
     if heuristics.get("brand_penalty_reason"):
@@ -460,6 +459,10 @@ def compute_final_score(
             risk_score += final_p
             if domain_age < NEWLY_REGISTERED_DAYS:
                 reasons.append(f"Newly registered domain (<{domain_age + 1} days)")
+                # High-Sensitivity Synergy: New Domain + Phishing Keywords
+                if has_phishing_keywords or heuristics.get("has_suspicious_keywords"):
+                    risk_score += 30
+                    reasons.append("CRITICAL Synergy: Phishing intent on newly registered domain")
             else:
                 reasons.append(f"Recent domain registration ({domain_age} days ago)")
                 
