@@ -265,7 +265,7 @@ def compute_heuristic_score(
             found_keywords.append(kw)
     
     if found_keywords:
-        risk_score += 10
+        risk_score += 20
         reasons.append(f"Phishing keyword(s) detected: {', '.join(found_keywords[:3])}")
         
         # Synergy: Keyword + Suspicious/New Domain
@@ -413,7 +413,11 @@ def compute_final_score(
                 heuristics.get("typosquatting_detected") or 
                 heuristics.get("punycode_detected") or 
                 heuristics.get("synergy_detected") or
-                bool(gsb_threats)
+                heuristics.get("has_suspicious_keywords") or
+                has_phishing_keywords or
+                bool(gsb_threats) or
+                external.get("pt_url_match", False) or
+                external.get("pt_domain_match", False)
             )
             
             final_penalty = round(WEIGHT_SSL_AGE * ssl_age_penalty)
@@ -437,7 +441,23 @@ def compute_final_score(
             rdap_penalty = RECENTLY_REGISTERED_PENALTY
             
         if rdap_penalty > 0:
-            risk_score += round(WEIGHT_RDAP_AGE * rdap_penalty)
+            is_risky = (
+                heuristics.get("typosquatting_detected") or 
+                heuristics.get("punycode_detected") or 
+                heuristics.get("synergy_detected") or
+                heuristics.get("has_suspicious_keywords") or
+                has_phishing_keywords or
+                bool(gsb_threats) or
+                external.get("pt_url_match", False) or
+                external.get("pt_domain_match", False)
+            )
+            
+            final_p = round(WEIGHT_RDAP_AGE * rdap_penalty)
+            if not is_risky:
+                final_p = min(final_p, 5)
+                logger.info(f"[SCORING] Capping RDAP penalty for {final_url[:30]}... (is_risky=False)")
+            
+            risk_score += final_p
             if domain_age < NEWLY_REGISTERED_DAYS:
                 reasons.append(f"Newly registered domain (<{domain_age + 1} days)")
             else:
