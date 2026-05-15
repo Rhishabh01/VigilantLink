@@ -433,13 +433,13 @@ def _apply_intelligence_overrides(risk_score: int, intel: Dict[str, Any]) -> Tup
         min_score = GSB_THREAT_MIN_SCORES.get(gsb_type, 90)
         risk_score = max(risk_score, min_score)
         threats = [t.replace('_', ' ').title() for t in intel['gsb_threats']]
-        reasons.append(f"Warning : {', '.join(threats)}")
+        reasons.append(f"{', '.join(threats)}")
     if intel["pt_url_hit"]:
         risk_score = max(risk_score, PHISHTANK_URL_PENALTY)
-        reasons.append("Warning : Confirmed Phishing URL")
+        reasons.append("Confirmed Phishing URL")
     elif intel["pt_domain_hit"]:
         risk_score = max(risk_score, PHISHTANK_DOMAIN_PENALTY)
-        reasons.append("Warning : Phishing Infrastructure")
+        reasons.append("Phishing Infrastructure")
     return risk_score, reasons
 
 
