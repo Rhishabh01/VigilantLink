@@ -366,12 +366,14 @@ def compute_final_score(
 
     # NEW: Trusted-Domain Abuse Detection
     is_trusted_hosting = any(domain_lower == d or domain_lower.endswith(f".{d}") for d in TRUSTED_HOSTING_DOMAINS)
-
+    logger.info(f"[SCORING] {final_url[:50]}... - is_trusted_hosting={is_trusted_hosting}, has_phishing_keywords={has_phishing_keywords}")
     if is_trusted_hosting and has_phishing_keywords:
+        old_score = risk_score
         if risk_score < 50:
             risk_score = 50
         reasons.append("Suspicious content hosted on trusted platform")
         risk_score = max(risk_score, VERDICT_YELLOW_THRESHOLD + 1)
+        logger.info(f"[SCORING] Trusted host escalation: {old_score} -> {risk_score}")
 
     # Hosted phishing escalation with corroboration
     hosted_signals = detect_hosted_phishing(
@@ -385,9 +387,12 @@ def compute_final_score(
             reasons.append(f"Deceptive redirect parameter ({hosted_signals['deceptive_param_name']}) to {target}")
         if hosted_signals.get("redirect_chain_suspicious"):
             reasons.append("Redirect chain passes through untrusted domain before trusted landing")
+        
+        old_score = risk_score
         if risk_score < 55:
             risk_score = 55
         risk_score = max(risk_score, VERDICT_YELLOW_THRESHOLD + 5)
+        logger.info(f"[SCORING] Hosted phishing active: {old_score} -> {risk_score}")
 
     # Phase 2 Signal: SSL Certificate age
     cert_age = external.get("ssl_cert_age_days")
@@ -467,12 +472,13 @@ def compute_final_score(
 
     # Google Safe Browsing Scoring
     gsb_threat_type = external.get("gsb_threat_type")
-    logger.debug(f"[SCORING] {final_url[:50]}... - GSB result: matched={bool(gsb_threats)}, type={gsb_threat_type}")
+    logger.info(f"[SCORING] {final_url[:50]}... - GSB matches: {gsb_threats}, selected type: {gsb_threat_type}")
     if gsb_threats and gsb_threat_type:
         min_score = GSB_THREAT_MIN_SCORES.get(gsb_threat_type, 90)
+        old_score = risk_score
         risk_score = max(risk_score, min_score)
         reasons.append(f"CRITICAL: Flagged by Google Safe Browsing ({', '.join(gsb_threats)})")
-        logger.debug(f"[SCORING] {final_url[:50]}... - After GSB override: {risk_score}")
+        logger.info(f"[SCORING] GSB escalation: {old_score} -> {risk_score} (type={gsb_threat_type})")
 
     pt_url_match = external.get("pt_url_match", False)
     pt_domain_match = external.get("pt_domain_match", False)
@@ -496,15 +502,20 @@ def compute_final_score(
             heuristics.get("brand_penalty_reason") is not None or
             hosted_signals.get("active", False)
         )
+        logger.info(f"[SCORING] Trusted platform detected. has_strong_signals={has_strong_signals}")
         if not has_strong_signals:
+            old_score = risk_score
             risk_score = min(risk_score, TRUSTED_PLATFORM_CAP)
+            logger.info(f"[SCORING] Applying trusted platform cap: {old_score} -> {risk_score}")
             reasons = [
                 r for r in reasons
                 if not any(p.lower() in r.lower() for p in WEAK_SIGNAL_PATTERNS)
             ]
+        else:
+            logger.info(f"[SCORING] Bypassing trusted platform cap due to strong signals")
 
     capped_score = min(risk_score, 100)
-    logger.debug(f"[SCORING] {final_url[:50]}... - After trusted platform cap: {capped_score} (Is Trusted Platform: {is_trusted_platform})")
+    logger.info(f"[SCORING] Final capped_score: {capped_score}")
 
     is_safe = True
     verdict = "green"
@@ -705,6 +716,8 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             "reasons": reasons,
             "gsb_matched": external.get("gsb_matched", False),
             "gsb_threat_type": external.get("gsb_threat_type"),
+            "pt_url_match": external.get("pt_url_match", False),
+            "pt_domain_match": external.get("pt_domain_match", False),
         },
         "duration_ms": duration_ms,
     }

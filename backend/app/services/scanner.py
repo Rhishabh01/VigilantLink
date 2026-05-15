@@ -208,6 +208,7 @@ async def check_google_safe_browsing(url: str) -> List[str]:
     """Check a URL against Google Safe Browsing v4 threatMatches."""
     api_key = os.getenv("GOOGLE_SAFE_BROWSING_API_KEY")
     normalized = _normalize_gsb_url(url)
+    logger.info(f"[GSB] Checking URL: {url} -> Normalized: {normalized} (API Key present: {bool(api_key)})")
     if not api_key or not normalized:
         return []
 
@@ -218,7 +219,7 @@ async def check_google_safe_browsing(url: str) -> List[str]:
         },
         "threatInfo": {
             "threatTypes": GSB_THREAT_TYPES,
-            "platformTypes": ["ANY_PLATFORM"],
+            "platformTypes": ["ANY_PLATFORM", "WINDOWS", "LINUX", "OSX", "CHROME", "IOS", "ANDROID"],
             "threatEntryTypes": ["URL"],
             "threatEntries": [{"url": normalized}],
         },
@@ -227,24 +228,29 @@ async def check_google_safe_browsing(url: str) -> List[str]:
     try:
         timeout = httpx.Timeout(GSB_TIMEOUT_S)
         async with httpx.AsyncClient(timeout=timeout) as client:
+            logger.info(f"[GSB] Request payload: {payload}")
             response = await client.post(
                 GSB_API_URL,
                 params={"key": api_key},
                 json=payload,
             )
 
+            logger.info(f"[GSB] API Response status: {response.status_code}")
             if response.status_code == 429:
                 logger.warning(f"[GSB] Rate limit hit")
                 return []
 
             if response.status_code != 200:
-                logger.debug(f"[GSB] API returned {response.status_code}")
+                logger.error(f"[GSB] API returned {response.status_code}: {response.text}")
                 return []
 
             data = response.json()
+            logger.info(f"[GSB] API Response body: {data}")
             matches = data.get("matches", [])
             threats = [match.get("threatType") for match in matches if match.get("threatType") in GSB_THREAT_TYPES]
-            return list(dict.fromkeys([t for t in threats if t]))
+            results = list(dict.fromkeys([t for t in threats if t]))
+            logger.info(f"[GSB] Parsed threat matches: {results}")
+            return results
 
     except httpx.TimeoutException:
         logger.debug(f"[GSB] Request timed out")
