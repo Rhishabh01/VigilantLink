@@ -118,7 +118,6 @@ GSB_THREAT_TYPES = [
     "SOCIAL_ENGINEERING",
     "UNWANTED_SOFTWARE",
     "POTENTIALLY_HARMFUL_APPLICATION",
-    "BILLING",
 ]
 
 # Minimum score enforced when GSB returns a match for the given threat type.
@@ -128,7 +127,6 @@ GSB_THREAT_MIN_SCORES: dict[str, int] = {
     "SOCIAL_ENGINEERING": 90,
     "POTENTIALLY_HARMFUL_APPLICATION": 80,
     "UNWANTED_SOFTWARE": 75,
-    "BILLING": 85,
 }
 
 # Priority order used when multiple threat types are returned in one GSB response.
@@ -138,7 +136,6 @@ GSB_THREAT_PRIORITY = [
     "SOCIAL_ENGINEERING",
     "POTENTIALLY_HARMFUL_APPLICATION",
     "UNWANTED_SOFTWARE",
-    "BILLING",
 ]
 
 # ============================================================
