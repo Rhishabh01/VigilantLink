@@ -11,28 +11,18 @@ interface SafetyScoreCardProps {
 function getScoreColor(score: number, maxScore: number): 'success' | 'warning' | 'info' {
   const ratio = score / maxScore
   if (ratio >= 0.7) return 'success'
-  if (ratio >= 0.4) return 'warning'
-  return 'info'
+  return 'warning'
 }
 
-function getBadgeLabel(label: string): string {
-  switch (label) {
-    case 'low':
-      return 'Low Risk'
-    case 'medium':
-      return 'No Major Threats Detected'
-    case 'high':
-      return 'Currently Appears Safe'
-    default:
-      return 'Analyzing'
-  }
+function getBadgeLabel(score: number): string {
+  if (score >= 70) return 'Appears Safe'
+  if (score >= 40) return 'Potential Risk'
+  return 'Use Caution'
 }
 
-function getBadgeVariant(score: number, maxScore: number): 'success' | 'warning' | 'info' {
-  const ratio = score / maxScore
-  if (ratio >= 0.7) return 'success'
-  if (ratio >= 0.4) return 'warning'
-  return 'info'
+function getBadgeVariant(score: number): 'success' | 'warning' | 'info' {
+  if (score >= 70) return 'success'
+  return 'warning'
 }
 
 export default function SafetyScoreCard({ data, loading }: SafetyScoreCardProps) {
@@ -40,7 +30,7 @@ export default function SafetyScoreCard({ data, loading }: SafetyScoreCardProps)
     return <CardSkeleton />
   }
 
-  const { score, maxScore, label, description } = data
+  const { score, maxScore, description } = data
   const barWidth = (score / maxScore) * 100
   const colorVar = getScoreColor(score, maxScore)
 
@@ -58,21 +48,22 @@ export default function SafetyScoreCard({ data, loading }: SafetyScoreCardProps)
           VigilantLink Safety Score
         </h2>
         <StatusBadge
-          label={getBadgeLabel(label)}
-          variant={getBadgeVariant(score, maxScore)}
+          label={getBadgeLabel(score)}
+          variant={getBadgeVariant(score)}
         />
       </div>
 
-      <div className="flex items-baseline gap-1 mb-2">
+      <div className="flex items-baseline gap-1.5 mb-2">
+        <span className="text-[12px] font-medium text-muted">Safety Score:</span>
         <motion.span
           key={score}
           initial={{ opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
-          className="text-[32px] font-bold text-text leading-none tabular-nums"
+          className="text-[28px] font-bold text-text leading-none tabular-nums"
         >
           {score}
         </motion.span>
-        <span className="text-[16px] font-semibold text-muted">/ {maxScore}</span>
+        <span className="text-[14px] font-semibold text-dim">/ {maxScore}</span>
       </div>
 
       <div className="w-full h-1.5 bg-surface-light rounded-full overflow-hidden mb-2.5">
@@ -83,15 +74,17 @@ export default function SafetyScoreCard({ data, loading }: SafetyScoreCardProps)
           className={`h-full rounded-full ${
             colorVar === 'success'
               ? 'bg-emerald-500'
-              : colorVar === 'warning'
-              ? 'bg-amber-500'
-              : 'bg-blue-500'
+              : 'bg-amber-500'
           }`}
         />
       </div>
 
       <p className="text-[12px] text-muted leading-relaxed">
         {description}
+      </p>
+
+      <p className="text-[10px] text-dim mt-2.5 leading-normal select-none">
+        Analysis based on heuristic and external security signals.
       </p>
     </motion.div>
   )

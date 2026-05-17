@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import SafetyScoreCard from './components/SafetyScoreCard'
+import WarningBanner from './components/WarningBanner'
 import VirusTotalCard from './components/VirusTotalCard'
 import WebsitePreview from './components/WebsitePreview'
+import ReasonsSection from './components/ReasonsSection'
+import FooterDisclaimer from './components/FooterDisclaimer'
 import LoadingSkeleton from './components/LoadingSkeleton'
 import type { SafetyData, VirusTotalData, WebsitePreviewData } from './types'
 
@@ -68,32 +71,6 @@ function Header() {
         )}
       </button>
     </motion.header>
-  )
-}
-
-function InfoFooter() {
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ delay: 0.4 }}
-      className="px-5 py-3 border-t border-border"
-    >
-      <p className="text-[10px] text-dim leading-relaxed text-center">
-        VigilantLink uses multiple data sources for informational purposes.
-        VirusTotal data is provided by{' '}
-        <a
-          href="https://www.virustotal.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-accent hover:text-accent-hover transition-colors"
-          aria-label="VirusTotal website (opens in new tab)"
-        >
-          VirusTotal
-        </a>{' '}
-        and reflects third-party vendor detections.
-      </p>
-    </motion.div>
   )
 }
 
@@ -172,11 +149,22 @@ export default function App() {
         if (data.sec) {
           const riskScore = Math.max(0, Math.min(100, 100 - (data.sec.rs || 0)))
 
+          let description = 'No significant security threats detected.'
+          if (data.sec.tt) {
+            description = `${data.sec.tt}. Please evaluate the forensic signals below.`
+          } else if (riskScore < 40) {
+            description = 'Multiple potential security anomalies detected. Proceed with caution.'
+          } else if (riskScore < 70) {
+            description = 'Heuristic analysis suggests elevated risks. General caution is advised.'
+          }
+
           const safety: SafetyData = {
             score: riskScore,
             maxScore: 100,
             label: riskScore >= 70 ? 'high' : riskScore >= 40 ? 'medium' : 'low',
-            description: 'No significant security threats detected.',
+            description,
+            reasons: data.sec.r || [],
+            verdict: data.sec.v || 'green',
           }
 
           const vf = data.sec.vf !== undefined ? data.sec.vf : null
@@ -223,48 +211,54 @@ export default function App() {
   const { safety, virustotal, website, loading } = state
 
   return (
-    <div className="min-h-[400px] bg-bg text-text">
+    <div className="flex flex-col min-h-[400px] bg-bg text-text">
       <Header />
 
-      <AnimatePresence mode="wait">
-        {loading ? (
-          <motion.div
-            key="loading"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <LoadingView />
-          </motion.div>
-        ) : error ? (
-          <motion.div
-            key="error"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="px-5 py-10 text-center"
-          >
-            <p className="text-[13px] text-red-400 font-medium">Error loading analysis</p>
-            <p className="text-[11px] text-dim mt-1">{error}</p>
-          </motion.div>
-        ) : !safety ? (
-          <EmptyView />
-        ) : (
-          <motion.div
-            key="content"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="px-4 py-3 space-y-3"
-          >
-            <SafetyScoreCard data={safety} />
-            <VirusTotalCard data={virustotal} />
-            <WebsitePreview data={website} />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <div className="flex-grow overflow-y-auto">
+        <AnimatePresence mode="wait">
+          {loading ? (
+            <motion.div
+              key="loading"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <LoadingView />
+            </motion.div>
+          ) : error ? (
+            <motion.div
+              key="error"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="px-5 py-10 text-center"
+            >
+              <p className="text-[13px] text-red-400 font-medium">Error loading analysis</p>
+              <p className="text-[11px] text-dim mt-1">{error}</p>
+            </motion.div>
+          ) : !safety ? (
+            <EmptyView />
+          ) : (
+            <motion.div
+              key="content"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="px-4 py-3 space-y-3"
+            >
+              <SafetyScoreCard data={safety} />
+              {virustotal && virustotal.available && virustotal.detections > 0 && (
+                <WarningBanner detections={virustotal.detections} />
+              )}
+              <VirusTotalCard data={virustotal} />
+              <WebsitePreview data={website} />
+              <ReasonsSection reasons={safety.reasons} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
-      <InfoFooter />
+      <FooterDisclaimer />
     </div>
   )
 }

@@ -3,6 +3,8 @@ export interface SafetyData {
   maxScore: number
   label: 'low' | 'medium' | 'high'
   description: string
+  reasons?: string[]
+  verdict?: string
 }
 
 export interface VirusTotalData {
