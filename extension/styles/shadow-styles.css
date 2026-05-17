@@ -446,3 +446,161 @@
     transform: translateY(0);
   }
 }
+
+/* ── VirusTotal Section ──────────────────────────────────── */
+
+.vt-card {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--v-surface);
+  border: 1px solid var(--v-border);
+  border-radius: 10px;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.vt-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.vt-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.vt-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--v-text-secondary);
+  letter-spacing: -0.01em;
+}
+
+.vt-info-btn {
+  position: relative;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--v-text-muted);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 2px;
+  border-radius: 4px;
+  transition: color 0.2s;
+}
+
+.vt-info-btn:hover,
+.vt-info-btn:focus-visible {
+  color: var(--v-text-secondary);
+  outline: none;
+}
+
+.vt-info-btn:focus-visible {
+  box-shadow: 0 0 0 2px var(--v-accent);
+}
+
+.vt-tooltip {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 6px;
+  width: 200px;
+  padding: 8px 10px;
+  background: var(--v-bg);
+  border: 1px solid var(--v-border);
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--v-text-muted);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  z-index: 10;
+  white-space: normal;
+}
+
+.vt-info-btn:hover .vt-tooltip,
+.vt-info-btn:focus-within .vt-tooltip,
+.vt-tooltip.open {
+  display: block;
+}
+
+.vt-score {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  margin-bottom: 2px;
+}
+
+.vt-detections {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.vt-detections.safe {
+  color: #34d399;
+}
+
+.vt-detections.warning {
+  color: #fbbf24;
+}
+
+.vt-detections.danger {
+  color: #f87171;
+}
+
+.vt-detections.muted {
+  color: var(--v-text-muted);
+}
+
+.vt-total {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--v-text-muted);
+}
+
+.vt-subtitle {
+  font-size: 10px;
+  color: var(--v-text-dim, #64748b);
+  margin-bottom: 8px;
+}
+
+.vt-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--v-accent);
+  text-decoration: none;
+  padding: 2px 4px;
+  margin-left: -4px;
+  border-radius: 4px;
+  transition: color 0.2s;
+}
+
+.vt-link:hover {
+  color: #60a5fa;
+}
+
+.vt-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--v-accent);
+}
+
+.vt-link svg {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+}
+
+.vt-unavailable {
+  font-size: 10px;
+  color: var(--v-text-muted);
+  font-style: italic;
+}

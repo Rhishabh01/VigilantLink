@@ -688,6 +688,9 @@ function finalizeReconnectCard(data) {
   screenshotContainer.appendChild(img);
   bodyDiv.appendChild(screenshotContainer);
 
+  const vtSection = createVirusTotalSection(security, final_url || data.url);
+  if (vtSection) bodyDiv.appendChild(vtSection);
+
   const infoDiv = document.createElement('div');
   infoDiv.className = 'info';
   let filteredReasons = security.r || [];
@@ -949,6 +952,208 @@ function createRedirectsSection(redirectChain) {
   return redirectsDiv;
 }
 
+function createVirusTotalIcon() {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('width', '18');
+  svg.setAttribute('height', '18');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('aria-hidden', 'true');
+  const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  rect.setAttribute('x', '2');
+  rect.setAttribute('y', '2');
+  rect.setAttribute('width', '20');
+  rect.setAttribute('height', '20');
+  rect.setAttribute('rx', '4');
+  rect.setAttribute('fill', '#394EFF');
+  svg.appendChild(rect);
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', 'M12 6L7 12H10V18H14V12H17L12 6Z');
+  path.setAttribute('fill', 'white');
+  svg.appendChild(path);
+  return svg;
+}
+
+function createExternalLinkIcon() {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('width', '11');
+  svg.setAttribute('height', '11');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  const path1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path1.setAttribute('d', 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6');
+  svg.appendChild(path1);
+  const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+  polyline.setAttribute('points', '15 3 21 3 21 9');
+  svg.appendChild(polyline);
+  const line1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  line1.setAttribute('x1', '10');
+  line1.setAttribute('y1', '14');
+  line1.setAttribute('x2', '21');
+  line1.setAttribute('y2', '3');
+  svg.appendChild(line1);
+  return svg;
+}
+
+function createInfoIcon() {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('width', '13');
+  svg.setAttribute('height', '13');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  circle.setAttribute('cx', '12');
+  circle.setAttribute('cy', '12');
+  circle.setAttribute('r', '10');
+  svg.appendChild(circle);
+  const lineA = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  lineA.setAttribute('x1', '12');
+  lineA.setAttribute('y1', '16');
+  lineA.setAttribute('x2', '12');
+  lineA.setAttribute('y2', '12');
+  svg.appendChild(lineA);
+  const lineB = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  lineB.setAttribute('x1', '12');
+  lineB.setAttribute('y1', '8');
+  lineB.setAttribute('x2', '12.01');
+  lineB.setAttribute('y2', '8');
+  svg.appendChild(lineB);
+  return svg;
+}
+
+function updateVtCard(bodyDiv, sec, url) {
+  const existing = bodyDiv.querySelector('.vt-card');
+  if (existing) existing.remove();
+  const fresh = createVirusTotalSection(sec, url);
+  if (fresh) {
+    const ref = bodyDiv.querySelector('.info');
+    if (ref) bodyDiv.insertBefore(fresh, ref);
+    else bodyDiv.appendChild(fresh);
+  }
+}
+
+function createVirusTotalSection(sec, originalUrl) {
+  const vendorFlags = sec && sec.vf !== undefined ? sec.vf : null;
+  const totalVendors = sec && sec.tv !== undefined ? sec.tv : 0;
+
+  let domain = '';
+  try {
+    const urlObj = new URL(originalUrl);
+    domain = urlObj.hostname;
+  } catch (e) {
+    domain = originalUrl;
+  }
+
+  const vtPermalink = domain
+    ? `https://www.virustotal.com/gui/domain/${domain}`
+    : 'https://www.virustotal.com';
+
+  const vtContainer = document.createElement('div');
+  vtContainer.className = 'vt-card';
+
+  const headerRow = document.createElement('div');
+  headerRow.className = 'vt-header';
+  headerRow.appendChild(createVirusTotalIcon());
+
+  const label = document.createElement('span');
+  label.className = 'vt-label';
+  label.textContent = 'VirusTotal (via API)';
+  headerRow.appendChild(label);
+
+  const infoBtn = document.createElement('button');
+  infoBtn.className = 'vt-info-btn';
+  infoBtn.type = 'button';
+  infoBtn.setAttribute('aria-label', 'About VirusTotal data source');
+  infoBtn.appendChild(createInfoIcon());
+
+  const tooltip = document.createElement('div');
+  tooltip.className = 'vt-tooltip';
+  tooltip.textContent = 'VirusTotal provides third-party vendor detection data. This is supplementary information and not VigilantLink\'s own verdict.';
+  infoBtn.appendChild(tooltip);
+
+  infoBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    tooltip.classList.toggle('open');
+  });
+  infoBtn.addEventListener('blur', () => {
+    tooltip.classList.remove('open');
+  });
+
+  headerRow.appendChild(infoBtn);
+  vtContainer.appendChild(headerRow);
+
+  if (vendorFlags !== null && totalVendors > 0) {
+    const ratio = totalVendors > 0 ? vendorFlags / totalVendors : 0;
+    let levelClass = 'safe';
+    if (ratio >= 0.5) levelClass = 'danger';
+    else if (ratio >= 0.2) levelClass = 'warning';
+
+    const scoreDiv = document.createElement('div');
+    scoreDiv.className = 'vt-score';
+
+    const detSpan = document.createElement('span');
+    detSpan.className = `vt-detections ${levelClass}`;
+    detSpan.textContent = vendorFlags;
+    scoreDiv.appendChild(detSpan);
+
+    const totalSpan = document.createElement('span');
+    totalSpan.className = 'vt-total';
+    totalSpan.textContent = `/ ${totalVendors}`;
+    scoreDiv.appendChild(totalSpan);
+
+    vtContainer.appendChild(scoreDiv);
+
+    const subtitle = document.createElement('div');
+    subtitle.className = 'vt-subtitle';
+    subtitle.textContent = 'vendors flagged this URL';
+    vtContainer.appendChild(subtitle);
+
+    const link = document.createElement('a');
+    link.className = 'vt-link';
+    link.href = vtPermalink;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.setAttribute('aria-label', 'View full VirusTotal report (opens in new tab)');
+    link.textContent = 'View full report';
+    link.appendChild(createExternalLinkIcon());
+    vtContainer.appendChild(link);
+  } else {
+    const scoreDiv = document.createElement('div');
+    scoreDiv.className = 'vt-score';
+    const detSpan = document.createElement('span');
+    detSpan.className = 'vt-detections muted';
+    detSpan.textContent = '--';
+    scoreDiv.appendChild(detSpan);
+    const totalSpan = document.createElement('span');
+    totalSpan.className = 'vt-total';
+    totalSpan.textContent = `/ --`;
+    scoreDiv.appendChild(totalSpan);
+    vtContainer.appendChild(scoreDiv);
+
+    const subtitle = document.createElement('div');
+    subtitle.className = 'vt-subtitle';
+    subtitle.textContent = 'VirusTotal data unavailable';
+    vtContainer.appendChild(subtitle);
+
+    const note = document.createElement('div');
+    note.className = 'vt-unavailable';
+    note.textContent = 'Detection data could not be retrieved at this time.';
+    vtContainer.appendChild(note);
+  }
+
+  return vtContainer;
+}
+
 function createForensicSection(reasons) {
   if (!reasons || reasons.length === 0) return null;
 
@@ -1144,6 +1349,9 @@ function updatePopupWithResult(data) {
   screenshotContainer.appendChild(img);
   bodyDiv.appendChild(screenshotContainer);
 
+  const vtSection = createVirusTotalSection(security, final_url || original_url);
+  if (vtSection) bodyDiv.appendChild(vtSection);
+
   const infoDiv = document.createElement('div');
   infoDiv.className = 'info';
 
@@ -1250,6 +1458,11 @@ function mergeDeepScanResult(data) {
       body.insertBefore(newWarning, body.firstChild);
     } else if (existingWarning && !newWarning) {
       existingWarning.remove();
+    }
+
+    // Refresh VirusTotal card with latest data
+    if (body) {
+      updateVtCard(body, security, data.furl || data.url);
     }
 
     // Update or add forensic section
