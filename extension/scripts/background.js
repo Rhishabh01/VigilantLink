@@ -20,7 +20,7 @@ importScripts(
   'scoring.js'
 );
 
-var BACKEND_URL = "https://vigilantlink-production.up.railway.app";
+var BACKEND_URL = "http://localhost:8000";
 var POLL_INTERVAL_MS = 1000;
 var POLL_TIMEOUT_MS = 15000;
 var BACKGROUND_POLL_MAX_MS = 30000;
@@ -116,19 +116,19 @@ function tryParseURL(url) {
   try { return new URL(url) } catch { return null }
 }
 
-<<<<<<< Updated upstream
 function cancelRequest(tabId) {
-  if (!tabId) return
-  const entry = activeRequests.get(tabId)
+  if (!tabId) return;
+  const entry = activeRequests.get(tabId);
   if (entry) {
-    entry.controller.abort()
-    activeRequests.delete(tabId)
+    entry.controller.abort();
+    activeRequests.delete(tabId);
   }
-=======
+}
+
 // -------------------------------------------------------------
 // Orchestrates local + remote hybrid analysis
 // -------------------------------------------------------------
-async function analyzeLocal(url, title = "", redirectHops = []) {
+async function analyzeLocal(url, title = "", redirectHops = [], skipGSB = false) {
   let parsedUrl;
   try {
     parsedUrl = new URL(url);
@@ -187,17 +187,16 @@ async function analyzeLocal(url, title = "", redirectHops = []) {
   const shouldCheckGSB = initialScore.rs >= 20 || impersonation || feedMatch || redirectHops.length > 3;
   const isTrusted = TRUSTED_DOMAINS.some(d => hostname === d || hostname.endsWith('.' + d));
   
-  if (shouldCheckGSB && !isTrusted) {
+  if (shouldCheckGSB && !isTrusted && !skipGSB) {
     gsbMatch = await checkGoogleSafeBrowsingLocal(url);
   }
   
   // 5. Final scoring calculation
   return calculateLocalScore(heuristics, feedMatch, gsbMatch, impersonation);
 }
-
 async function analyzeTwoPhase(url, signal, tabId, generation, cacheOnly = false) {
-  // Always run local analysis first to be the primary verdict driver
-  const localSec = await analyzeLocal(url);
+  // Always run local analysis first to be the primary verdict driver, skipping GSB initially
+  const localSec = await analyzeLocal(url, "", [], true); // skipGSB = true
   const localRequestId = "local_" + Date.now() + "_" + Math.random().toString(36).substr(2, 5);
 
   if (cacheOnly) {
@@ -213,7 +212,7 @@ async function analyzeTwoPhase(url, signal, tabId, generation, cacheOnly = false
         const backendData = await response.json();
         if (!backendData.cache_miss && backendData.s === 2) {
           // Merge local analysis with backend metadata/screenshot
-          const finalSec = await analyzeLocal(backendData.furl || url, backendData.t || "", backendData.hops || []);
+          const finalSec = await analyzeLocal(backendData.furl || url, backendData.t || "", backendData.hops || [], false);
           backendData.sec = finalSec;
           cleanupRequest(tabId, generation);
           return backendData;
@@ -241,10 +240,12 @@ async function analyzeTwoPhase(url, signal, tabId, generation, cacheOnly = false
     return { cache_miss: true };
   }
 
-  // --- Phase 1: Return Local Verdict Instantly (as s: 2!) ---
+  // --- Phase 1: Return Local Verdict Instantly (with pending statuses) ---
   const localPhase2Data = {
     id: localRequestId,
-    s: 2, // Finalized locally to bypass skeleton loader instantly
+    s: 2,
+    p2: "pending", // Phase 2: GSB verification pending
+    p3: "pending", // Phase 3: Visual preview screenshot pending
     url: url,
     furl: url,
     hops: [],
@@ -253,9 +254,38 @@ async function analyzeTwoPhase(url, signal, tabId, generation, cacheOnly = false
     d: "Local Threat Intelligence Engine Active"
   };
 
-  // Launch backend deep scan in background
+  // Launch background phases
   (async () => {
     try {
+      // --- Phase 2: Google Safe Browsing verification (runs asynchronously in background) ---
+      const gsbSec = await analyzeLocal(url, "", [], false); // skipGSB = false (runs GSB check)
+      
+      if (tabId) {
+        try {
+          console.log("[PHASE 2] GSB verification complete. Sending update to content script...");
+          chrome.tabs.sendMessage(tabId, {
+            action: "phase2_result",
+            requestId: localRequestId,
+            url: url,
+            data: {
+              id: localRequestId,
+              s: 2,
+              p2: "done",
+              p3: "pending",
+              url: url,
+              furl: url,
+              hops: [],
+              sec: gsbSec,
+              t: "",
+              d: "Local Threat Intelligence Engine Active"
+            }
+          });
+        } catch (e) {
+          // Tab may have closed
+        }
+      }
+
+      // --- Phase 3: Deep Scan Screenshot Fetch ---
       const phase1Response = await fetch(`${BACKEND_URL}/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -272,15 +302,19 @@ async function analyzeTwoPhase(url, signal, tabId, generation, cacheOnly = false
 
       // If backend returns a cached result immediately
       if (phase1Data.s === 2) {
-        const finalSec = await analyzeLocal(phase1Data.furl || url, phase1Data.t || "", phase1Data.hops || []);
+        const finalSec = await analyzeLocal(phase1Data.furl || url, phase1Data.t || "", phase1Data.hops || [], false);
         phase1Data.sec = finalSec;
+        phase1Data.p2 = "done";
+        phase1Data.p3 = "done";
         if (tabId) {
-          chrome.tabs.sendMessage(tabId, {
-            action: "phase2_result",
-            requestId: localRequestId, // Match localRequestId in content script
-            url: url,
-            data: phase1Data
-          });
+          try {
+            chrome.tabs.sendMessage(tabId, {
+              action: "phase2_result",
+              requestId: localRequestId,
+              url: url,
+              data: phase1Data
+            });
+          } catch (e) {}
         }
         return;
       }
@@ -290,44 +324,37 @@ async function analyzeTwoPhase(url, signal, tabId, generation, cacheOnly = false
         pollForDeepScanBackground(requestId, localRequestId, signal, tabId, url, generation);
       }
     } catch (error) {
-      console.warn("Backend connection failed, staying offline:", error);
+      console.warn("Backend or GSB connection failed, staying offline:", error);
     }
   })();
 
   // Return the completed local verdict so the popup renders it instantly!
   return localPhase2Data;
->>>>>>> Stashed changes
 }
 
 function cleanupRequest(tabId, generation) {
-  const entry = activeRequests.get(tabId)
+  const entry = activeRequests.get(tabId);
   if (entry && entry.generation === generation) {
-    activeRequests.delete(tabId)
+    activeRequests.delete(tabId);
   }
 }
 
-<<<<<<< Updated upstream
-async function performGSBThenLocal(url, tabId, generation, analysisId) {
-  try {
-    const gsbResult = await GSB.check(url)
-
-    const entry = activeRequests.get(tabId)
-    if (!entry || entry.generation !== generation) return
-=======
 async function pollForDeepScanBackground(requestId, localRequestId, signal, tabId, url, generation) {
-  console.log("Starting phase2 polling:", requestId);
+  console.log("Starting phase3 polling:", requestId);
   try {
     const phase2Data = await pollForDeepScan(requestId, localRequestId, signal, tabId, url, BACKGROUND_POLL_MAX_MS);
     
-    // Merge backend results with local analysis!
-    const finalSec = await analyzeLocal(phase2Data.furl || url, phase2Data.t || "", phase2Data.hops || []);
+    // Merge backend results with local analysis (running GSB checks too)
+    const finalSec = await analyzeLocal(phase2Data.furl || url, phase2Data.t || "", phase2Data.hops || [], false);
     phase2Data.sec = finalSec;
+    phase2Data.p2 = "done";
+    phase2Data.p3 = "done"; // Mark deep scan visual complete!
 
     // Check generation
     const entry = activeRequests.get(tabId);
     if (entry && entry.generation === generation && tabId) {
       try {
-        console.log("Sending phase2 result to content script");
+        console.log("Sending phase3 result to content script");
         chrome.tabs.sendMessage(tabId, {
           action: "phase2_result",
           requestId: localRequestId,   // Match localRequestId
@@ -349,45 +376,13 @@ async function pollForDeepScanBackground(requestId, localRequestId, signal, tabI
 
 async function pollForDeepScan(requestId, localRequestId, signal, tabId, url, timeoutMs = POLL_TIMEOUT_MS) {
   const startTime = Date.now();
->>>>>>> Stashed changes
+  while (Date.now() - startTime < timeoutMs) {
+    if (signal && signal.aborted) throw new Error("AbortError");
 
-    const localResult = LocalEngine.analyze(url)
-    const merged = mergeGSBResult(localResult, gsbResult)
-    merged.id = analysisId
-    entry.result = merged
-    cleanupRequest(tabId, generation)
+    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
 
     try {
-      chrome.tabs.sendMessage(tabId, {
-        action: 'phase2_result',
-        requestId: analysisId,
-        url,
-        data: merged,
-      })
-    } catch {}
-  } catch (e) {
-    console.warn('VigilantLink: GSB→Local analysis failed', e)
-    const entry = activeRequests.get(tabId)
-    if (!entry || entry.generation !== generation) return
-    cleanupRequest(tabId, generation)
-    const localResult = LocalEngine.analyze(url)
-    localResult.id = analysisId
-    try {
-      chrome.tabs.sendMessage(tabId, {
-        action: 'phase2_result',
-        requestId: analysisId,
-        url,
-        data: localResult,
-      })
-    } catch {}
-  }
-}
-
-<<<<<<< Updated upstream
-function mergeGSBResult(local, gsb) {
-  if (!gsb || !gsb.threat) {
-    return Object.assign({}, local, { s: 2 })
-=======
+      const response = await fetch(`${BACKEND_URL}/analyze/deep/${requestId}`, { signal });
       if (response.status === 404 || response.status === 410) {
         throw new Error("Analysis session expired");
       }
@@ -401,16 +396,21 @@ function mergeGSBResult(local, gsb) {
           console.log("Phase2 intelligence ready, Phase3 pending. Sending update...");
           
           // Merge local analysis for partial updates
-          const partialSec = await analyzeLocal(data.furl || url, data.t || "", data.hops || []);
+          const partialSec = await analyzeLocal(data.furl || url, data.t || "", data.hops || [], false);
           data.sec = partialSec;
+          data.p2 = "done";
 
           // Send partial result so UI shows intelligence immediately
-          chrome.tabs.sendMessage(tabId, {
-            action: "phase2_result",
-            requestId: localRequestId, // Match localRequestId in content script!
-            url: url,
-            data: data
-          });
+          if (tabId) {
+            try {
+              chrome.tabs.sendMessage(tabId, {
+                action: "phase2_result",
+                requestId: localRequestId, // Match localRequestId in content script!
+                url: url,
+                data: data
+              });
+            } catch (e) {}
+          }
           // Continue loop to wait for Phase3
           continue;
         }
@@ -424,80 +424,12 @@ function mergeGSBResult(local, gsb) {
       if (e.message === "Analysis session expired") throw e;
       // Network error — keep trying until timeoutMs
     }
->>>>>>> Stashed changes
   }
 
-  const merged = JSON.parse(JSON.stringify(local))
-  merged.s = 2
-  merged.sec.gsb = true
-  merged.sec.gsbt = gsb.threatType
-
-  if (gsb.threatType && !merged.sec.tt) {
-    merged.sec.tt = gsb.threatType
-  }
-
-  const reason = `Flagged by Google Safe Browsing (${gsb.threatType || 'threat'})`
-  if (!merged.sec.r.includes(reason)) {
-    merged.sec.r.push(reason)
-  }
-
-  const boost = 25
-  merged.sec.rs = Math.min(merged.sec.rs + boost, 100)
-
-  if (merged.sec.rs >= 60) {
-    merged.sec.v = 'red'
-    merged.sec.safe = false
-  } else if (merged.sec.rs >= 25 && merged.sec.v === 'green') {
-    merged.sec.v = 'yellow'
-    merged.sec.safe = false
-  }
-
-  return merged
+  throw new Error("Deep scan polling timed out");
 }
 
-async function fetchBackendData(url, signal, tabId, generation) {
-  try {
-    const response = await fetch(`${BACKEND_URL}/analyze`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, cache_only: false }),
-      signal,
-    })
-
-    if (!response.ok) return
-    const data = await response.json()
-    if (signal.aborted) return
-
-    const entry = activeRequests.get(tabId)
-    if (!entry || entry.generation !== generation) return
-    if (!entry.result) return
-
-    const current = entry.result
-    const update = JSON.parse(JSON.stringify(current))
-
-    if (data.t) update.t = data.t
-    if (data.d) update.d = data.d
-    if (data.img) update.img = data.img
-    if (data.ss) update.ss = data.ss
-    if (data.fav) update.fav = data.fav
-    if (data.hops && data.hops.length > 0) update.hops = data.hops
-
-    try {
-      chrome.tabs.sendMessage(tabId, {
-        action: 'phase2_result',
-        requestId: update.id,
-        url,
-        data: update,
-      })
-    } catch {}
-  } catch (e) {
-    if (e.name !== 'AbortError') {
-      console.warn('VigilantLink: Backend unavailable, skipping screenshot', e)
-    }
-  }
-}
-
-// -------------------------------------------------------------
+// -------------------------------------------------------------------------------------
 // Alarm & Feed updates listeners
 // -------------------------------------------------------------
 
