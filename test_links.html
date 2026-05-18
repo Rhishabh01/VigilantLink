@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VigilantLink — Test Laboratory</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0b0f19;
+            --bg-secondary: #131a2c;
+            --accent-primary: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.15);
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --border-color: #1e293b;
+            --safe-color: #10b981;
+            --suspicious-color: #f59e0b;
+            --dangerous-color: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-main);
+            line-height: 1.6;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 50px;
+            position: relative;
+        }
+
+        header::after {
+            content: '';
+            position: absolute;
+            bottom: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80px;
+            height: 4px;
+            background: linear-gradient(90deg, var(--accent-primary), #60a5fa);
+            border-radius: 2px;
+        }
+
+        h1 {
+            font-size: 2.8rem;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+            background: linear-gradient(135deg, #ffffff 30%, #93c5fd 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            font-weight: 300;
+        }
+
+        .card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 30px -5px rgba(59, 130, 246, 0.1);
+            border-color: #334155;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 1px solid #1e293b;
+            padding-bottom: 10px;
+        }
+
+        .badge {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+        }
+
+        .badge-safe {
+            background-color: rgba(16, 185, 129, 0.15);
+            color: var(--safe-color);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .badge-suspect {
+            background-color: rgba(245, 158, 11, 0.15);
+            color: var(--suspicious-color);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        .badge-danger {
+            background-color: rgba(239, 68, 68, 0.15);
+            color: var(--dangerous-color);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .link-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+
+        .link-row {
+            background-color: rgba(15, 23, 42, 0.4);
+            border: 1px solid #1e293b;
+            border-radius: 10px;
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            transition: background-color 0.2s ease;
+        }
+
+        .link-row:hover {
+            background-color: rgba(15, 23, 42, 0.8);
+        }
+
+        .link-title {
+            font-weight: 600;
+            font-size: 1.05rem;
+            color: #ffffff;
+        }
+
+        .link-description {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            font-weight: 300;
+        }
+
+        .test-anchor {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent-primary);
+            text-decoration: none;
+            font-size: 0.95rem;
+            word-break: break-all;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 4px;
+            transition: color 0.2s ease;
+        }
+
+        .test-anchor:hover {
+            color: #60a5fa;
+            text-decoration: underline;
+        }
+
+        .test-anchor::before {
+            content: '🔗';
+            font-size: 0.85rem;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 60px;
+            color: #4b5563;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>VigilantLink</h1>
+            <p class="subtitle">Heuristic & Deep Scan Testing Laboratory Dashboard</p>
+        </header>
+
+        <!-- SAFE CARD -->
+        <div class="card">
+            <h2>
+                <span>Safe Public Sites</span>
+                <span class="badge badge-safe">Safe / Green</span>
+            </h2>
+            <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 0.95rem;">
+                These represent legitimate, highly trusted domains. They will immediately evaluate as <strong>Safe (100/100)</strong> with a green badge, and the backend will trigger a visual screenshot preview in the background.
+            </p>
+            <div class="link-grid">
+                <div class="link-row">
+                    <span class="link-title">Wikipedia Portal</span>
+                    <span class="link-description">Triggers deep scan to fetch a stunning screenshot preview of the active Wikipedia homepage.</span>
+                    <a href="https://www.wikipedia.org" class="test-anchor" target="_blank">https://www.wikipedia.org</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">GitHub Platform</span>
+                    <span class="link-description">Verifies full deep scan execution and dynamic image rendering on GitHub.</span>
+                    <a href="https://github.com" class="test-anchor" target="_blank">https://github.com</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- TYPOSQUATTING CARD -->
+        <div class="card">
+            <h2>
+                <span>Brand Impersonation & Typosquatting</span>
+                <span class="badge badge-suspect">Suspicious / Yellow</span>
+            </h2>
+            <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 0.95rem;">
+                These trigger local CPU heuristics for typosquatting by using character substitutions or close spelling variants targeting high-value brand names.
+            </p>
+            <div class="link-grid">
+                <div class="link-row">
+                    <span class="link-title">PayPal Typosquat</span>
+                    <span class="link-description">Triggers brand detection matching a lookalike variant of <em>paypal.com</em>.</span>
+                    <a href="https://paypa1.com" class="test-anchor" target="_blank">https://paypa1.com</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Steam Community Typosquat</span>
+                    <span class="link-description">Detects spell-variants targeting the legitimate <em>steamcommunity.com</em> platform.</span>
+                    <a href="https://steanncommunlty.com" class="test-anchor" target="_blank">https://steanncommunlty.com</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- PUNYCODE HOMOGLYPHS -->
+        <div class="card">
+            <h2>
+                <span>Unicode Punycode Homoglyphs</span>
+                <span class="badge badge-danger">Dangerous / Red</span>
+            </h2>
+            <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 0.95rem;">
+                These represent highly deceptive homoglyph spoofing attacks. By replacing standard ASCII characters with lookalike Unicode characters (e.g. Cyrillic letters), attackers spoof domains. The local engine instantly detects and flags them as <strong>Dangerous</strong>.
+            </p>
+            <div class="link-grid">
+                <div class="link-row">
+                    <span class="link-title">Spoofed Paypal Homoglyph</span>
+                    <span class="link-description">Looks identical to paypal.com, but uses the Cyrillic 'а' character. Instantly flagged with high risk.</span>
+                    <a href="https://xn--paypl-e1a.com" class="test-anchor" target="_blank">https://paypаl.com (xn--paypl-e1a.com)</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- SUSPICIOUS PATHS & KEYWORDS -->
+        <div class="card">
+            <h2>
+                <span>Suspicious Paths & Keywords</span>
+                <span class="badge badge-suspect">Suspicious</span>
+            </h2>
+            <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 0.95rem;">
+                These trigger path and query parameter heuristics. Legitimate domains with suspicious keyword paths are flagged with lower risk, while obscure domains with phishing terms escalate.
+            </p>
+            <div class="link-grid">
+                <div class="link-row">
+                    <span class="link-title">Deceptive Security Keywords</span>
+                    <span class="link-description">Flags paths containing banking or login credential updating terms.</span>
+                    <a href="https://secure-login-account-update.com/banking/verify-credentials" class="test-anchor" target="_blank">https://secure-login-account-update.com/banking/verify-credentials</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Subdomain Chain Tunneling</span>
+                    <span class="link-description">Flags URLs carrying suspicious subdomain stacks mimicking high-value infrastructure.</span>
+                    <a href="https://secure.login.verify.update.account.banking.paypal.com.login-portal.top" class="test-anchor" target="_blank">https://secure.login.verify.update.account.banking.paypal.com.login-portal.top</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- SUSPICIOUS TLDS & RAW IPS -->
+        <div class="card">
+            <h2>
+                <span>Suspicious TLDs & Raw IP Addresses</span>
+                <span class="badge badge-suspect">Suspicious / Danger</span>
+            </h2>
+            <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 0.95rem;">
+                These links test our local TLD categorizations and raw IP address flagging.
+            </p>
+            <div class="link-grid">
+                <div class="link-row">
+                    <span class="link-title">Suspicious TLD (.top)</span>
+                    <span class="link-description">Triggers high-risk TLD heuristics associated with ephemeral phishing pages.</span>
+                    <a href="https://free-giftcard.top" class="test-anchor" target="_blank">https://free-giftcard.top</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Raw IP Address Link</span>
+                    <span class="link-description">Bypasses DNS entirely. Using raw IP addresses is strongly discouraged and flagged.</span>
+                    <a href="http://192.168.1.1" class="test-anchor" target="_blank">http://192.168.1.1</a>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            VigilantLink Laboratory Dashboard — Pair Programmed with Antigravity
+        </footer>
+    </div>
+</body>
+</html>
