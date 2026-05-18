@@ -20,7 +20,7 @@ importScripts(
   'scoring.js'
 );
 
-var BACKEND_URL = "http://localhost:8000";
+var BACKEND_URL = "https://vigilantlink-production.up.railway.app";
 var POLL_INTERVAL_MS = 1000;
 var POLL_TIMEOUT_MS = 15000;
 var BACKGROUND_POLL_MAX_MS = 30000;
