@@ -307,6 +307,207 @@
             </div>
         </div>
 
+        <!-- GOOGLE SAFE BROWSING PLATFORM TESTS -->
+        <div class="card">
+            <h2>
+                <span>iOS & macOS Security Warnings</span>
+                <span class="badge badge-danger">Dangerous / Red</span>
+            </h2>
+            <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 0.95rem;">
+                Tests platform-specific threat detection heuristics mapping designed to protect iOS and macOS environments.
+            </p>
+            <div class="link-grid">
+                <div class="link-row">
+                    <span class="link-title">Should show malware warning (IOS)</span>
+                    <span class="link-description">Simulates a malicious iOS application or profile download.</span>
+                    <a href="https://testsafebrowsing.appspot.com/ap/malware-ios" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/ap/malware-ios</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Should show social engineering warning (IOS)</span>
+                    <span class="link-description">Simulates a deceptive phishing page targeting iOS credentials.</span>
+                    <a href="https://testsafebrowsing.appspot.com/ap/social-engineering-ios" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/ap/social-engineering-ios</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Should show malware warning (OSX)</span>
+                    <span class="link-description">Simulates a macOS executable trojan distribution site.</span>
+                    <a href="https://testsafebrowsing.appspot.com/ap/malware-osx" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/ap/malware-osx</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Should show social engineering warning (OSX)</span>
+                    <span class="link-description">Simulates an OSX-targeted system alert/scareware phishing page.</span>
+                    <a href="https://testsafebrowsing.appspot.com/ap/social-engineering-osx" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/ap/social-engineering-osx</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- PERMISSIONS BLOCKLISTING -->
+        <div class="card">
+            <h2>
+                <span>Permissions Blocklisting Policies</span>
+                <span class="badge badge-suspect">Suspicious / Yellow</span>
+            </h2>
+            <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 0.95rem;">
+                Diagnostic links designed to test Chromium permission request policies.
+            </p>
+            <div class="link-grid">
+                <div class="link-row">
+                    <span class="link-title">Should autoblock notification request made on page load</span>
+                    <span class="link-description">Blocks annoying page-load push alerts automatically.</span>
+                    <a href="https://testsafebrowsing.appspot.com/permissions/autoblock-notification" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/permissions/autoblock-notification</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Should autoblock geolocation request made on button click</span>
+                    <span class="link-description">Blocks sneaky button click hooks from extracting physical location.</span>
+                    <a href="https://testsafebrowsing.appspot.com/permissions/autoblock-geolocation" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/permissions/autoblock-geolocation</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Should autoblock notification and geolocation progressively</span>
+                    <span class="link-description">Blocks mixed intrusive browser prompts requested sequentially.</span>
+                    <a href="https://testsafebrowsing.appspot.com/permissions/notification-geolocation" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/permissions/notification-geolocation</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Should autoblock all media requests made in a batch (10)</span>
+                    <span class="link-description">Intercepts batch camera/microphone permissions floods.</span>
+                    <a href="https://testsafebrowsing.appspot.com/permissions/media-requests" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/permissions/media-requests</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Should not be autoblocked</span>
+                    <span class="link-description">Demonstrates safe permission request flow under policy control.</span>
+                    <a href="https://testsafebrowsing.appspot.com/permissions/not-autoblocked" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/permissions/not-autoblocked</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- PASSWORD PROTECTION & LOW REPUTATION -->
+        <div class="card">
+            <h2>
+                <span>Password Protection & Low Reputation</span>
+                <span class="badge badge-danger">Dangerous / Red</span>
+            </h2>
+            <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 0.95rem;">
+                Ensures low reputation triggers are caught and triggers corporate credential theft warnings.
+            </p>
+            <div class="link-grid">
+                <div class="link-row">
+                    <span class="link-title">Should trigger phishing warning on password reuse</span>
+                    <span class="link-description">Blocks credential exposure on suspicious third-party login forms.</span>
+                    <a href="https://testsafebrowsing.appspot.com/password-reuse" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/password-reuse</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Should return the SUSPICIOUS level (Low Reputation)</span>
+                    <span class="link-description">Flags low reputation assets before they are widely cataloged.</span>
+                    <a href="https://testsafebrowsing.appspot.com/low-reputation" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/low-reputation</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- CLIENT SIDE DETECTION -->
+        <div class="card">
+            <h2>
+                <span>Client Side Detection</span>
+                <span class="badge badge-suspect">Suspicious / Yellow</span>
+            </h2>
+            <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 0.95rem;">
+                Verifies extension local JavaScript scoring integrates client-side phishing models.
+            </p>
+            <div class="link-grid">
+                <div class="link-row">
+                    <span class="link-title">Should create a Client Side Detection request</span>
+                    <span class="link-description">Fires CSD classification payloads for local scoring correlation.</span>
+                    <a href="https://testsafebrowsing.appspot.com/client-side-detection" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/client-side-detection</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Local Trigger</span>
+                    <span class="link-description">Tests immediate trigger rules for real-time model verification.</span>
+                    <a href="https://testsafebrowsing.appspot.com/local-trigger" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/local-trigger</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- DESKTOP DLP WARNINGS -->
+        <div class="card">
+            <h2>
+                <span>Desktop DLP Warnings</span>
+                <span class="badge badge-danger">Dangerous / Red</span>
+            </h2>
+            <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 0.95rem;">
+                Simulates Data Loss Prevention (DLP) filters for credit card numbers, social security numbers, and corporate emails.
+            </p>
+            <div class="link-grid">
+                <div class="link-row">
+                    <span class="link-title">Should trigger the 1 CC rule</span>
+                    <span class="link-description">Flags pages exposing potential Single Credit Card details.</span>
+                    <a href="https://testsafebrowsing.appspot.com/dlp/1-cc" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/dlp/1-cc</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Should trigger the 10 SSN rule</span>
+                    <span class="link-description">Flags bulk exposure of Social Security Numbers (SSN rule).</span>
+                    <a href="https://testsafebrowsing.appspot.com/dlp/10-ssn" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/dlp/10-ssn</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Should trigger the 1000 email addresses rule</span>
+                    <span class="link-description">Prevents mass scraping or leak of corporate email directory addresses.</span>
+                    <a href="https://testsafebrowsing.appspot.com/dlp/1000-email" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/dlp/1000-email</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- RESTRICTED CONTENT BLOCKING -->
+        <div class="card">
+            <h2>
+                <span>Restricted Content Blocking</span>
+                <span class="badge badge-danger">Dangerous / Red</span>
+            </h2>
+            <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 0.95rem;">
+                Verifies nesting and framing sanitization rules for dangerous nested frames or images.
+            </p>
+            <div class="link-grid">
+                <div class="link-row">
+                    <span class="link-title">Should trigger the restricted content warning</span>
+                    <span class="link-description">Standard corporate blocklist warning policy verification.</span>
+                    <a href="https://testsafebrowsing.appspot.com/restricted-content" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/restricted-content</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Should trigger the restricted content warning due to unsafe iframe</span>
+                    <span class="link-description">Stops UI redress/clickjacking or malware injection via sandboxed frame.</span>
+                    <a href="https://testsafebrowsing.appspot.com/unsafe-iframe" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/unsafe-iframe</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Should trigger the restricted content warning due to unsafe image</span>
+                    <span class="link-description">Blocks exploitation via buffer overflow payloads packaged inside images.</span>
+                    <a href="https://testsafebrowsing.appspot.com/unsafe-image" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/unsafe-image</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- SPECIAL PAGES & DIAGNOSTICS -->
+        <div class="card">
+            <h2>
+                <span>Special Pages & Diagnostic Diagnostics</span>
+                <span class="badge badge-danger">Dangerous / Red</span>
+            </h2>
+            <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 0.95rem;">
+                Standard special redirect flows, diagnostic landing pages, and safe image loading validations.
+            </p>
+            <div class="link-grid">
+                <div class="link-row">
+                    <span class="link-title">Special Page 1</span>
+                    <span class="link-description">Flags official Chrome policy testing layout landing pages.</span>
+                    <a href="https://testsafebrowsing.appspot.com/special-page" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/special-page</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Short Link Test Page (Redirect)</span>
+                    <span class="link-description">Tests extension ability to follow or intercept malicious redirects.</span>
+                    <a href="https://testsafebrowsing.appspot.com/short-link" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/short-link</a>
+                </div>
+                <div class="link-row">
+                    <span class="link-title">Customer Image Test Page</span>
+                    <span class="link-description">Evaluates system behavior with media file analysis pipelines.</span>
+                    <a href="https://testsafebrowsing.appspot.com/customer-image" class="test-anchor" target="_blank">https://testsafebrowsing.appspot.com/customer-image</a>
+                </div>
+            </div>
+        </div>
+
         <footer>
             VigilantLink Laboratory Dashboard — Pair Programmed with Antigravity
         </footer>

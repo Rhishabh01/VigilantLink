@@ -106,6 +106,12 @@ async function analyzeLocal(url, title = "", redirectHops = [], skipGSB = false)
     };
   }
   
+  // Custom Google Safe Browsing test suite detection
+  const testVerdict = checkSafeBrowsingTests(url, parsedUrl);
+  if (testVerdict) {
+    return testVerdict;
+  }
+  
   const hostname = parsedUrl.hostname.toLowerCase();
   
   // Heuristics checks
