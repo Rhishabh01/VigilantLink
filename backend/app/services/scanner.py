@@ -2,7 +2,7 @@
 Scanner: Heuristic analysis engine + external scan orchestration.
 
 Tier 1 (CPU): Pure heuristics — typosquatting, punycode, TLD/keyword synergy.
-Tier 2 (Network): RDAP + VirusTotal in parallel (asyncwhois removed).
+Tier 2 (Network): RDAP + GSB + SSL in parallel.
 """
 
 import asyncio
@@ -12,13 +12,13 @@ import ssl
 import socket
 import urllib.parse
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import httpx
 
 from ..core.constants import (
     HIGH_RISK_KEYWORDS, HIGH_VALUE_TARGETS, SUSPICIOUS_KEYWORDS,
-    SUSPICIOUS_TLDS, DEFAULT_DOMAIN_AGE_DAYS, TOTAL_VENDORS_COUNT,
+    SUSPICIOUS_TLDS, DEFAULT_DOMAIN_AGE_DAYS,
     GSB_API_URL, GSB_THREAT_TYPES, GSB_THREAT_PRIORITY, GSB_TIMEOUT_S,
     SSL_CERT_TIMEOUT_S, RDAP_TIMEOUT_S, NEWLY_REGISTERED_DAYS,
     RECENTLY_REGISTERED_DAYS,
@@ -145,55 +145,6 @@ async def fetch_ssl_cert_age(hostname: str) -> Optional[int]:
 # TIER 2: External network lookups — async, non-blocking
 # ============================================================
 
-async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
-    """
-    Fetches vendor flags from VirusTotal API v3.
-    Returns (malicious_flags, total_vendors).
-    Timeout: 1.5s — fast-fail to avoid blocking.
-    """
-    vt_key = os.getenv("VIRUSTOTAL_API_KEY")
-    if not vt_key:
-        return 0, 70
-
-    url = f"https://www.virustotal.com/api/v3/domains/{domain}"
-    headers = {
-        "accept": "application/json",
-        "x-apikey": vt_key
-    }
-
-    try:
-        timeout = httpx.Timeout(1.5)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.get(url, headers=headers)
-
-            if response.status_code == 429:
-                logger.warning(f"[VT] Rate limit hit for {domain[:30]}...")
-                return 0, 70
-
-            if response.status_code != 200:
-                logger.debug(f"[VT] API returned {response.status_code} for {domain[:30]}...")
-                return 0, 70
-
-            data = response.json()
-            stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
-            malicious = stats.get("malicious", 0)
-            suspicious = stats.get("suspicious", 0)
-            total = sum(stats.values())
-            return (malicious + suspicious), total
-
-    except httpx.TimeoutException:
-        logger.debug(f"[VT] Request timed out for {domain[:30]}...")
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 429:
-            logger.warning(f"[VT] Rate limit hit for {domain[:30]}...")
-        else:
-            logger.error(f"[VT] HTTP error for {domain[:30]}...: {e}")
-    except Exception as e:
-        logger.error(f"[VT] Fetch failed for {domain[:30]}...: {e}")
-
-    return 0, 70
-
-
 def _normalize_gsb_url(target: str) -> Optional[str]:
     parsed = urllib.parse.urlparse(target)
     if not parsed.scheme:
@@ -258,7 +209,7 @@ async def check_google_safe_browsing(url: str) -> List[str]:
 
 async def run_external_scans(domain: str) -> Dict[str, Any]:
     """
-    Tier 2: Run RDAP + VirusTotal + GSB in parallel.
+    Tier 2: Run RDAP + GSB + SSL in parallel.
     'domain' can be a hostname or a full URL.
     """
     parsed = urllib.parse.urlparse(domain)
@@ -276,10 +227,9 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         root_domain = target_domain
 
     ssl_timed_out = False
-    vt_timed_out = False
     gsb_timed_out = False
     rdap_timed_out = False
- 
+  
     async def _safe_ssl() -> Optional[int]:
         nonlocal ssl_timed_out
         try:
@@ -293,17 +243,7 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         except Exception as e:
             logger.debug(f"SSL cert age failed for {target_domain}: {e}")
             return None
- 
-    async def _safe_vt() -> Tuple[int, int]:
-        nonlocal vt_timed_out
-        try:
-            return await asyncio.wait_for(
-                fetch_virustotal_flags(target_domain), timeout=2.0
-            )
-        except asyncio.TimeoutError:
-            vt_timed_out = True
-            return 0, TOTAL_VENDORS_COUNT
- 
+  
     async def _safe_gsb() -> List[str]:
         nonlocal gsb_timed_out
         try:
@@ -326,33 +266,28 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
 
  
     results = await asyncio.gather(
-        _safe_ssl(), _safe_vt(), _safe_gsb(), _safe_rdap()
+        _safe_ssl(), _safe_gsb(), _safe_rdap()
     )
-    cert_age, vt_results, gsb_results, domain_age = results
-    vendor_flags, total_vendors = vt_results
- 
+    cert_age, gsb_results, domain_age = results
+  
     gsb_threat_type: Optional[str] = None
     if gsb_results:
         for threat in GSB_THREAT_PRIORITY:
             if threat in gsb_results:
                 gsb_threat_type = threat
                 break
- 
+  
     threat_type: Optional[str] = None
     if gsb_threat_type:
         threat_type = gsb_threat_type
-    elif vendor_flags >= 2:
-        threat_type = f"Flagged by {vendor_flags} Security Vendors"
     elif cert_age is not None and cert_age < 7:
         threat_type = "Recently Issued SSL Certificate"
     elif domain_age < NEWLY_REGISTERED_DAYS:
         threat_type = "Newly Registered Domain"
- 
+  
     return {
         "ssl_cert_age_days": cert_age,
         "domain_age_days": domain_age,
-        "vendor_flags": vendor_flags,
-        "total_vendors": total_vendors,
         "threat_type": threat_type,
         "gsb_threats": gsb_results,
         "gsb_matched": bool(gsb_results),

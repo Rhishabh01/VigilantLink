@@ -182,8 +182,6 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
                 "v": sec["verdict"],
                 "rs": sec["risk_score"],
                 "tt": sec["threat_type"],
-                "vf": sec["vendor_flags"],
-                "tv": sec["total_vendors"],
                 "age": sec.get("ssl_cert_age_days"),
                 "sr": sec["suspicious_redirects"],
                 "ts": sec["typosquatting_detected"],
@@ -253,15 +251,13 @@ async def _run_phase2_background(
             "d": (metadata or {}).get("description"),
             "img": (metadata or {}).get("image_url"),
             "fav": (metadata or {}).get("favicon_url"),
-            "ss": None, # Screenshot not ready yet
-            "p3": "pending", # Flag indicating Phase 3 is still running
+            "ss": None,
+            "p3": "pending",
             "sec": {
                 "safe": sec2["is_safe"],
                 "v": sec2["verdict"],
                 "rs": sec2["risk_score"],
                 "tt": sec2["threat_type"],
-                "vf": sec2["vendor_flags"],
-                "tv": sec2["total_vendors"],
                 "age": sec2.get("ssl_cert_age_days"),
                 "sr": sec2["suspicious_redirects"],
                 "ts": sec2["typosquatting_detected"],
@@ -280,10 +276,9 @@ async def _run_phase2_background(
         # 3. Run Phase 3: Compulsory screenshot
         screenshot_base64: Optional[str] = None
         ssl_age = phase2["security"].get("ssl_cert_age_days")
-        vendor_flags = phase2["security"].get("vendor_flags", 0)
         redirect_depth = len(phase1.get("hops", []))
 
-        if needs_screenshot(metadata, risk_score, ssl_age, vendor_flags, redirect_depth):
+        if needs_screenshot(metadata, risk_score, ssl_age, redirect_depth):
             logger.info(f"[PHASE2] Launching browser for compulsory screenshot: {final_url[:50]}...")
             try:
                 screenshot_base64 = await asyncio.shield(
@@ -336,8 +331,6 @@ async def _run_phase2_background(
                 "v": sec1.get("verdict", "green"),
                 "rs": sec1.get("risk_score", 0),
                 "tt": sec1.get("threat_type"),
-                "vf": sec1.get("vendor_flags", 0),
-                "tv": sec1.get("total_vendors", 0),
                 "age": sec1.get("ssl_cert_age_days"),
                 "sr": sec1.get("suspicious_redirects", False),
                 "ts": sec1.get("typosquatting_detected", False),

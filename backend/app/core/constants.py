@@ -23,12 +23,6 @@ SSL_CERT_YOUNG_DAYS = 90
 NEWLY_REGISTERED_DAYS = 14
 RECENTLY_REGISTERED_DAYS = 90
 MAX_REDIRECT_HOPS_FREE = 3
-SEVERE_VENDOR_FLAGS_THRESHOLD = 5
-
-# VT low-confidence suppression — vendor_flags below this + no corroboration = zero contribution
-VT_LOW_CONFIDENCE_THRESHOLD = 2
-# Minimum vendor flags to count as corroboration for trusted platforms
-CORROBORATION_MIN_VENDOR_FLAGS = 3
 
 VERDICT_RED_THRESHOLD = 65
 VERDICT_YELLOW_THRESHOLD = 35
@@ -48,7 +42,6 @@ REDIRECT_CHAIN_MAJOR_PENALTY = 20   # Cross-domain redirect hop
 REDIRECT_CHAIN_MINOR_PENALTY = 5    # Same-domain redirect hop
 
 # Phase 2 (external) signal values
-VENDOR_FLAG_PENALTY = 40            # Applied when vendor_flags >= 2
 SSL_CERT_VERY_NEW_PENALTY = 30      # < 1 day
 SSL_CERT_NEW_PENALTY = 18           # < 10 days
 SSL_CERT_RECENT_PENALTY = 10        # < 30 days
@@ -59,20 +52,17 @@ RECENTLY_REGISTERED_PENALTY = 20    # < 90 days
 # Weights — multipliers for each signal category
 WEIGHT_HEURISTIC: float = 1.0       # Phase 1 signals at full weight
 WEIGHT_SSL_AGE: float = 1.0         # SSL certificate age multiplier
-WEIGHT_VT: float = 1.0              # VirusTotal vendor flags multiplier
 WEIGHT_REDIRECT_DEPTH: float = 1.0  # Redirect chain penalty multiplier
 WEIGHT_RDAP_AGE: float = 1.0        # RDAP domain age multiplier
 
 # Uncertainty penalty when external sources timeout (Task 2.4)
 # Formula: U = UNCERTAINTY_PENALTY × (timed_out_sources / total_sources)
-# Max penalty = 15 (both SSL + VT timeout)
 UNCERTAINTY_PENALTY: int = 15
 
 # ============================================================
 # Fallbacks
 # ============================================================
 DEFAULT_DOMAIN_AGE_DAYS = 3000
-TOTAL_VENDORS_COUNT = 70
 
 # ============================================================
 # Deadlines & Budgets
@@ -80,7 +70,6 @@ TOTAL_VENDORS_COUNT = 70
 GLOBAL_DEADLINE_S: float = 2.0      # Total budget for Phase 1 + Phase 2
 PHASE1_DEADLINE_S: float = 0.5      # Phase 1 target
 SSL_CERT_TIMEOUT_S: float = 1.2     # SSL Certificate inspection budget
-VT_TIMEOUT_S: float = 1.5           # VirusTotal sub-task budget
 RDAP_TIMEOUT_S: float = 1.2         # RDAP sub-task budget
 GSB_TIMEOUT_S: float = 1.8          # Google Safe Browsing sub-task budget
 SCREENSHOT_TIMEOUT_S: float = 15.0   # Playwright screenshot budget

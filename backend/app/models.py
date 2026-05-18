@@ -24,8 +24,6 @@ class SecurityReport(BaseModel):
     is_safe: bool
     verdict: str  # "green", "yellow", "red"
     threat_type: Optional[str] = None
-    vendor_flags: int = 0
-    total_vendors: int = 0
     ssl_cert_age_days: Optional[int] = None
     risk_score: int = 0
     suspicious_redirects: bool = False
@@ -87,8 +85,6 @@ class CompactSecurity(BaseModel):
     v: str = Field(description="verdict: green|yellow|red")
     rs: int = Field(description="risk_score 0-100")
     tt: Optional[str] = Field(None, description="threat_type")
-    vf: int = Field(0, description="vendor_flags")
-    tv: int = Field(0, description="total_vendors")
     age: Optional[int] = Field(None, description="ssl_cert_age_days")
     sr: bool = Field(False, description="suspicious_redirects")
     ts: bool = Field(False, description="typosquatting_detected")
