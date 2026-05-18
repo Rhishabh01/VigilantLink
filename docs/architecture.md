@@ -30,8 +30,7 @@ graph TD
 
     K --> L[run_external_scans — parallel]
     L --> L1[SSL cert age]
-    L --> L2[VirusTotal]
-    L --> L3[Google Safe Browsing]
+    L --> L2[Google Safe Browsing]
     L --> L4[RDAP domain age]
 
     L1 & L2 & L3 & L4 --> M[compute_final_score]
@@ -68,7 +67,6 @@ graph TD
 
 1. `run_external_scans` runs four coroutines in parallel via `asyncio.gather`:
    - SSL certificate age via async TLS handshake
-   - VirusTotal domain reputation (httpx, 1.5s timeout)
    - Google Safe Browsing v4 threatMatches lookup
    - RDAP domain registration age
 2. `compute_final_score` merges heuristic base score with external signals
@@ -139,7 +137,6 @@ URL Input
         └─ Suspicious keyword scan
   └─ run_external_scans()
         ├─ SSL cert age (notBefore)
-        ├─ VirusTotal malicious/suspicious vendor flags
         ├─ Google Safe Browsing v4 threatMatches
         └─ RDAP domain registration date
   └─ compute_final_score()

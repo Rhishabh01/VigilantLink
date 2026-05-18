@@ -826,10 +826,7 @@ function cleanThreatExplanation(reason) {
     'Suspicious Keywords': 'Suspicious content detected',
     'Synergy': 'High-risk combination',
     'Phishing keyword': 'Phishing attempt',
-    'CRITICAL: Punycode': 'Punycode domain trick',
-    'CRITICAL: Flagged': 'Flagged by security vendors',
-    'CRITICAL: VirusTotal': 'Flagged by VirusTotal',
-    'Flagged by': 'Flagged by vendors',
+
     'Recently issued SSL certificate': 'New SSL certificate',
     'Young SSL certificate': 'Young SSL certificate',
     'does not resolve': 'Domain invalid',

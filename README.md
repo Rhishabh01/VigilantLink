@@ -31,7 +31,7 @@ VigilantLink is a browser extension designed to provide real-time phishing prote
 Instead of relying on a single detection method, VigilantLink combines:
 
 *   **Fast heuristic scanning**
-*   **Threat intelligence APIs** (Google Safe Browsing, VirusTotal)
+*   **Threat intelligence APIs** (Google Safe Browsing)
 *   **Browser-based deep inspection** (Playwright)
 *   **Redirect chain analysis**
 *   **Domain reputation checks** (RDAP)

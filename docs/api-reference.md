@@ -151,8 +151,6 @@ Used by Railway health checks. Always returns HTTP 200 while the server is runni
 | `v` | string | Verdict: `"green"`, `"yellow"`, or `"red"` |
 | `rs` | int | Risk score (0–100) |
 | `tt` | string\|null | Primary threat type label |
-| `vf` | int | VirusTotal malicious + suspicious vendor count |
-| `tv` | int | Total VirusTotal vendors checked |
 | `age` | int\|null | SSL certificate age in days. `null` if unavailable |
 | `sr` | bool | `true` if redirect chain depth exceeds threshold |
 | `ts` | bool | `true` if typosquatting detected |

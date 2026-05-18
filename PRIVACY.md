@@ -27,7 +27,7 @@ Your preferences (e.g., Theme, Enabled/Disabled sites) are stored locally on you
 
 ## 4. Third-Party Services
 
-VigilantLink may utilize verified security APIs (such as Google Safe Browsing or VirusTotal) to verify the safety of URLs. In these cases, only the URL being analyzed is shared with these services.
+VigilantLink may utilize verified security APIs (such as Google Safe Browsing) to verify the safety of URLs. In these cases, only the URL being analyzed is shared with these services.
 
 ## 5. Transparency
 

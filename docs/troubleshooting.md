@@ -179,7 +179,6 @@ Missing libraries will be printed as `error while loading shared libraries`.
 **Cause:** All four external scans are timing out. Common in networks with strict outbound filtering.
 
 **Check:** Confirm outbound HTTPS to these hosts is allowed:
-- `www.virustotal.com`
 - `safebrowsing.googleapis.com`
 - RDAP servers (varies by registrar)
 
@@ -216,7 +215,7 @@ If the outer `wait_for` is removed, `shield` has no effect on the timeout behavi
 
 | Symptom | Likely cause | Check |
 |---|---|---|
-| All scores = 0, verdict always green | VirusTotal/GSB API keys missing | `[VT]` / `[GSB]` logs — key not set |
+| All scores = 0, verdict always green | GSB API key missing | `[GSB]` logs — key not set |
 | Domain age always treated as unknown | RDAP timeouts | `[PHASE2] RDAP timeout` in logs |
 | Extension popup never opens | Content script not injected | Verify `host_permissions` in `manifest.json` covers the page domain |
 | CORS errors in browser console | `ALLOWED_ORIGIN` mismatch | Set `EXTENSION_ID` env var to match installed extension ID |

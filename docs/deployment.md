@@ -25,7 +25,6 @@ Railway injects `PORT` at runtime. The `CMD` in the Dockerfile uses `${PORT:-808
 
 | Variable | Required | Description |
 |---|---|---|
-| `VIRUSTOTAL_API_KEY` | Yes | VirusTotal API v3 key |
 | `GOOGLE_SAFE_BROWSING_API_KEY` | Yes | GSB v4 API key |
 | `REDIS_URL` | Yes (auto-set by Railway Redis plugin) | Redis connection string |
 | `LOG_LEVEL` | No | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` (default: `INFO`) |

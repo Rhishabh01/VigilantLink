@@ -49,16 +49,13 @@ Starts from the heuristic base score produced by Pass 1, then applies external s
 
 | Signal | Condition | Effect |
 |---|---|---|
-| VirusTotal vendor flags | ≥1 flag with corroboration | `WEIGHT_VT × min(10 × flags, 40)` |
-| Trusted domain abuse | Hosting domain + VT flag or phishing keyword | Score floored at `VERDICT_YELLOW_THRESHOLD + 1` |
+| Trusted domain abuse | Hosting domain + phishing keyword | Score floored at `VERDICT_YELLOW_THRESHOLD + 1` |
 | Hosted phishing escalation | Suspicious path/param on trusted hosting platform | Score floored at `VERDICT_YELLOW_THRESHOLD + 5` |
 | SSL cert age | Certificate issued recently | `WEIGHT_SSL_AGE × penalty` (tiered) |
 | Domain age (RDAP) | Domain registered recently | `WEIGHT_RDAP_AGE × penalty` (tiered) |
-| New domain + VT synergy | Domain < `NEWLY_REGISTERED_DAYS` and VT flags ≥ 1 | Score floored at 60 |
 | Google Safe Browsing | Match found | Score overridden to `GSB_THREAT_MIN_SCORES[threat_type]` |
 | Uncertainty penalty | Timed-out sources × conditions | +2 to +5 per source |
 | Trusted platform cap | Strong signals absent | Score capped at `TRUSTED_PLATFORM_CAP`, weak reasons removed |
-| VirusTotal critical | Flags > `SEVERE_VENDOR_FLAGS_THRESHOLD` | Forced `red`, score = 99 |
 
 ---
 
@@ -71,7 +68,7 @@ Starts from the heuristic base score produced by Pass 1, then applies external s
 | < `SSL_CERT_RECENT_DAYS` | `SSL_CERT_RECENT_PENALTY` |
 | < `SSL_CERT_YOUNG_DAYS` | `SSL_CERT_YOUNG_PENALTY` |
 
-If the domain shows no other risk signals (`typosquatting`, `punycode`, `synergy`, VT flags, GSB match), the penalty is capped at 5 regardless of age. This prevents young-but-legitimate sites from false-positiving.
+If the domain shows no other risk signals (`typosquatting`, `punycode`, `synergy`, GSB match), the penalty is capped at 5 regardless of age. This prevents young-but-legitimate sites from false-positiving.
 
 ---
 
@@ -92,22 +89,12 @@ Weights are applied as multipliers before adding to the base score:
 |---|---|
 | `WEIGHT_HEURISTIC` | Brand penalty, synergy, typosquatting |
 | `WEIGHT_SSL_AGE` | SSL certificate age penalty |
-| `WEIGHT_VT` | VirusTotal vendor flag penalty |
 | `WEIGHT_REDIRECT_DEPTH` | Per-hop redirect penalty |
 | `WEIGHT_RDAP_AGE` | Domain age penalty |
 
 ---
 
-## VirusTotal Confidence Filtering
 
-Low-confidence VT signals are suppressed when:
-
-- `vendor_flags < VT_LOW_CONFIDENCE_THRESHOLD` **and** no corroboration (no GSB match, no phishing keywords, flags < `CORROBORATION_MIN_VENDOR_FLAGS`)
-- OR the domain is a trusted platform **and** flags < 3
-
-This prevents single-vendor noise from triggering yellow verdicts on legitimate domains.
-
----
 
 ## GSB Authoritative Override
 
@@ -134,7 +121,6 @@ This ensures GSB matches always produce at least a `red` verdict regardless of h
 
 Domains matching `TRUSTED_PLATFORMS` (e.g., `github.com`, `google.com`) have their score capped at `TRUSTED_PLATFORM_CAP` unless any of the following strong signals are present:
 
-- VirusTotal flags ≥ 3
 - GSB match
 - Redirect chain depth > `MAX_REDIRECT_HOPS_FREE`
 - Punycode detected
