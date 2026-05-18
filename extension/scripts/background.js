@@ -7,25 +7,10 @@ importScripts(
   'engine/index.js'
 )
 
-const GSB_API_URL = 'https://safebrowsing.googleapis.com/v4/threatMatches:find'
-const GSB_THREAT_PRIORITY = ['MALWARE', 'SOCIAL_ENGINEERING', 'POTENTIALLY_HARMFUL_APPLICATION', 'UNWANTED_SOFTWARE']
-const GSB_TIMEOUT_MS = 5000
-const GSB_MIN_RS_THRESHOLD = 30
-const GSB_CACHE_TTL_MS = 300000
-const gsbCache = new Map()
-
-let gsbEnabled = false
-let gsbApiKey = ''
-
-chrome.storage.local.get(['gsbEnabled', 'gsbApiKey'], (result) => {
-  gsbEnabled = result.gsbEnabled === true
-  gsbApiKey = result.gsbApiKey || ''
-})
-
-chrome.storage.onChanged.addListener((changes) => {
-  if (changes.gsbEnabled) gsbEnabled = changes.gsbEnabled.newValue === true
-  if (changes.gsbApiKey) gsbApiKey = changes.gsbApiKey.newValue || ''
-})
+const BACKEND_URL = 'https://vigilantlink-production.up.railway.app'
+const POLL_INTERVAL_MS = 1000
+const POLL_TIMEOUT_MS = 15000
+const BACKGROUND_POLL_MAX_MS = 30000
 
 const activeRequests = new Map()
 const requestGenerations = new Map()
@@ -40,18 +25,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.action === 'analyze_link') {
     cancelRequest(tabId)
+
     const generation = (requestGenerations.get(tabId) || 0) + 1
     requestGenerations.set(tabId, generation)
+
     const controller = new AbortController()
     activeRequests.set(tabId, { controller, generation })
 
-    const result = LocalEngine.analyze(request.url)
-    activeRequests.delete(tabId)
+    // 1. Local engine — instant, privacy-first
+    const localResult = LocalEngine.analyze(request.url)
 
-    sendResponse({ success: true, data: result })
+    // 2. Return local result immediately
+    sendResponse({ success: true, data: localResult })
 
-    if (gsbEnabled && gsbApiKey && result.sec.rs >= GSB_MIN_RS_THRESHOLD && tabId) {
-      checkGSB(request.url, tabId, generation, result)
+    // 3. Fire backend asynchronously for RDAP, SSL, GSB, metadata, screenshot
+    if (tabId) {
+      fetchBackendAnalysis(request.url, controller.signal, tabId, generation, localResult)
     }
 
     return true
@@ -64,7 +53,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'resume_deep_scan') {
-    sendResponse({ success: false })
+    const { requestId, url } = request
+    if (!tabId || !requestId || !url) {
+      sendResponse({ success: false })
+      return false
+    }
+    cancelRequest(tabId)
+    const generation = (requestGenerations.get(tabId) || 0) + 1
+    requestGenerations.set(tabId, generation)
+    const controller = new AbortController()
+    activeRequests.set(tabId, { controller, generation })
+    pollForDeepScanBackground(requestId, controller.signal, tabId, url, generation, null)
+    sendResponse({ success: true })
     return false
   }
 })
@@ -78,89 +78,168 @@ function cancelRequest(tabId) {
   }
 }
 
-async function checkGSB(url, tabId, generation, localResult) {
-  const cacheKey = url.toLowerCase()
-  const cached = gsbCache.get(cacheKey)
-  if (cached && Date.now() - cached.timestamp < GSB_CACHE_TTL_MS) {
-    if (cached.threats.length > 0) {
-      sendGSBResult(tabId, generation, localResult, cached.threats)
-    }
-    return
+function cleanupRequest(tabId, generation) {
+  const entry = activeRequests.get(tabId)
+  if (entry && entry.generation === generation) {
+    activeRequests.delete(tabId)
   }
+}
 
+async function fetchBackendAnalysis(url, signal, tabId, generation, localResult) {
   try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), GSB_TIMEOUT_MS)
-
-    const response = await fetch(gsbApiUrl(), {
+    const response = await fetch(`${BACKEND_URL}/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(gsbPayload(url)),
-      signal: controller.signal,
+      body: JSON.stringify({ url, cache_only: false }),
+      signal,
     })
-    clearTimeout(timeout)
 
-    let threats = []
-    if (response.ok) {
-      const data = await response.json()
-      const matches = data.matches || []
-      threats = matches
-        .map(m => m.threatType)
-        .filter(t => GSB_THREAT_PRIORITY.includes(t))
-    }
+    if (!response.ok) return
+    const data = await response.json()
 
-    gsbCache.set(cacheKey, { threats, timestamp: Date.now() })
-    if (threats.length > 0) {
-      sendGSBResult(tabId, generation, localResult, threats)
+    if (signal.aborted) return
+
+    if (data.s === 2) {
+      cleanupRequest(tabId, generation)
+      const merged = mergeWithBackend(localResult, data)
+      try {
+        chrome.tabs.sendMessage(tabId, {
+          action: 'phase2_result',
+          requestId: data.id || localResult.id,
+          url,
+          data: merged,
+        })
+      } catch {}
+    } else if (data.s === 1 && data.id) {
+      const merged = mergeWithBackend(localResult, data)
+      try {
+        chrome.tabs.sendMessage(tabId, {
+          action: 'phase2_result',
+          requestId: data.id,
+          url,
+          data: merged,
+        })
+      } catch {}
+      pollForDeepScanBackground(data.id, signal, tabId, url, generation, merged)
     }
-  } catch {}
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      console.warn('VigilantLink: Backend unavailable, using local result only', e)
+    }
+  }
 }
 
-function sendGSBResult(tabId, generation, localResult, threats) {
-  const threatType = GSB_THREAT_PRIORITY.find(t => threats.includes(t)) || threats[0]
-  const gsbReasons = threats.map(t => `Flagged by Google Safe Browsing (${t})`)
+function mergeWithBackend(local, backend) {
+  const merged = JSON.parse(JSON.stringify(local))
+  const beSec = backend.sec || {}
 
-  const gsbResult = JSON.parse(JSON.stringify(localResult))
-  gsbResult.sec.gsb = true
-  gsbResult.sec.gsbt = threatType
-  gsbResult.sec.r = [...new Set([...gsbResult.sec.r, ...gsbReasons])]
+  // Metadata from backend
+  if (backend.t) merged.t = backend.t
+  if (backend.d) merged.d = backend.d
+  if (backend.img) merged.img = backend.img
+  if (backend.fav) merged.fav = backend.fav
+  if (backend.ss) merged.ss = backend.ss
 
-  if (!gsbResult.sec.tt) {
-    gsbResult.sec.tt = threatType
+  // Redirect chain from backend
+  if (backend.hops && backend.hops.length > 0) {
+    merged.hops = backend.hops
   }
 
-  const boost = Math.min(25 + threats.length * 10, 40)
-  gsbResult.sec.rs = Math.min(gsbResult.sec.rs + boost, 100)
-  if (gsbResult.sec.rs >= 60) {
-    gsbResult.sec.v = 'red'
-    gsbResult.sec.safe = false
-  } else if (gsbResult.sec.rs >= 25 && gsbResult.sec.v === 'green') {
-    gsbResult.sec.v = 'yellow'
-    gsbResult.sec.safe = false
+  // SSL cert age from backend
+  if (beSec.age !== undefined && beSec.age !== null) {
+    merged.sec.age = beSec.age
   }
 
+  // GSB data from backend
+  if (beSec.gsb || beSec.gsbt) {
+    merged.sec.gsb = true
+    merged.sec.gsbt = beSec.gsbt
+    if (beSec.gsbt && !merged.sec.tt) {
+      merged.sec.tt = beSec.gsbt
+    }
+    const gsbReason = `Flagged by Google Safe Browsing (${beSec.gsbt || 'threat'})`
+    if (!merged.sec.r.includes(gsbReason)) {
+      merged.sec.r.push(gsbReason)
+    }
+    const boost = 25
+    if (!local.sec.gsb) {
+      merged.sec.rs = Math.min(merged.sec.rs + boost, 100)
+      if (merged.sec.rs >= 60) {
+        merged.sec.v = 'red'
+        merged.sec.safe = false
+      } else if (merged.sec.rs >= 25 && merged.sec.v === 'green') {
+        merged.sec.v = 'yellow'
+        merged.sec.safe = false
+      }
+    }
+  }
+
+  // Backend risk score — take the higher one
+  if (beSec.rs > merged.sec.rs) {
+    merged.sec.rs = beSec.rs
+    merged.sec.v = beSec.v || merged.sec.v
+    merged.sec.safe = beSec.safe !== undefined ? beSec.safe : merged.sec.safe
+    if (beSec.r && beSec.r.length > 0) {
+      for (const r of beSec.r) {
+        if (!merged.sec.r.includes(r)) {
+          merged.sec.r.push(r)
+        }
+      }
+    }
+  }
+
+  // Backend threat type if local had none
+  if (beSec.tt && !merged.sec.tt) {
+    merged.sec.tt = beSec.tt
+  }
+
+  return merged
+}
+
+async function pollForDeepScanBackground(requestId, signal, tabId, url, generation, currentResult) {
   try {
-    chrome.tabs.sendMessage(tabId, {
-      action: 'phase2_result',
-      requestId: localResult.id,
-      url: localResult.url,
-      data: gsbResult,
-    })
-  } catch {}
-}
-
-function gsbApiUrl() {
-  return `${GSB_API_URL}?key=${encodeURIComponent(gsbApiKey)}`
-}
-
-function gsbPayload(url) {
-  return {
-    client: { clientId: 'vigilantlink', clientVersion: '1.2.0' },
-    threatInfo: {
-      threatTypes: GSB_THREAT_PRIORITY,
-      platformTypes: ['ANY_PLATFORM'],
-      threatEntryTypes: ['URL'],
-      threatEntries: [{ url }],
-    },
+    const phase2Data = await pollForDeepScan(requestId, signal, BACKGROUND_POLL_MAX_MS)
+    const entry = activeRequests.get(tabId)
+    if (entry && entry.generation === generation && tabId) {
+      const finalResult = currentResult ? mergeWithBackend(currentResult, phase2Data) : phase2Data
+      try {
+        chrome.tabs.sendMessage(tabId, {
+          action: 'phase2_result',
+          requestId,
+          url,
+          data: finalResult,
+        })
+      } catch {}
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      console.warn('VigilantLink: Background Phase 2 polling failed', e)
+    }
+  } finally {
+    cleanupRequest(tabId, generation)
   }
+}
+
+async function pollForDeepScan(requestId, signal, timeoutMs = POLL_TIMEOUT_MS) {
+  const startTime = Date.now()
+  while (Date.now() - startTime < timeoutMs) {
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+    try {
+      const response = await fetch(`${BACKEND_URL}/analyze/deep/${requestId}`, { signal })
+      if (response.status === 404 || response.status === 410) {
+        throw new Error('Analysis session expired')
+      }
+      if (!response.ok) continue
+      const data = await response.json()
+      if (data.s === 2) {
+        return data
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') throw e
+      if (e.message === 'Analysis session expired') throw e
+    }
+  }
+  throw new Error('Deep scan polling timed out')
 }
