@@ -1,243 +1,166 @@
-// Service Worker for API communication — Progressive Two-Phase Architecture
-// Phase 1: Instant analysis (POST /analyze) — returned immediately
-// Phase 2: Deep scan polling (GET /analyze/deep/{request_id}) — background poll
+importScripts(
+  'engine/reputation.js',
+  'engine/heuristics.js',
+  'engine/impersonation.js',
+  'engine/scoring.js',
+  'engine/behavior.js',
+  'engine/index.js'
+)
 
-const BACKEND_URL = "https://vigilantlink-production.up.railway.app";
-const POLL_INTERVAL_MS = 1000;
-const POLL_TIMEOUT_MS = 15000;
-const BACKGROUND_POLL_MAX_MS = 30000;
+const GSB_API_URL = 'https://safebrowsing.googleapis.com/v4/threatMatches:find'
+const GSB_THREAT_PRIORITY = ['MALWARE', 'SOCIAL_ENGINEERING', 'POTENTIALLY_HARMFUL_APPLICATION', 'UNWANTED_SOFTWARE']
+const GSB_TIMEOUT_MS = 5000
+const GSB_MIN_RS_THRESHOLD = 30
+const GSB_CACHE_TTL_MS = 300000
+const gsbCache = new Map()
 
-// Track active requests per tab with generation counter to prevent stale cleanup
-const activeRequests = new Map();
-const requestGenerations = new Map();
+let gsbEnabled = false
+let gsbApiKey = ''
+
+chrome.storage.local.get(['gsbEnabled', 'gsbApiKey'], (result) => {
+  gsbEnabled = result.gsbEnabled === true
+  gsbApiKey = result.gsbApiKey || ''
+})
+
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.gsbEnabled) gsbEnabled = changes.gsbEnabled.newValue === true
+  if (changes.gsbApiKey) gsbApiKey = changes.gsbApiKey.newValue || ''
+})
+
+const activeRequests = new Map()
+const requestGenerations = new Map()
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  requestGenerations.delete(tabId);
-  activeRequests.delete(tabId);
-});
+  requestGenerations.delete(tabId)
+  activeRequests.delete(tabId)
+})
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  const tabId = sender.tab?.id;
+  const tabId = sender.tab?.id
 
-  if (request.action === "analyze_link") {
-    cancelRequest(tabId);
+  if (request.action === 'analyze_link') {
+    cancelRequest(tabId)
+    const generation = (requestGenerations.get(tabId) || 0) + 1
+    requestGenerations.set(tabId, generation)
+    const controller = new AbortController()
+    activeRequests.set(tabId, { controller, generation })
 
-    const generation = (requestGenerations.get(tabId) || 0) + 1;
-    requestGenerations.set(tabId, generation);
+    const result = LocalEngine.analyze(request.url)
+    activeRequests.delete(tabId)
 
-    const controller = new AbortController();
-    activeRequests.set(tabId, { controller, generation });
+    sendResponse({ success: true, data: result })
 
-    analyzeTwoPhase(request.url, controller.signal, tabId, generation, request.cache_only)
-      .then(data => sendResponse({ success: true, data }))
-      .catch(error => {
-        console.error("VigilantLink analyze error:", error);
-
-        if (error.name === 'AbortError') {
-          sendResponse({
-            success: false,
-            error: 'Request cancelled'
-          });
-        } else {
-          sendResponse({
-            success: false,
-            error: error?.message || String(error)
-          });
-        }
-      });
-
-    return true; // Async response
-  }
-
-  if (request.action === "cancel_analysis") {
-    cancelRequest(tabId);
-    sendResponse({ success: true });
-    return false;
-  }
-
-  if (request.action === "resume_deep_scan") {
-    const { requestId, url } = request;
-    if (!tabId || !requestId || !url) {
-      sendResponse({ success: false });
-      return false;
+    if (gsbEnabled && gsbApiKey && result.sec.rs >= GSB_MIN_RS_THRESHOLD && tabId) {
+      checkGSB(request.url, tabId, generation, result)
     }
-    // Cancel any stale poll before starting a fresh one
-    cancelRequest(tabId);
-    const generation = (requestGenerations.get(tabId) || 0) + 1;
-    requestGenerations.set(tabId, generation);
-    const controller = new AbortController();
-    activeRequests.set(tabId, { controller, generation });
-    // Resume phase2 polling only — no phase1 re-run
-    pollForDeepScanBackground(requestId, controller.signal, tabId, url, generation);
-    sendResponse({ success: true });
-    return false;
+
+    return true
   }
-});
+
+  if (request.action === 'cancel_analysis') {
+    cancelRequest(tabId)
+    sendResponse({ success: true })
+    return false
+  }
+
+  if (request.action === 'resume_deep_scan') {
+    sendResponse({ success: false })
+    return false
+  }
+})
 
 function cancelRequest(tabId) {
-  if (!tabId) return;
-  const entry = activeRequests.get(tabId);
+  if (!tabId) return
+  const entry = activeRequests.get(tabId)
   if (entry) {
-    entry.controller.abort();
-    activeRequests.delete(tabId);
+    entry.controller.abort()
+    activeRequests.delete(tabId)
   }
 }
 
-async function analyzeTwoPhase(url, signal, tabId, generation, cacheOnly = false) {
-  // --- Phase 1: Instant fetch ---
-  console.log("Sending request to:", `${BACKEND_URL}/analyze`);
-  const phase1Response = await fetch(`${BACKEND_URL}/analyze`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, cache_only: cacheOnly }),
-    signal
-  });
-
-  if (!phase1Response.ok) {
-    const errorText = await phase1Response.text();
-
-    console.error("Backend response status:", phase1Response.status);
-    console.error("Backend response body:", errorText);
-
-    throw new Error(
-      `Backend Error ${phase1Response.status}: ${errorText}`
-    );
-  }
-
-  const phase1Data = await phase1Response.json();
-
-  if (phase1Data.cache_miss) {
-    cleanupRequest(tabId, generation);
-    return phase1Data;
-  }
-
-  // If we got a full cached result (s=2), return instantly
-  if (phase1Data.s === 2) {
-    cleanupRequest(tabId, generation);
-    return phase1Data;
-  }
-
-  const requestId = phase1Data.id;
-
-  // START Phase 2 polling immediately in the background!
-  // This happens while the UI is still "loading".
-  if (requestId) {
-    pollForDeepScanBackground(requestId, signal, tabId, url, generation);
-  }
-
-  if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-
-  // Send Phase 1 result to content script
-  if (tabId) {
-    try {
-      chrome.tabs.sendMessage(tabId, {
-        action: "phase1_result",
-        url: url,
-        data: phase1Data
-      });
-    } catch (e) {
-      // Tab may have closed
+async function checkGSB(url, tabId, generation, localResult) {
+  const cacheKey = url.toLowerCase()
+  const cached = gsbCache.get(cacheKey)
+  if (cached && Date.now() - cached.timestamp < GSB_CACHE_TTL_MS) {
+    if (cached.threats.length > 0) {
+      sendGSBResult(tabId, generation, localResult, cached.threats)
     }
+    return
   }
 
-  return phase1Data;
-}
-
-function cleanupRequest(tabId, generation) {
-  const entry = activeRequests.get(tabId);
-  if (entry && entry.generation === generation) {
-    activeRequests.delete(tabId);
-  }
-}
-
-async function pollForDeepScanBackground(requestId, signal, tabId, url, generation) {
-  console.log("Starting phase2 polling:", requestId);
   try {
-    const phase2Data = await pollForDeepScan(requestId, signal, tabId, url, BACKGROUND_POLL_MAX_MS);
-    // Check generation — but still send if the generation entry was cleaned up
-    // (can happen after a disconnect/reconnect). The content script is the
-    // authoritative staleness gatekeeper via currentAnalysisUrl / currentRequestId.
-    const entry = activeRequests.get(tabId);
-    if (entry && entry.generation === generation && tabId) {
-      try {
-        console.log("Sending phase2 result to content script");
-        chrome.tabs.sendMessage(tabId, {
-          action: "phase2_result",
-          requestId: requestId,   // forward so content.js can gate on it
-          url: url,
-          data: phase2Data
-        });
-      } catch (e) {
-        // Tab may have closed
-      }
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), GSB_TIMEOUT_MS)
+
+    const response = await fetch(gsbApiUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(gsbPayload(url)),
+      signal: controller.signal,
+    })
+    clearTimeout(timeout)
+
+    let threats = []
+    if (response.ok) {
+      const data = await response.json()
+      const matches = data.matches || []
+      threats = matches
+        .map(m => m.threatType)
+        .filter(t => GSB_THREAT_PRIORITY.includes(t))
     }
-  } catch (e) {
-    if (e.name !== 'AbortError') {
-      console.warn("VigilantLink: Background Phase 2 polling failed", e);
-      try {
-        chrome.tabs.sendMessage(tabId, {
-          action: "phase2_error",
-          url: url,
-          requestId: requestId,
-          error: e.message || "Phase 2 polling failed"
-        });
-      } catch (e2) {
-        // Tab may have closed
-      }
+
+    gsbCache.set(cacheKey, { threats, timestamp: Date.now() })
+    if (threats.length > 0) {
+      sendGSBResult(tabId, generation, localResult, threats)
     }
-  } finally {
-    cleanupRequest(tabId, generation);
-  }
+  } catch {}
 }
 
-async function pollForDeepScan(requestId, signal, tabId, url, timeoutMs = POLL_TIMEOUT_MS) {
-  const startTime = Date.now();
+function sendGSBResult(tabId, generation, localResult, threats) {
+  const threatType = GSB_THREAT_PRIORITY.find(t => threats.includes(t)) || threats[0]
+  const gsbReasons = threats.map(t => `Flagged by Google Safe Browsing (${t})`)
 
-  while (Date.now() - startTime < timeoutMs) {
-    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+  const gsbResult = JSON.parse(JSON.stringify(localResult))
+  gsbResult.sec.gsb = true
+  gsbResult.sec.gsbt = threatType
+  gsbResult.sec.r = [...new Set([...gsbResult.sec.r, ...gsbReasons])]
 
-    console.log("Polling...", requestId);
-    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
-
-    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-
-    try {
-      const response = await fetch(`${BACKEND_URL}/analyze/deep/${requestId}`, {
-        signal
-      });
-
-      if (response.status === 404 || response.status === 410) {
-        throw new Error("Analysis session expired");
-      }
-      if (!response.ok) continue;
-
-      const data = await response.json();
-      console.log("Poll data received:", data);
-
-      if (data.s === 2) {
-        if (data.p3 === "pending") {
-          console.log("Phase2 intelligence ready, Phase3 pending. Sending update...");
-          // Send partial result so UI shows intelligence immediately
-          chrome.tabs.sendMessage(tabId, {
-            action: "phase2_result",
-            requestId: requestId,
-            url: url,
-            data: data
-          });
-          // Continue loop to wait for Phase3
-          continue;
-        }
-
-        console.log("Phase2 and Phase3 complete:", data);
-        return data;
-      }
-      // s=0 → keep polling
-    } catch (e) {
-      if (e.name === 'AbortError') throw e;
-      if (e.message === "Analysis session expired") throw e;
-      // Network error — keep trying until timeoutMs
-    }
+  if (!gsbResult.sec.tt) {
+    gsbResult.sec.tt = threatType
   }
 
-  throw new Error("Deep scan polling timed out");
+  const boost = Math.min(25 + threats.length * 10, 40)
+  gsbResult.sec.rs = Math.min(gsbResult.sec.rs + boost, 100)
+  if (gsbResult.sec.rs >= 60) {
+    gsbResult.sec.v = 'red'
+    gsbResult.sec.safe = false
+  } else if (gsbResult.sec.rs >= 25 && gsbResult.sec.v === 'green') {
+    gsbResult.sec.v = 'yellow'
+    gsbResult.sec.safe = false
+  }
+
+  try {
+    chrome.tabs.sendMessage(tabId, {
+      action: 'phase2_result',
+      requestId: localResult.id,
+      url: localResult.url,
+      data: gsbResult,
+    })
+  } catch {}
+}
+
+function gsbApiUrl() {
+  return `${GSB_API_URL}?key=${encodeURIComponent(gsbApiKey)}`
+}
+
+function gsbPayload(url) {
+  return {
+    client: { clientId: 'vigilantlink', clientVersion: '1.2.0' },
+    threatInfo: {
+      threatTypes: GSB_THREAT_PRIORITY,
+      platformTypes: ['ANY_PLATFORM'],
+      threatEntryTypes: ['URL'],
+      threatEntries: [{ url }],
+    },
+  }
 }
