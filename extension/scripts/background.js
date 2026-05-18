@@ -1,16 +1,3 @@
-importScripts(
-  'engine/reputation.js',
-  'engine/heuristics.js',
-  'engine/impersonation.js',
-  'engine/scoring.js',
-  'engine/behavior.js',
-  'engine/index.js',
-  'engine/gsb.js'
-)
-
-<<<<<<< Updated upstream
-const BACKEND_URL = 'https://vigilantlink-production.up.railway.app'
-=======
 // Import local engines
 importScripts(
   'heuristics.js',
@@ -20,97 +7,72 @@ importScripts(
   'scoring.js'
 );
 
-var BACKEND_URL = "http://localhost:8000";
+var BACKEND_URL = "https://vigilantlink-production.up.railway.app";
 var POLL_INTERVAL_MS = 1000;
 var POLL_TIMEOUT_MS = 15000;
 var BACKGROUND_POLL_MAX_MS = 30000;
->>>>>>> Stashed changes
 
-const activeRequests = new Map()
-const requestGenerations = new Map()
+const activeRequests = new Map();
+const requestGenerations = new Map();
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  requestGenerations.delete(tabId)
-  activeRequests.delete(tabId)
-})
+  requestGenerations.delete(tabId);
+  activeRequests.delete(tabId);
+});
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  const tabId = sender.tab?.id
+  const tabId = sender.tab?.id;
 
   if (request.action === 'analyze_link') {
-    cancelRequest(tabId)
+    // Cancel any active request for this tab first
+    cancelRequest(tabId);
 
-    const generation = (requestGenerations.get(tabId) || 0) + 1
-    requestGenerations.set(tabId, generation)
+    const generation = (requestGenerations.get(tabId) || 0) + 1;
+    requestGenerations.set(tabId, generation);
 
-    const controller = new AbortController()
-    const analysisId = 'a_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
-    const requestEntry = { controller, generation, result: null }
-    activeRequests.set(tabId, requestEntry)
+    const controller = new AbortController();
+    activeRequests.set(tabId, { controller, generation });
 
-    const skeleton = {
-      s: 1,
-      id: analysisId,
-      url: request.url,
-      furl: request.url,
-      hops: [],
-      t: null,
-      d: null,
-      img: null,
-      fav: null,
-      ss: null,
-      sec: {
-        safe: true,
-        v: 'gray',
-        rs: 0,
-        tt: null,
-        age: null,
-        sr: false,
-        ts: false,
-        r: [],
-        gsb: false,
-        gsbt: null,
-      },
-    }
-<<<<<<< Updated upstream
-=======
+    // Call analyzeTwoPhase
+    analyzeTwoPhase(request.url, controller.signal, tabId, generation, request.cache_only)
+      .then((data) => {
+        if (!controller.signal.aborted) {
+          sendResponse({ success: true, data });
+        }
+      })
+      .catch((err) => {
+        if (!controller.signal.aborted) {
+          sendResponse({ success: false, error: err.message });
+        }
+      });
+
+    return true; // Keep message channel open for async response
+  }
+
+  if (request.action === 'cancel_analysis') {
+    cancelRequest(tabId);
+    sendResponse({ success: true });
+    return false;
+  }
+
+  if (request.action === 'resume_deep_scan') {
+    const { url, requestId } = request;
+    console.log("Resuming deep scan polling for:", url, "requestId:", requestId);
+    
     // Cancel any stale poll before starting a fresh one
     cancelRequest(tabId);
     const generation = (requestGenerations.get(tabId) || 0) + 1;
     requestGenerations.set(tabId, generation);
     const controller = new AbortController();
     activeRequests.set(tabId, { controller, generation });
-    // Resume phase2 polling only — no phase1 re-run
+    // Resume phase3 polling only — no phase1 re-run
     pollForDeepScanBackground(requestId, requestId, controller.signal, tabId, url, generation);
     sendResponse({ success: true });
     return false;
   }
+
+  return false;
 });
->>>>>>> Stashed changes
-
-    sendResponse({ success: true, data: skeleton })
-    performGSBThenLocal(request.url, tabId, generation, analysisId)
-
-    if (tabId) {
-      fetchBackendData(request.url, controller.signal, tabId, generation)
-    }
-
-    return true
-  }
-
-  if (request.action === 'cancel_analysis') {
-    cancelRequest(tabId)
-    sendResponse({ success: true })
-    return false
-  }
-
-  if (request.action === 'resume_deep_scan') {
-    sendResponse({ success: true })
-    return false
-  }
-
-  return false
-})
 
 function tryParseURL(url) {
   try { return new URL(url) } catch { return null }
