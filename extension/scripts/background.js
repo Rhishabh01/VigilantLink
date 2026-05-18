@@ -4,12 +4,11 @@ importScripts(
   'engine/impersonation.js',
   'engine/scoring.js',
   'engine/behavior.js',
-  'engine/index.js'
+  'engine/index.js',
+  'engine/gsb.js'
 )
 
 const BACKEND_URL = 'https://vigilantlink-production.up.railway.app'
-const POLL_INTERVAL_MS = 1000
-const BACKGROUND_POLL_MAX_MS = 30000
 
 const activeRequests = new Map()
 const requestGenerations = new Map()
@@ -29,17 +28,40 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     requestGenerations.set(tabId, generation)
 
     const controller = new AbortController()
-    activeRequests.set(tabId, { controller, generation })
+    const analysisId = 'a_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
+    const requestEntry = { controller, generation, result: null }
+    activeRequests.set(tabId, requestEntry)
 
-    // 1. Local engine — instant, privacy-first
-    const localResult = LocalEngine.analyze(request.url)
+    const skeleton = {
+      s: 1,
+      id: analysisId,
+      url: request.url,
+      furl: request.url,
+      hops: [],
+      t: null,
+      d: null,
+      img: null,
+      fav: null,
+      ss: null,
+      sec: {
+        safe: true,
+        v: 'gray',
+        rs: 0,
+        tt: null,
+        age: null,
+        sr: false,
+        ts: false,
+        r: [],
+        gsb: false,
+        gsbt: null,
+      },
+    }
 
-    // 2. Return local result immediately
-    sendResponse({ success: true, data: localResult })
+    sendResponse({ success: true, data: skeleton })
+    performGSBThenLocal(request.url, tabId, generation, analysisId)
 
-    // 3. Fire backend asynchronously for RDAP, SSL, GSB, metadata, screenshot
     if (tabId) {
-      fetchBackendAnalysis(request.url, controller.signal, tabId, generation, localResult)
+      fetchBackendData(request.url, controller.signal, tabId, generation)
     }
 
     return true
@@ -52,21 +74,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'resume_deep_scan') {
-    const { requestId, url } = request
-    if (!tabId || !requestId || !url) {
-      sendResponse({ success: false })
-      return false
-    }
-    cancelRequest(tabId)
-    const generation = (requestGenerations.get(tabId) || 0) + 1
-    requestGenerations.set(tabId, generation)
-    const controller = new AbortController()
-    activeRequests.set(tabId, { controller, generation })
-    pollForDeepScanBackground(requestId, controller.signal, tabId, url, generation, null)
     sendResponse({ success: true })
     return false
   }
+
+  return false
 })
+
+function tryParseURL(url) {
+  try { return new URL(url) } catch { return null }
+}
 
 function cancelRequest(tabId) {
   if (!tabId) return
@@ -84,7 +101,79 @@ function cleanupRequest(tabId, generation) {
   }
 }
 
-async function fetchBackendAnalysis(url, signal, tabId, generation, localResult) {
+async function performGSBThenLocal(url, tabId, generation, analysisId) {
+  try {
+    const gsbResult = await GSB.check(url)
+
+    const entry = activeRequests.get(tabId)
+    if (!entry || entry.generation !== generation) return
+
+    const localResult = LocalEngine.analyze(url)
+    const merged = mergeGSBResult(localResult, gsbResult)
+    merged.id = analysisId
+    entry.result = merged
+    cleanupRequest(tabId, generation)
+
+    try {
+      chrome.tabs.sendMessage(tabId, {
+        action: 'phase2_result',
+        requestId: analysisId,
+        url,
+        data: merged,
+      })
+    } catch {}
+  } catch (e) {
+    console.warn('VigilantLink: GSB→Local analysis failed', e)
+    const entry = activeRequests.get(tabId)
+    if (!entry || entry.generation !== generation) return
+    cleanupRequest(tabId, generation)
+    const localResult = LocalEngine.analyze(url)
+    localResult.id = analysisId
+    try {
+      chrome.tabs.sendMessage(tabId, {
+        action: 'phase2_result',
+        requestId: analysisId,
+        url,
+        data: localResult,
+      })
+    } catch {}
+  }
+}
+
+function mergeGSBResult(local, gsb) {
+  if (!gsb || !gsb.threat) {
+    return Object.assign({}, local, { s: 2 })
+  }
+
+  const merged = JSON.parse(JSON.stringify(local))
+  merged.s = 2
+  merged.sec.gsb = true
+  merged.sec.gsbt = gsb.threatType
+
+  if (gsb.threatType && !merged.sec.tt) {
+    merged.sec.tt = gsb.threatType
+  }
+
+  const reason = `Flagged by Google Safe Browsing (${gsb.threatType || 'threat'})`
+  if (!merged.sec.r.includes(reason)) {
+    merged.sec.r.push(reason)
+  }
+
+  const boost = 25
+  merged.sec.rs = Math.min(merged.sec.rs + boost, 100)
+
+  if (merged.sec.rs >= 60) {
+    merged.sec.v = 'red'
+    merged.sec.safe = false
+  } else if (merged.sec.rs >= 25 && merged.sec.v === 'green') {
+    merged.sec.v = 'yellow'
+    merged.sec.safe = false
+  }
+
+  return merged
+}
+
+async function fetchBackendData(url, signal, tabId, generation) {
   try {
     const response = await fetch(`${BACKEND_URL}/analyze`, {
       method: 'POST',
@@ -95,159 +184,33 @@ async function fetchBackendAnalysis(url, signal, tabId, generation, localResult)
 
     if (!response.ok) return
     const data = await response.json()
-
     if (signal.aborted) return
 
-    if (data.s === 2) {
-      cleanupRequest(tabId, generation)
-      const merged = mergeWithBackend(localResult, data)
-      try {
-        chrome.tabs.sendMessage(tabId, {
-          action: 'phase2_result',
-          requestId: data.id || localResult.id,
-          url,
-          data: merged,
-        })
-      } catch {}
-    } else if (data.s === 1 && data.id) {
-      const merged = mergeWithBackend(localResult, data)
-      try {
-        chrome.tabs.sendMessage(tabId, {
-          action: 'phase2_result',
-          requestId: data.id,
-          url,
-          data: merged,
-        })
-      } catch {}
-      pollForDeepScanBackground(data.id, signal, tabId, url, generation, merged)
-    }
+    const entry = activeRequests.get(tabId)
+    if (!entry || entry.generation !== generation) return
+    if (!entry.result) return
+
+    const current = entry.result
+    const update = JSON.parse(JSON.stringify(current))
+
+    if (data.t) update.t = data.t
+    if (data.d) update.d = data.d
+    if (data.img) update.img = data.img
+    if (data.ss) update.ss = data.ss
+    if (data.fav) update.fav = data.fav
+    if (data.hops && data.hops.length > 0) update.hops = data.hops
+
+    try {
+      chrome.tabs.sendMessage(tabId, {
+        action: 'phase2_result',
+        requestId: update.id,
+        url,
+        data: update,
+      })
+    } catch {}
   } catch (e) {
     if (e.name !== 'AbortError') {
-      console.warn('VigilantLink: Backend unavailable, using local result only', e)
+      console.warn('VigilantLink: Backend unavailable, skipping screenshot', e)
     }
   }
-}
-
-function mergeWithBackend(local, backend) {
-  const merged = JSON.parse(JSON.stringify(local))
-  const beSec = backend.sec || {}
-
-  // Metadata from backend
-  if (backend.t) merged.t = backend.t
-  if (backend.d) merged.d = backend.d
-  if (backend.img) merged.img = backend.img
-  if (backend.fav) merged.fav = backend.fav
-  if (backend.ss) merged.ss = backend.ss
-
-  // Redirect chain from backend
-  if (backend.hops && backend.hops.length > 0) {
-    merged.hops = backend.hops
-  }
-
-  // SSL cert age from backend
-  if (beSec.age !== undefined && beSec.age !== null) {
-    merged.sec.age = beSec.age
-  }
-
-  // GSB data from backend
-  if (beSec.gsb || beSec.gsbt) {
-    merged.sec.gsb = true
-    merged.sec.gsbt = beSec.gsbt
-    if (beSec.gsbt && !merged.sec.tt) {
-      merged.sec.tt = beSec.gsbt
-    }
-    const gsbReason = `Flagged by Google Safe Browsing (${beSec.gsbt || 'threat'})`
-    if (!merged.sec.r.includes(gsbReason)) {
-      merged.sec.r.push(gsbReason)
-    }
-    const boost = 25
-    if (!local.sec.gsb) {
-      merged.sec.rs = Math.min(merged.sec.rs + boost, 100)
-      if (merged.sec.rs >= 60) {
-        merged.sec.v = 'red'
-        merged.sec.safe = false
-      } else if (merged.sec.rs >= 25 && merged.sec.v === 'green') {
-        merged.sec.v = 'yellow'
-        merged.sec.safe = false
-      }
-    }
-  }
-
-  // Backend risk score — take the higher one
-  if (beSec.rs > merged.sec.rs) {
-    merged.sec.rs = beSec.rs
-    merged.sec.v = beSec.v || merged.sec.v
-    merged.sec.safe = beSec.safe !== undefined ? beSec.safe : merged.sec.safe
-    if (beSec.r && beSec.r.length > 0) {
-      for (const r of beSec.r) {
-        if (!merged.sec.r.includes(r)) {
-          merged.sec.r.push(r)
-        }
-      }
-    }
-  }
-
-  // Backend threat type if local had none
-  if (beSec.tt && !merged.sec.tt) {
-    merged.sec.tt = beSec.tt
-  }
-
-  return merged
-}
-
-async function pollForDeepScanBackground(requestId, signal, tabId, url, generation, currentResult) {
-  try {
-    const finalData = await pollDeepScanUntilDone(requestId, signal, tabId, url, generation, currentResult)
-    const entry = activeRequests.get(tabId)
-    if (entry && entry.generation === generation && tabId && finalData) {
-      try {
-        chrome.tabs.sendMessage(tabId, {
-          action: 'phase2_result',
-          requestId,
-          url,
-          data: finalData,
-        })
-      } catch {}
-    }
-  } finally {
-    cleanupRequest(tabId, generation)
-  }
-}
-
-async function pollDeepScanUntilDone(requestId, signal, tabId, url, generation, currentResult) {
-  const startTime = Date.now()
-  let lastSentData = null
-  while (Date.now() - startTime < BACKGROUND_POLL_MAX_MS) {
-    if (signal.aborted) return lastSentData
-    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
-    if (signal.aborted) return lastSentData
-    try {
-      const response = await fetch(`${BACKEND_URL}/analyze/deep/${requestId}`, { signal })
-      if (response.status === 404 || response.status === 410) return lastSentData
-      if (!response.ok) continue
-      const data = await response.json()
-      if (data.s === 2) {
-        if (data.p3 === 'pending') {
-          const merged = currentResult ? mergeWithBackend(currentResult, data) : data
-          if (JSON.stringify(merged.sec) !== JSON.stringify(lastSentData?.sec)) {
-            lastSentData = merged
-            try {
-              chrome.tabs.sendMessage(tabId, {
-                action: 'phase2_result',
-                requestId,
-                url,
-                data: merged,
-              })
-            } catch {}
-          }
-          continue
-        }
-        const merged = currentResult ? mergeWithBackend(currentResult, data) : data
-        return merged
-      }
-    } catch (e) {
-      if (e.name === 'AbortError') return lastSentData
-    }
-  }
-  return lastSentData
 }
