@@ -9,7 +9,6 @@ importScripts(
 
 const BACKEND_URL = 'https://vigilantlink-production.up.railway.app'
 const POLL_INTERVAL_MS = 1000
-const POLL_TIMEOUT_MS = 15000
 const BACKGROUND_POLL_MAX_MS = 30000
 
 const activeRequests = new Map()
@@ -198,48 +197,57 @@ function mergeWithBackend(local, backend) {
 
 async function pollForDeepScanBackground(requestId, signal, tabId, url, generation, currentResult) {
   try {
-    const phase2Data = await pollForDeepScan(requestId, signal, BACKGROUND_POLL_MAX_MS)
+    const finalData = await pollDeepScanUntilDone(requestId, signal, tabId, url, generation, currentResult)
     const entry = activeRequests.get(tabId)
-    if (entry && entry.generation === generation && tabId) {
-      const finalResult = currentResult ? mergeWithBackend(currentResult, phase2Data) : phase2Data
+    if (entry && entry.generation === generation && tabId && finalData) {
       try {
         chrome.tabs.sendMessage(tabId, {
           action: 'phase2_result',
           requestId,
           url,
-          data: finalResult,
+          data: finalData,
         })
       } catch {}
-    }
-  } catch (e) {
-    if (e.name !== 'AbortError') {
-      console.warn('VigilantLink: Background Phase 2 polling failed', e)
     }
   } finally {
     cleanupRequest(tabId, generation)
   }
 }
 
-async function pollForDeepScan(requestId, signal, timeoutMs = POLL_TIMEOUT_MS) {
+async function pollDeepScanUntilDone(requestId, signal, tabId, url, generation, currentResult) {
   const startTime = Date.now()
-  while (Date.now() - startTime < timeoutMs) {
-    if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+  let lastSentData = null
+  while (Date.now() - startTime < BACKGROUND_POLL_MAX_MS) {
+    if (signal.aborted) return lastSentData
     await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
-    if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+    if (signal.aborted) return lastSentData
     try {
       const response = await fetch(`${BACKEND_URL}/analyze/deep/${requestId}`, { signal })
-      if (response.status === 404 || response.status === 410) {
-        throw new Error('Analysis session expired')
-      }
+      if (response.status === 404 || response.status === 410) return lastSentData
       if (!response.ok) continue
       const data = await response.json()
       if (data.s === 2) {
-        return data
+        if (data.p3 === 'pending') {
+          const merged = currentResult ? mergeWithBackend(currentResult, data) : data
+          if (JSON.stringify(merged.sec) !== JSON.stringify(lastSentData?.sec)) {
+            lastSentData = merged
+            try {
+              chrome.tabs.sendMessage(tabId, {
+                action: 'phase2_result',
+                requestId,
+                url,
+                data: merged,
+              })
+            } catch {}
+          }
+          continue
+        }
+        const merged = currentResult ? mergeWithBackend(currentResult, data) : data
+        return merged
       }
     } catch (e) {
-      if (e.name === 'AbortError') throw e
-      if (e.message === 'Analysis session expired') throw e
+      if (e.name === 'AbortError') return lastSentData
     }
   }
-  throw new Error('Deep scan polling timed out')
+  return lastSentData
 }
