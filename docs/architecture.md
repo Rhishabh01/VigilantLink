@@ -30,7 +30,7 @@ graph TD
 
     K --> L[run_external_scans — parallel]
     L --> L1[SSL cert age]
-    L --> L2[VirusTotal]
+    L --> L2[PhishTank / OpenPhish]
     L --> L3[Google Safe Browsing]
     L --> L4[RDAP domain age]
 
@@ -66,9 +66,10 @@ graph TD
 
 ### Phase 2 — Deep Scan (background, polled)
 
-1. `run_external_scans` runs four coroutines in parallel via `asyncio.gather`:
+1. `run_external_scans` runs five coroutines in parallel via `asyncio.gather`:
    - SSL certificate age via async TLS handshake
-   - VirusTotal domain reputation (httpx, 1.5s timeout)
+   - PhishTank lookup (httpx POST, 2.0s timeout)
+   - OpenPhish lookup against 12h cached feed (3.0s download timeout)
    - Google Safe Browsing v4 threatMatches lookup
    - RDAP domain registration age
 2. `compute_final_score` merges heuristic base score with external signals
@@ -139,7 +140,7 @@ URL Input
         └─ Suspicious keyword scan
   └─ run_external_scans()
         ├─ SSL cert age (notBefore)
-        ├─ VirusTotal malicious/suspicious vendor flags
+        ├─ PhishTank / OpenPhish phishing status
         ├─ Google Safe Browsing v4 threatMatches
         └─ RDAP domain registration date
   └─ compute_final_score()
