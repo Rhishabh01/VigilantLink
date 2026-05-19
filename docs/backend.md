@@ -113,7 +113,7 @@ Two tiers:
 
 ```python
 results = await asyncio.gather(
-    _safe_ssl(), _safe_vt(), _safe_gsb(), _safe_rdap()
+    _safe_ssl(), check_phishtank(url), check_openphish(url), _safe_gsb(), _safe_rdap()
 )
 ```
 
@@ -122,7 +122,8 @@ Each sub-call wraps its coroutine in `asyncio.wait_for` with an individual timeo
 | Source | Timeout | Key returned |
 |---|---|---|
 | SSL cert age | `SSL_CERT_TIMEOUT_S` | `ssl_cert_age_days` |
-| VirusTotal | 2.0s | `vendor_flags`, `total_vendors` |
+| PhishTank | 2.0s | `phishtank_flagged`, `phishtank_timed_out` |
+| OpenPhish | 3.0s | `openphish_flagged`, `openphish_timed_out` |
 | Google Safe Browsing | `GSB_TIMEOUT_S` | `gsb_threats`, `gsb_threat_type` |
 | RDAP | `RDAP_TIMEOUT_S` | `domain_age_days` |
 
@@ -194,7 +195,7 @@ Prefix tags used throughout:
 | `[PHASE2]` | `orchestrator.py`, `main.py` |
 | `[SCORING]` | `orchestrator.py` |
 | `[BROWSER]` | `browser_pool.py` |
-| `[VT]` | `scanner.py` |
+| `[PhishTank]` / `[OpenPhish]` | `scanner.py` |
 | `[GSB]` | `scanner.py` |
 | `[POLL]` | `main.py` |
 
