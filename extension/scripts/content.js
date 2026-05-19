@@ -551,6 +551,7 @@ function showReconnectingUI() {
     msgDiv.textContent = 'Waiting for backend to reconnect…';
     bodyDiv.appendChild(msgDiv);
     currentPopupContent.appendChild(bodyDiv);
+    appendCardFooter();
   }
 }
 
@@ -648,20 +649,7 @@ function finalizeReconnectCard(data) {
   }
 
   if (final_url) {
-    const urlDestDiv = document.createElement('div');
-    urlDestDiv.className = 'url-dest';
-    urlDestDiv.style.cssText = 'margin-bottom:8px;font-size:11px;color:#555;display:flex;align-items:center;gap:6px;';
-    const destLabel = document.createElement('strong');
-    destLabel.textContent = 'Dest: ';
-    urlDestDiv.appendChild(destLabel);
-    const linkEl = document.createElement('a');
-    linkEl.href = final_url;
-    linkEl.target = '_blank';
-    linkEl.rel = 'noopener noreferrer';
-    linkEl.title = final_url;
-    linkEl.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;display:inline-block;vertical-align:middle;';
-    linkEl.textContent = final_url;
-    urlDestDiv.appendChild(linkEl);
+    const urlDestDiv = createUrlDestSection(final_url);
     bodyDiv.appendChild(urlDestDiv);
   }
 
@@ -753,6 +741,19 @@ async function createShadowPopup(x, y) {
   currentPopupContent = content;
 }
 
+function appendCardFooter() {
+  if (!currentPopupContent) return;
+  const footerDiv = document.createElement('div');
+  footerDiv.className = 'card-footer';
+  
+  const disclaimer = document.createElement('div');
+  disclaimer.className = 'disclaimer-text';
+  disclaimer.textContent = 'Scans are advisory and not absolute. Always exercise caution and verify links independently.';
+  footerDiv.appendChild(disclaimer);
+  
+  currentPopupContent.appendChild(footerDiv);
+}
+
 async function showLoadingPopup(x, y) {
   await createShadowPopup(x, y);
   if (!currentPopupContent) return;
@@ -803,6 +804,7 @@ async function showLoadingPopup(x, y) {
   bodyDiv.appendChild(skeletonText2);
 
   currentPopupContent.appendChild(bodyDiv);
+  appendCardFooter();
 }
 
 function getBadgeColor(reason) {
@@ -976,6 +978,56 @@ function createForensicSection(reasons) {
   return reasonsDiv;
 }
 
+function createUrlDestSection(finalUrl) {
+  const urlDestDiv = document.createElement('div');
+  urlDestDiv.className = 'url-dest';
+
+  const destLabel = document.createElement('strong');
+  destLabel.textContent = 'Dest: ';
+  urlDestDiv.appendChild(destLabel);
+
+  const linkEl = document.createElement('a');
+  linkEl.href = finalUrl;
+  linkEl.target = '_blank';
+  linkEl.rel = 'noopener noreferrer';
+  linkEl.title = finalUrl;
+  linkEl.textContent = finalUrl;
+  urlDestDiv.appendChild(linkEl);
+
+  const copyBtn = document.createElement('span');
+  copyBtn.id = 'copy-dest-btn';
+  copyBtn.title = 'Copy URL';
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('width', '12');
+  svg.setAttribute('height', '12');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.style.pointerEvents = 'none';
+
+  const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  rect.setAttribute('x', '9');
+  rect.setAttribute('y', '9');
+  rect.setAttribute('width', '13');
+  rect.setAttribute('height', '13');
+  rect.setAttribute('rx', '2');
+  rect.setAttribute('ry', '2');
+  svg.appendChild(rect);
+
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', 'M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1');
+  svg.appendChild(path);
+
+  copyBtn.appendChild(svg);
+  urlDestDiv.appendChild(copyBtn);
+
+  return urlDestDiv;
+}
+
 function updatePopupWithResult(data) {
   if (!isPopupValid()) return;
 
@@ -1045,73 +1097,10 @@ function updatePopupWithResult(data) {
     bodyDiv.appendChild(metaSection);
   }
 
-  const urlDestDiv = document.createElement('div');
-  urlDestDiv.className = 'url-dest';
-  urlDestDiv.style.marginBottom = '8px';
-  urlDestDiv.style.fontSize = '11px';
-  urlDestDiv.style.color = 'var(--v-text-primary)';
-  urlDestDiv.style.display = 'flex';
-  urlDestDiv.style.alignItems = 'center';
-  urlDestDiv.style.gap = '6px';
-
-  const destLabel = document.createElement('strong');
-  destLabel.textContent = 'Dest: ';
-  urlDestDiv.appendChild(destLabel);
-
-  const linkEl = document.createElement('a');
-  linkEl.href = final_url;
-  linkEl.target = '_blank';
-  linkEl.rel = 'noopener noreferrer';
-  linkEl.title = final_url;
-  linkEl.style.whiteSpace = 'nowrap';
-  linkEl.style.overflow = 'hidden';
-  linkEl.style.textOverflow = 'ellipsis';
-  linkEl.style.maxWidth = '210px';
-  linkEl.style.display = 'inline-block';
-  linkEl.style.verticalAlign = 'middle';
-  linkEl.style.color = 'var(--v-accent)';
-  linkEl.textContent = final_url;
-  urlDestDiv.appendChild(linkEl);
-
-  const copyBtn = document.createElement('span');
-  copyBtn.id = 'copy-dest-btn';
-  copyBtn.style.cursor = 'pointer';
-  copyBtn.style.color = '#888';
-  copyBtn.style.display = 'flex';
-  copyBtn.style.alignItems = 'center';
-  copyBtn.style.padding = '2px';
-  copyBtn.style.borderRadius = '3px';
-  copyBtn.style.transition = 'background 0.2s';
-  copyBtn.title = 'Copy URL';
-
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('width', '12');
-  svg.setAttribute('height', '12');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('fill', 'none');
-  svg.setAttribute('stroke', 'currentColor');
-  svg.setAttribute('stroke-width', '2');
-  svg.setAttribute('stroke-linecap', 'round');
-  svg.setAttribute('stroke-linejoin', 'round');
-  svg.style.pointerEvents = 'none';
-
-  const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-  rect.setAttribute('x', '9');
-  rect.setAttribute('y', '9');
-  rect.setAttribute('width', '13');
-  rect.setAttribute('height', '13');
-  rect.setAttribute('rx', '2');
-  rect.setAttribute('ry', '2');
-  svg.appendChild(rect);
-
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  path.setAttribute('d', 'M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1');
-  svg.appendChild(path);
-
-  copyBtn.appendChild(svg);
-  urlDestDiv.appendChild(copyBtn);
-
-  bodyDiv.appendChild(urlDestDiv);
+  if (final_url) {
+    const urlDestDiv = createUrlDestSection(final_url);
+    bodyDiv.appendChild(urlDestDiv);
+  }
 
   const screenshotContainer = document.createElement('div');
   screenshotContainer.className = 'screenshot-container';
@@ -1166,6 +1155,7 @@ function updatePopupWithResult(data) {
 
   bodyDiv.appendChild(infoDiv);
   currentPopupContent.appendChild(bodyDiv);
+  appendCardFooter();
 
   attachPopupEventHandlers(final_url);
 }
@@ -1337,10 +1327,7 @@ function attachPopupEventHandlers(finalUrl) {
           const originalSvg = copyBtn.innerHTML;
           copyBtn.textContent = '';
           const successSpan = document.createElement('span');
-          successSpan.style.color = '#28a745';
-          successSpan.style.fontSize = '10px';
-          successSpan.style.fontWeight = 'bold';
-          successSpan.style.margin = '0 2px';
+          successSpan.className = 'copy-status-success';
           successSpan.textContent = '✓';
           copyBtn.appendChild(successSpan);
           setTimeout(() => {
@@ -1354,10 +1341,7 @@ function attachPopupEventHandlers(finalUrl) {
         const originalSvg = copyBtn.innerHTML;
         copyBtn.textContent = '';
         const errorSpan = document.createElement('span');
-        errorSpan.style.color = '#dc3545';
-        errorSpan.style.fontSize = '10px';
-        errorSpan.style.fontWeight = 'bold';
-        errorSpan.style.margin = '0 2px';
+        errorSpan.className = 'copy-status-error';
         errorSpan.textContent = '✗';
         copyBtn.appendChild(errorSpan);
         setTimeout(() => {
@@ -1421,6 +1405,7 @@ function updatePopupWithError(errorMsg) {
   bodyDiv.appendChild(small);
 
   currentPopupContent.appendChild(bodyDiv);
+  appendCardFooter();
 }
 
 // ============================================================
