@@ -1,9 +1,9 @@
 import httpx
 from bs4 import BeautifulSoup
-import logging
 from urllib.parse import urljoin, urlparse
+from ..core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("VigilantLink")
 
 async def fetch_metadata(url: str):
     """
@@ -86,9 +86,9 @@ async def fetch_metadata(url: str):
                 return result
         except Exception as e:
             if attempt == 0:
-                logger.warning(f"Metadata fetch attempt 1 failed for {url}: {e}. Retrying...")
+                logger.debug(f"[METADATA] Fetch attempt 1 failed for {url[:50]}...: {e}. Retrying...")
             else:
-                logger.warning(f"Metadata fetch failed for {url}: {e}")
+                logger.debug(f"[METADATA] Fetch failed for {url[:50]}...: {e}")
                 return None
 
     return None

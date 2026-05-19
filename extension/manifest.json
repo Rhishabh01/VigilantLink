@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "VigilantLink",
-  "version": "1.0",
+  "version": "2.0.0",
   "description": "Secure link previews using Remote Browser Isolation (RBI).",
   "permissions": [
     "activeTab",

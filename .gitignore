@@ -97,3 +97,24 @@ desktop.ini
 temp/
 tmp/
 
+# Security and Keys
+railway.json
+.railway/
+*keys.txt
+*secrets.txt
+*.pem
+*.key
+
+# Debug and Logs
+*.log
+*.dump
+*.dmp
+*.stackdump
+debug/
+
+# Test and Temp scripts
+test_*.html
+temp_*.py
+tmp_*.py
+scripts/temp/
+

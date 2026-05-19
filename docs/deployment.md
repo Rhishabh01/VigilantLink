@@ -25,7 +25,6 @@ Railway injects `PORT` at runtime. The `CMD` in the Dockerfile uses `${PORT:-808
 
 | Variable | Required | Description |
 |---|---|---|
-| `VIRUSTOTAL_API_KEY` | Yes | VirusTotal API v3 key |
 | `GOOGLE_SAFE_BROWSING_API_KEY` | Yes | GSB v4 API key |
 | `REDIS_URL` | Yes (auto-set by Railway Redis plugin) | Redis connection string |
 | `LOG_LEVEL` | No | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` (default: `INFO`) |
@@ -48,7 +47,6 @@ docker build -t vigilantlink-backend .
 
 ```bash
 docker run -p 8080:8080 \
-  -e VIRUSTOTAL_API_KEY=your_key \
   -e GOOGLE_SAFE_BROWSING_API_KEY=your_key \
   -e REDIS_URL=redis://host.docker.internal:6379/0 \
   vigilantlink-backend
@@ -99,7 +97,7 @@ playwright install chromium
 cp .env.example .env
 # Fill in API keys in .env
 
-uvicorn app.main:app --host localhost --port 8000 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 The backend will run in no-cache mode if Redis is not available locally. This is non-fatal.
@@ -149,7 +147,7 @@ The backend starts in no-cache mode. All requests run fresh Phase 1 + Phase 2 an
 
 ### External API timeout
 
-Each external scan (VT, GSB, RDAP, SSL) has an individual timeout. Timeouts set a `*_timed_out` flag and return safe defaults. The orchestrator applies uncertainty penalties based on timeout count and heuristic context.
+Each external scan (PhishTank, OpenPhish, GSB, RDAP, SSL) has an individual timeout. Timeouts set a `*_timed_out` flag and return safe defaults. The orchestrator applies uncertainty penalties based on timeout count and heuristic context.
 
 ---
 
