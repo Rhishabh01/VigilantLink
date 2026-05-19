@@ -120,7 +120,7 @@ VigilantLink uses a progressive multi-phase security pipeline.
 #### Threat Intelligence Sources
 
 * Google Safe Browsing
-* VirusTotal
+* PhishTank & OpenPhish
 * Cloudflare Radar
 * RDAP Domain Intelligence
 
@@ -261,7 +261,7 @@ chrome://extensions/
 * Redis
 * Chrome Extension APIs
 * Google Safe Browsing
-* VirusTotal
+* PhishTank & OpenPhish
 * RDAP Domain Intelligence
 * Python AsyncIO
 
