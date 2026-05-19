@@ -17,7 +17,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["scripts/content.js"],
+      "js": ["scripts/content.js", "scripts/form_inspector.js"],
       "run_at": "document_idle"
     }
   ],

@@ -2,6 +2,8 @@
 importScripts(
   'heuristics.js',
   'impersonation.js',
+  'brand_distance.js',
+  'path_query_analyzer.js',
   'feeds.js',
   'gsb.js',
   'scoring.js'
@@ -14,10 +16,12 @@ var BACKGROUND_POLL_MAX_MS = 30000;
 
 const activeRequests = new Map();
 const requestGenerations = new Map();
+const formRiskCache = new Map();
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   requestGenerations.delete(tabId);
   activeRequests.delete(tabId);
+  formRiskCache.delete(tabId);
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -71,6 +75,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return false;
   }
 
+  // ── Form Risk Detection (from form_inspector.js content script) ──────────
+  if (request.type === 'FORM_RISK') {
+    const payload = request.payload;
+    if (tabId && payload && payload.score > 0) {
+      // Cache the form risk for this tab
+      formRiskCache.set(tabId, payload);
+      console.log(`[FORM_RISK] Tab ${tabId}: score=${payload.score}, flags=${payload.flags.join(',')}`);
+
+      // Forward to the content script so it can merge into an active popup
+      try {
+        chrome.tabs.sendMessage(tabId, {
+          action: 'form_risk_result',
+          data: payload
+        });
+      } catch (e) {
+        // Tab may have closed
+      }
+    }
+    return false;
+  }
+
   return false;
 });
 
@@ -85,6 +110,24 @@ function cancelRequest(tabId) {
     entry.controller.abort();
     activeRequests.delete(tabId);
   }
+}
+
+let staticThreatData = null;
+async function getStaticThreatData() {
+  if (staticThreatData) return staticThreatData;
+  try {
+    const dataUrl = chrome.runtime.getURL('scripts/static_data.json');
+    const response = await fetch(dataUrl);
+    staticThreatData = await response.json();
+  } catch (e) {
+    console.error("Failed to load static threat data:", e);
+    staticThreatData = {
+      tldWeights: { "top": 30, "xyz": 30, "biz": 25, "zip": 35, "click": 25 },
+      disposableDomains: ["mailinator.com", "yopmail.com"],
+      keywordBigrams: ["secure-login", "verify-account"]
+    };
+  }
+  return staticThreatData;
 }
 
 // -------------------------------------------------------------
@@ -113,6 +156,7 @@ async function analyzeLocal(url, title = "", redirectHops = [], skipGSB = false)
   }
   
   const hostname = parsedUrl.hostname.toLowerCase();
+  const staticData = await getStaticThreatData();
   
   // Heuristics checks
   const typosquattingRes = checkTyposquatting(hostname);
@@ -123,8 +167,15 @@ async function analyzeLocal(url, title = "", redirectHops = [], skipGSB = false)
   const highEntropy = getEntropy(hostname) > 4.2;
   const hasCredentials = parsedUrl.username || parsedUrl.password || /[^/]*@/.test(url);
   
-  const tldMatch = SUSPICIOUS_TLDS.find(t => hostname.endsWith(t));
-  const suspiciousTLD = !!tldMatch;
+  // Graduated TLD weight logic
+  const tldKeys = Object.keys(staticData.tldWeights);
+  const tldMatch = tldKeys.find(t => hostname.endsWith('.' + t) || hostname === t);
+  const tldWeight = tldMatch ? staticData.tldWeights[tldMatch] : 0;
+  const suspiciousTLD = tldWeight > 0;
+  
+  // Disposable domains and bigrams check
+  const isDisposable = checkDisposableDomain(hostname, staticData.disposableDomains);
+  const keywordBigramsCount = checkKeywordBigrams(parsedUrl, staticData.keywordBigrams);
   
   const heuristics = {
     domain: hostname,
@@ -138,7 +189,10 @@ async function analyzeLocal(url, title = "", redirectHops = [], skipGSB = false)
     highEntropy,
     hasCredentials,
     suspiciousTLD,
-    tld: tldMatch || '',
+    tld: tldMatch ? '.' + tldMatch : '',
+    tldWeight,
+    isDisposable,
+    keywordBigramsCount,
     redirectChainLength: redirectHops.length
   };
   
@@ -148,19 +202,30 @@ async function analyzeLocal(url, title = "", redirectHops = [], skipGSB = false)
   // 3. Impersonation detection
   const impersonation = checkImpersonation(url, title);
   
-  // 4. Check if we should query GSB
-  const initialScore = calculateLocalScore(heuristics, feedMatch, null, impersonation);
+  // 4. Brand distance scoring (Levenshtein + Jaro-Winkler)
+  const brandDistance = analyzeBrandDistance(hostname);
+  
+  // 5. Path & query parameter analysis
+  const existingFlags = [];
+  if (heuristics.typosquatting) existingFlags.push('typosquatting');
+  if (impersonation) existingFlags.push('impersonation');
+  if (heuristics.keywords) existingFlags.push('keywords');
+  if (brandDistance) existingFlags.push('brand_distance');
+  const pathQuery = analyzePathAndQuery(url, existingFlags);
+  
+  // 6. Check if we should query GSB
+  const initialScore = calculateLocalScore(heuristics, feedMatch, null, impersonation, brandDistance, pathQuery);
   
   let gsbMatch = null;
-  const shouldCheckGSB = initialScore.rs >= 20 || impersonation || feedMatch || redirectHops.length > 3;
+  const shouldCheckGSB = initialScore.rs >= 20 || impersonation || feedMatch || brandDistance || redirectHops.length > 3;
   const isTrusted = TRUSTED_DOMAINS.some(d => hostname === d || hostname.endsWith('.' + d));
   
   if (shouldCheckGSB && !isTrusted && !skipGSB) {
     gsbMatch = await checkGoogleSafeBrowsingLocal(url);
   }
   
-  // 5. Final scoring calculation
-  return calculateLocalScore(heuristics, feedMatch, gsbMatch, impersonation);
+  // 7. Final scoring calculation
+  return calculateLocalScore(heuristics, feedMatch, gsbMatch, impersonation, brandDistance, pathQuery);
 }
 async function analyzeTwoPhase(url, signal, tabId, generation, cacheOnly = false) {
   // Always run local analysis first to be the primary verdict driver, skipping GSB initially

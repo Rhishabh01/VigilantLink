@@ -1,5 +1,5 @@
 // Local Scoring Engine for VigilantLink
-// Implements the weighted local scoring system, risk levels, and explanations
+// Implements the Bayesian local scoring system, risk levels, and explanations
 
 var VERDICT_YELLOW_THRESHOLD = 35;
 var VERDICT_RED_THRESHOLD = 65;
@@ -16,106 +16,108 @@ var TRUSTED_DOMAINS = [
   "cloudflare.com", "discord.com", "linkedin.com", "apple.com"
 ];
 
-function calculateLocalScore(heuristics, feedMatch, gsbMatch = null, impersonation = null) {
-  let riskScore = 0;
+function calculateLocalScore(heuristics, feedMatch, gsbMatch = null, impersonation = null, brandDistance = null, pathQuery = null) {
   const explanations = [];
   
-  // 1. Typosquatting & Homoglyphs
+  // ── Prior Probability of Phishing/Malicious URL ─────────────────────────
+  // We assume a baseline prior probability of 2% for analyzed links.
+  const priorProbability = 0.02;
+  let odds = priorProbability / (1 - priorProbability); // prior odds ≈ 0.0204
+
+  // ── 1. Typosquatting & Homoglyphs (Bayes Factor) ─────────────────────────
   if (heuristics.typosquatting) {
     const isHomoglyph = heuristics.typosquattingReason && heuristics.typosquattingReason.includes("Homoglyph");
-    if (isHomoglyph) {
-      riskScore += 65; // High risk for homoglyphs spoofing popular brands
-    } else {
-      riskScore += 45; // Substantial risk for standard brand typosquatting
-    }
+    const factor = isHomoglyph ? 60.0 : 15.0;
+    odds *= factor;
     explanations.push(heuristics.typosquattingReason || "Domain resembles brand domain (possible typosquatting)");
   }
   
-  // 2. Punycode / Homoglyph
+  // ── 2. Punycode / Homoglyph ──────────────────────────────────────────────
   if (heuristics.punycode) {
-    riskScore += 20;
+    odds *= 6.0;
     explanations.push("Contains deceptive Unicode characters (Punycode)");
   }
   
-  // 3. Suspicious keywords density
+  // ── 3. Suspicious keywords density ───────────────────────────────────────
   if (heuristics.keywordsCount && heuristics.keywordsCount > 0) {
-    const penalty = Math.min(30, heuristics.keywordsCount * 12);
-    riskScore += penalty;
-    if (heuristics.keywordsCount > 1) {
+    let factor = 1.0;
+    if (heuristics.keywordsCount >= 3) {
+      factor = 15.0;
+      explanations.push("High density of suspicious security keywords");
+    } else if (heuristics.keywordsCount === 2) {
+      factor = 5.0;
       explanations.push(`Contains multiple suspicious keywords (${heuristics.keywordsCount} matches)`);
     } else {
+      factor = 2.2;
       explanations.push("URL contains suspicious security keyword");
     }
+    odds *= factor;
   }
   
-  // 4. Excessive subdomains
+  // ── 4. Excessive subdomains ──────────────────────────────────────────────
   if (heuristics.excessiveSubdomains) {
-    riskScore += 15;
+    odds *= 2.5;
     explanations.push("Excessive subdomain depth detected");
   }
   
-  // 5. IP Address
+  // ── 5. IP Address ────────────────────────────────────────────────────────
   if (heuristics.isIP) {
-    riskScore += 35;
+    odds *= 12.0;
     explanations.push("Uses a raw IP address instead of a domain name");
   }
   
-  // 6. Entropy
+  // ── 6. Entropy ───────────────────────────────────────────────────────────
   if (heuristics.highEntropy) {
-    riskScore += 10;
+    odds *= 2.0;
     explanations.push("High URL name entropy (randomized characters)");
   }
   
-  // 7. Credentials in URL
+  // ── 7. Credentials in URL ────────────────────────────────────────────────
   if (heuristics.hasCredentials) {
-    riskScore += 25;
+    odds *= 8.0;
     explanations.push("Deceptive credentials embedded in URL");
   }
   
-  // 8. Redirect Chain
+  // ── 8. Redirect Chain ────────────────────────────────────────────────────
   if (heuristics.redirectChainLength > 3) {
-    riskScore += 15;
+    odds *= 4.0;
     explanations.push("Suspiciously long redirect chain (> 3 hops)");
   }
   
-  // 9. Suspicious TLD
+  // ── 9. Suspicious TLD ────────────────────────────────────────────────────
   if (heuristics.suspiciousTLD) {
-    riskScore += 20;
-    explanations.push(`Uses a high-risk suspicious TLD (${heuristics.tld})`);
+    const penalty = heuristics.tldWeight || 20;
+    const factor = 1.0 + (penalty / 10.0); // e.g. penalty 35 -> factor 4.5
+    odds *= factor;
+    explanations.push(`Uses a high-risk suspicious TLD (${heuristics.tld}, +${penalty} points)`);
   }
   
-  // --- Heuristic Correlation Synergies & Density Bonuses ---
-  // A. High Keyword Density Bonus
-  if (heuristics.keywordsCount && heuristics.keywordsCount >= 3) {
-    riskScore += 15;
-    explanations.push("High density of suspicious security keywords");
-  }
-  
-  // B. Suspicious TLD + Keyword Synergy
+  // ── Heuristic Correlation Synergies & Density Bonuses ────────────────────
+  // TLD + Keyword Synergy
   if (heuristics.suspiciousTLD && heuristics.keywordsCount && heuristics.keywordsCount > 0) {
-    riskScore += 15;
+    odds *= 3.0;
     explanations.push("Suspicious TLD paired with security keywords");
   }
   
-  // C. Suspicious TLD + Excessive Subdomains
+  // TLD + Excessive Subdomains
   if (heuristics.suspiciousTLD && heuristics.excessiveSubdomains) {
-    riskScore += 15;
+    odds *= 2.5;
     explanations.push("Suspicious TLD combined with excessive subdomains");
   }
   
-  // D. Typosquatting + Keywords Synergy
+  // Typosquatting + Keywords Synergy
   if (heuristics.typosquatting && heuristics.keywordsCount && heuristics.keywordsCount > 0) {
-    riskScore += 10;
+    odds *= 2.0;
   }
   
-  // E. Raw IP + Keywords Synergy
+  // Raw IP + Keywords Synergy
   if (heuristics.isIP && heuristics.keywordsCount && heuristics.keywordsCount > 0) {
-    riskScore += 15;
+    odds *= 3.0;
   }
   
-  // 10. Local feed match
+  // ── 10. Local feed match ─────────────────────────────────────────────────
   if (feedMatch) {
-    riskScore += 50;
+    odds *= 100.0;
     if (feedMatch.source === 'URLHaus') {
       explanations.push("Known phishing URL from URLHaus");
     } else {
@@ -123,25 +125,83 @@ function calculateLocalScore(heuristics, feedMatch, gsbMatch = null, impersonati
     }
   }
   
-  // 11. Brand impersonation
+  // ── 11. Brand impersonation ──────────────────────────────────────────────
   if (impersonation) {
-    riskScore += 45;
+    odds *= 25.0;
     explanations.push(impersonation.reason);
   }
   
-  // 11. Trusted domain abuse mitigation
+  // ── 12. Brand distance scoring ───────────────────────────────────────────
+  if (brandDistance) {
+    const alreadyFlagged = heuristics.typosquatting || impersonation;
+    if (!alreadyFlagged) {
+      let factor = 1.0;
+      if (brandDistance.compositeScore >= 85) {
+        factor = 30.0;
+      } else if (brandDistance.compositeScore >= 70) {
+        factor = 10.0;
+      } else {
+        factor = 3.0;
+      }
+      odds *= factor;
+      explanations.push(brandDistance.reason);
+    } else {
+      odds *= 2.0; // Corroboration boost
+    }
+  }
+  
+  // Brand distance + Suspicious TLD synergy
+  if (brandDistance && heuristics.suspiciousTLD) {
+    odds *= 3.0;
+    explanations.push("Brand-mimicking domain on suspicious TLD");
+  }
+  
+  // Brand distance + Keywords synergy
+  if (brandDistance && heuristics.keywordsCount && heuristics.keywordsCount > 0) {
+    odds *= 2.0;
+  }
+  
+  // ── 13. Path & query parameter analysis ──────────────────────────────────
+  if (pathQuery && pathQuery.score > 0) {
+    const factor = 1.0 + (pathQuery.score / 5.0); // e.g. score 40 -> factor 9.0
+    odds *= factor;
+    for (const exp of pathQuery.explanations) {
+      explanations.push(exp);
+    }
+  }
+  
+  // ── 14. Disposable Domain Check ──────────────────────────────────────────
+  if (heuristics.isDisposable) {
+    odds *= 15.0;
+    explanations.push("Uses a disposable/temporary domain name");
+  }
+  
+  // ── 15. Keyword Bigrams ──────────────────────────────────────────────────
+  if (heuristics.keywordBigramsCount && heuristics.keywordBigramsCount > 0) {
+    const factor = 1.0 + (heuristics.keywordBigramsCount * 2.0);
+    odds *= factor;
+    explanations.push("URL matches suspicious keyword combinations");
+  }
+  
+  // ── 16. Context Modifier (Trusted Domain Abuse Mitigation) ────────────────
+  let contextModifier = 1.0;
   const isTrusted = TRUSTED_DOMAINS.some(d => heuristics.domain === d || heuristics.domain.endsWith('.' + d));
   if (isTrusted) {
     const hasStrongIndicator = feedMatch || gsbMatch || impersonation || heuristics.typosquatting;
     if (!hasStrongIndicator) {
-      riskScore -= 40;
+      contextModifier = 0.05; // 20x decrease in odds for trusted hosts
     }
   }
+  odds *= contextModifier;
+
+  // ── Posterior Probability & Risk Score calculation ────────────────────────
+  const posteriorProbability = odds / (1.0 + odds);
+  let riskScore = Math.round(posteriorProbability * 100);
   
   // Clamping
   riskScore = Math.max(0, Math.min(100, riskScore));
   
-  // 12. GSB authoritative override (secondary verification)
+  // ── 17. GSB Authoritative Override ───────────────────────────────────────
   if (gsbMatch) {
     const minScore = GSB_MIN_SCORES[gsbMatch] || 90;
     riskScore = Math.max(riskScore, minScore);
@@ -172,7 +232,9 @@ function calculateLocalScore(heuristics, feedMatch, gsbMatch = null, impersonati
                           (heuristics.keywords ? 1 : 0) + 
                           (feedMatch ? 1 : 0) + 
                           (impersonation ? 1 : 0) + 
-                          (gsbMatch ? 1 : 0);
+                          (gsbMatch ? 1 : 0) +
+                          (brandDistance ? 1 : 0) +
+                          (pathQuery && pathQuery.score > 0 ? 1 : 0);
   
   if (indicatorsCount >= 2 || feedMatch || gsbMatch) {
     confidenceLevel = 'High';
@@ -187,8 +249,12 @@ function calculateLocalScore(heuristics, feedMatch, gsbMatch = null, impersonati
       threatType = `Deceptive Site (${gsbMatch})`;
     } else if (feedMatch) {
       threatType = `Malicious Link (${feedMatch.source})`;
-    } else if (impersonation || heuristics.typosquatting) {
+    } else if (impersonation || heuristics.typosquatting || (brandDistance && brandDistance.compositeScore >= 70)) {
       threatType = "Social Engineering / Impersonation";
+    } else if (brandDistance) {
+      threatType = "Suspected Brand Spoofing";
+    } else if (pathQuery && pathQuery.flags && (pathQuery.flags.indexOf('OPEN_REDIRECT') !== -1 || pathQuery.flags.indexOf('CREDENTIAL_PARAMS') !== -1)) {
+      threatType = "Suspicious URL Structure";
     } else if (heuristics.punycode) {
       threatType = "Deceptive Domain Name";
     } else {

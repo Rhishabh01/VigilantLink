@@ -407,6 +407,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       }
     }
+  } else if (message.action === 'form_risk_result') {
+    // Merge form inspection findings into active popup
+    if (isPopupValid() && message.data && message.data.score > 0) {
+      const forensicSection = currentPopupShadowRoot.querySelector('.forensic-section');
+      if (forensicSection) {
+        const explanations = message.data.explanations || [];
+        for (const exp of explanations) {
+          const item = document.createElement('div');
+          item.className = 'forensic-item';
+          item.textContent = '⚠ ' + exp;
+          item.style.color = '#f59e0b';
+          forensicSection.appendChild(item);
+        }
+      }
+    }
   }
 });
 

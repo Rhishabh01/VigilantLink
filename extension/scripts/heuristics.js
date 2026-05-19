@@ -459,3 +459,30 @@ function checkSafeBrowsingTests(url, parsedUrl) {
     level: "Suspicious"
   };
 }
+
+function checkKeywordBigrams(parsedUrl, bigramsList) {
+  if (!bigramsList) return 0;
+  const urlStr = parsedUrl.href.toLowerCase();
+  let matchCount = 0;
+  for (let i = 0; i < bigramsList.length; i++) {
+    const bigram = bigramsList[i];
+    if (urlStr.indexOf(bigram) !== -1) {
+      matchCount++;
+    } else {
+      const parts = bigram.split('-');
+      if (parts.length === 2) {
+        if (urlStr.indexOf(parts[0]) !== -1 && urlStr.indexOf(parts[1]) !== -1) {
+          matchCount++;
+        }
+      }
+    }
+  }
+  return matchCount;
+}
+
+function checkDisposableDomain(hostname, disposableList) {
+  if (!disposableList) return false;
+  return disposableList.some(function(d) {
+    return hostname === d || hostname.endsWith('.' + d);
+  });
+}
