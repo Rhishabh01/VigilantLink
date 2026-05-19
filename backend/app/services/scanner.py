@@ -257,7 +257,7 @@ async def check_google_safe_browsing(url: str) -> List[str]:
     payload = {
         "client": {
             "clientId": "vigilantlink",
-            "clientVersion": "1.2.0",
+            "clientVersion": "2.0.0",
         },
         "threatInfo": {
             "threatTypes": GSB_THREAT_TYPES,
