@@ -101,7 +101,7 @@ Missing libraries will be printed as `error while loading shared libraries`.
 
 **Check:** Look for `[STARTUP] Redis connect timed out` or `Redis connection failed`. If present, the poll endpoint has nothing to return.
 
-**Cause C:** The extension's `AbortController` fired before Phase 1 or 2 completed (mouse moved).
+**Cause C:** The extension's `AbortController` fired before Phase 2 completed (mouse moved).
 
 **Expected behavior:** The popup closes or renders Phase 1 as final. Not a bug.
 
@@ -179,7 +179,8 @@ Missing libraries will be printed as `error while loading shared libraries`.
 **Cause:** All four external scans are timing out. Common in networks with strict outbound filtering.
 
 **Check:** Confirm outbound HTTPS to these hosts is allowed:
-- `www.virustotal.com`
+- `checkurl.phishtank.com`
+- `openphish.com`
 - `safebrowsing.googleapis.com`
 - RDAP servers (varies by registrar)
 
@@ -216,7 +217,7 @@ If the outer `wait_for` is removed, `shield` has no effect on the timeout behavi
 
 | Symptom | Likely cause | Check |
 |---|---|---|
-| All scores = 0, verdict always green | VirusTotal/GSB API keys missing | `[VT]` / `[GSB]` logs — key not set |
+| All scores = 0, verdict always green | GSB API key missing | `[GSB]` logs — key not set |
 | Domain age always treated as unknown | RDAP timeouts | `[PHASE2] RDAP timeout` in logs |
 | Extension popup never opens | Content script not injected | Verify `host_permissions` in `manifest.json` covers the page domain |
 | CORS errors in browser console | `ALLOWED_ORIGIN` mismatch | Set `EXTENSION_ID` env var to match installed extension ID |

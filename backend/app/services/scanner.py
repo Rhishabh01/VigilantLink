@@ -11,19 +11,22 @@ import os
 import ssl
 import socket
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
 from ..core.constants import (
     HIGH_RISK_KEYWORDS, HIGH_VALUE_TARGETS, SUSPICIOUS_KEYWORDS,
-    SUSPICIOUS_TLDS, DEFAULT_DOMAIN_AGE_DAYS, TOTAL_VENDORS_COUNT,
+    SUSPICIOUS_TLDS, DEFAULT_DOMAIN_AGE_DAYS,
     GSB_API_URL, GSB_THREAT_TYPES, GSB_THREAT_PRIORITY, GSB_TIMEOUT_S,
-    SSL_CERT_TIMEOUT_S,
+    SSL_CERT_TIMEOUT_S, RDAP_TIMEOUT_S, NEWLY_REGISTERED_DAYS,
+    RECENTLY_REGISTERED_DAYS,
 )
+from .rdap_client import fetch_domain_age_rdap
+from ..core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("VigilantLink")
 
 
 def levenshtein_distance(s1: str, s2: str) -> int:
@@ -142,53 +145,94 @@ async def fetch_ssl_cert_age(hostname: str) -> Optional[int]:
 # TIER 2: External network lookups — async, non-blocking
 # ============================================================
 
-async def fetch_virustotal_flags(domain: str) -> Tuple[int, int]:
-    """
-    Fetches vendor flags from VirusTotal API v3.
-    Returns (malicious_flags, total_vendors).
-    Timeout: 1.5s — fast-fail to avoid blocking.
-    """
-    vt_key = os.getenv("VIRUSTOTAL_API_KEY")
-    if not vt_key:
-        return 0, 70
+# Module-level variables for OpenPhish feed caching
+_openphish_cache: Optional[List[str]] = None
+_openphish_cache_expiry: Optional[datetime] = None
+_openphish_lock = asyncio.Lock()
 
-    url = f"https://www.virustotal.com/api/v3/domains/{domain}"
-    headers = {
-        "accept": "application/json",
-        "x-apikey": vt_key
-    }
 
+def _normalize_openphish_url(url: str) -> str:
+    """
+    Normalize URL for comparison: lowercase, strip www., strip trailing slash.
+    """
+    u = url.lower().strip().rstrip('/')
+    if u.startswith("www."):
+        u = u[4:]
+    u = u.replace("://www.", "://")
+    return u
+
+
+async def check_openphish(url: str) -> bool:
+    """
+    Check if URL is in OpenPhish community feed.
+    Cache in memory with a 12-hour TTL. Thread-safe using asyncio.Lock.
+    """
+    global _openphish_cache, _openphish_cache_expiry
+    now = datetime.now(timezone.utc)
+
+    # Use lock to prevent simultaneous fetch attempts on cache miss
+    async with _openphish_lock:
+        cache_valid = (
+            _openphish_cache is not None
+            and _openphish_cache_expiry is not None
+            and now < _openphish_cache_expiry
+        )
+
+        if not cache_valid:
+            try:
+                timeout = httpx.Timeout(3.0)
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.get("https://openphish.com/feed.txt")
+                    if response.status_code == 200:
+                        lines = [line.strip() for line in response.text.splitlines() if line.strip()]
+                        _openphish_cache = [_normalize_openphish_url(line) for line in lines]
+                        _openphish_cache_expiry = now + timedelta(hours=12)
+                        logger.debug(f"[OpenPhish] Cache refreshed with {len(_openphish_cache)} URLs")
+                    else:
+                        logger.warning(f"[OpenPhish] Failed to fetch feed (status {response.status_code})")
+            except Exception as e:
+                logger.warning(f"[OpenPhish] Failed to fetch feed: {e}")
+
+        # Check target URL against cache (either newly fetched or old cached fallback)
+        if _openphish_cache is not None:
+            normalized_target = _normalize_openphish_url(url)
+            return normalized_target in _openphish_cache
+
+    return False
+
+
+async def check_phishtank(url: str) -> bool:
+    """
+    Check if URL is flagged as phishing by PhishTank.
+    POST to https://checkurl.phishtank.com/checkurl/
+    Body: url=ENCODED_URL&format=json&app_key=
+    Timeout: 2.0 seconds.
+    """
     try:
-        timeout = httpx.Timeout(1.5)
+        timeout = httpx.Timeout(2.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.get(url, headers=headers)
-
-            if response.status_code == 429:
-                logger.warning(f"VirusTotal rate limit hit for {domain}")
-                return 0, 70
-
+            response = await client.post(
+                "https://checkurl.phishtank.com/checkurl/",
+                data={"url": url, "format": "json", "app_key": ""}
+            )
             if response.status_code != 200:
-                logger.warning(f"VirusTotal API returned {response.status_code} for {domain}")
-                return 0, 70
+                logger.debug(f"[PhishTank] API returned {response.status_code}")
+                return False
 
             data = response.json()
-            stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
-            malicious = stats.get("malicious", 0)
-            suspicious = stats.get("suspicious", 0)
-            total = sum(stats.values())
-            return (malicious + suspicious), total
+            if "results" not in data or not isinstance(data["results"], dict):
+                logger.warning(f"[PhishTank] Unexpected response format for {url[:30]}...")
+                return False
 
+            results = data["results"]
+            in_database = results.get("in_database", False)
+            valid = results.get("valid", False)
+            return bool(in_database and valid)
     except httpx.TimeoutException:
-        logger.warning(f"VirusTotal request timed out for {domain}")
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 429:
-            logger.warning(f"VirusTotal rate limit hit for {domain}")
-        else:
-            logger.error(f"VirusTotal HTTP error for {domain}: {e}")
+        logger.debug(f"[PhishTank] Request timed out for {url[:30]}...")
     except Exception as e:
-        logger.error(f"VirusTotal fetch failed for {domain}: {e}")
-
-    return 0, 70
+        logger.debug(f"[PhishTank] Check failed: {e}")
+    return False
 
 
 def _normalize_gsb_url(target: str) -> Optional[str]:
@@ -213,7 +257,7 @@ async def check_google_safe_browsing(url: str) -> List[str]:
     payload = {
         "client": {
             "clientId": "vigilantlink",
-            "clientVersion": "1.0",
+            "clientVersion": "2.0.0",
         },
         "threatInfo": {
             "threatTypes": GSB_THREAT_TYPES,
@@ -233,11 +277,11 @@ async def check_google_safe_browsing(url: str) -> List[str]:
             )
 
             if response.status_code == 429:
-                logger.warning(f"Google Safe Browsing rate limit hit for {normalized}")
+                logger.warning(f"[GSB] Rate limit hit")
                 return []
 
             if response.status_code != 200:
-                logger.warning(f"Google Safe Browsing API returned {response.status_code} for {normalized}")
+                logger.debug(f"[GSB] API returned {response.status_code}")
                 return []
 
             data = response.json()
@@ -246,16 +290,16 @@ async def check_google_safe_browsing(url: str) -> List[str]:
             return list(dict.fromkeys([t for t in threats if t]))
 
     except httpx.TimeoutException:
-        logger.warning(f"Google Safe Browsing request timed out for {normalized}")
+        logger.debug(f"[GSB] Request timed out")
     except Exception as e:
-        logger.warning(f"Google Safe Browsing check failed for {normalized}: {e}")
+        logger.error(f"[GSB] Check failed: {e}")
 
     return []
 
 
 async def run_external_scans(domain: str) -> Dict[str, Any]:
     """
-    Tier 2: Run RDAP + VirusTotal + GSB in parallel.
+    Tier 2: Run SSL, GSB, RDAP, PhishTank, and OpenPhish in parallel.
     'domain' can be a hostname or a full URL.
     """
     parsed = urllib.parse.urlparse(domain)
@@ -273,8 +317,10 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         root_domain = target_domain
 
     ssl_timed_out = False
-    vt_timed_out = False
     gsb_timed_out = False
+    rdap_timed_out = False
+    phishtank_timed_out = False
+    openphish_timed_out = False
  
     async def _safe_ssl() -> Optional[int]:
         nonlocal ssl_timed_out
@@ -290,16 +336,6 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
             logger.debug(f"SSL cert age failed for {target_domain}: {e}")
             return None
  
-    async def _safe_vt() -> Tuple[int, int]:
-        nonlocal vt_timed_out
-        try:
-            return await asyncio.wait_for(
-                fetch_virustotal_flags(target_domain), timeout=2.0
-            )
-        except asyncio.TimeoutError:
-            vt_timed_out = True
-            return 0, TOTAL_VENDORS_COUNT
- 
     async def _safe_gsb() -> List[str]:
         nonlocal gsb_timed_out
         try:
@@ -309,11 +345,47 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         except asyncio.TimeoutError:
             gsb_timed_out = True
             return []
- 
-    cert_age, vt_results, gsb_results = await asyncio.gather(
-        _safe_ssl(), _safe_vt(), _safe_gsb()
+
+    async def _safe_rdap() -> int:
+        nonlocal rdap_timed_out
+        try:
+            return await asyncio.wait_for(
+                fetch_domain_age_rdap(root_domain), timeout=RDAP_TIMEOUT_S
+            )
+        except asyncio.TimeoutError:
+            rdap_timed_out = True
+            return DEFAULT_DOMAIN_AGE_DAYS
+
+    async def _safe_phishtank() -> bool:
+        nonlocal phishtank_timed_out
+        try:
+            return await asyncio.wait_for(
+                check_phishtank(gsb_url), timeout=2.0
+            )
+        except asyncio.TimeoutError:
+            phishtank_timed_out = True
+            return False
+        except Exception as e:
+            logger.debug(f"PhishTank check failed for {gsb_url}: {e}")
+            return False
+
+    async def _safe_openphish() -> bool:
+        nonlocal openphish_timed_out
+        try:
+            return await asyncio.wait_for(
+                check_openphish(gsb_url), timeout=3.0
+            )
+        except asyncio.TimeoutError:
+            openphish_timed_out = True
+            return False
+        except Exception as e:
+            logger.debug(f"OpenPhish check failed for {gsb_url}: {e}")
+            return False
+
+    results = await asyncio.gather(
+        _safe_ssl(), _safe_gsb(), _safe_rdap(), _safe_phishtank(), _safe_openphish()
     )
-    vendor_flags, total_vendors = vt_results
+    cert_age, gsb_results, domain_age, phishtank_flagged, openphish_flagged = results
  
     gsb_threat_type: Optional[str] = None
     if gsb_results:
@@ -325,22 +397,29 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
     threat_type: Optional[str] = None
     if gsb_threat_type:
         threat_type = gsb_threat_type
-    elif vendor_flags >= 2:
-        threat_type = f"Flagged by {vendor_flags} Security Vendors"
+    elif phishtank_flagged:
+        threat_type = "Confirmed Phishing (PhishTank)"
+    elif openphish_flagged:
+        threat_type = "Active Phishing Campaign (OpenPhish)"
     elif cert_age is not None and cert_age < 7:
         threat_type = "Recently Issued SSL Certificate"
+    elif domain_age < NEWLY_REGISTERED_DAYS:
+        threat_type = "Newly Registered Domain"
  
     return {
         "ssl_cert_age_days": cert_age,
-        "vendor_flags": vendor_flags,
-        "total_vendors": total_vendors,
+        "domain_age_days": domain_age,
         "threat_type": threat_type,
         "gsb_threats": gsb_results,
         "gsb_matched": bool(gsb_results),
         "gsb_threat_type": gsb_threat_type,
+        "rdap_timed_out": rdap_timed_out,
         "ssl_timed_out": ssl_timed_out,
-        "vt_timed_out": vt_timed_out,
         "gsb_timed_out": gsb_timed_out,
+        "phishtank_flagged": phishtank_flagged,
+        "openphish_flagged": openphish_flagged,
+        "phishtank_timed_out": phishtank_timed_out,
+        "openphish_timed_out": openphish_timed_out,
     }
 
 
@@ -359,8 +438,11 @@ async def scan_url(url: str) -> Dict[str, Any]:
     elif heuristics.get("has_suspicious_keywords"):
         threat_type = threat_type or "Suspicious Keywords in Domain"
 
-    return {
+    merged = {
         **heuristics,
         **external,
         "threat_type": threat_type,
     }
+    merged.pop("vendor_flags", None)
+    merged.pop("total_vendors", None)
+    return merged

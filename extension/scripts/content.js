@@ -8,6 +8,8 @@ let currentPopupContainer = null;
 let currentPopupShadowRoot = null;
 let currentPopupContent = null;
 const HOVER_DELAY_MS = 100;
+const ACTIVATION_DELAY_MS = 1500;
+let activationTimer = null;
 let mutationObserver = null;
 const processedLinks = new WeakSet();
 let currentAnalysisUrl = null;
@@ -88,6 +90,28 @@ async function isEnabledForSite() {
     });
   });
 }
+
+// Get the effective theme (stored or system default)
+async function getTheme() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['theme'], (result) => {
+      if (result.theme) return resolve(result.theme);
+
+      // Fallback to system preference
+      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      resolve(isDark ? 'dark' : 'light');
+    });
+  });
+}
+
+// Watch for theme changes to update active popups
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.theme && currentPopupContainer) {
+    const newTheme = changes.theme.newValue;
+    currentPopupContainer.classList.remove('theme-light', 'theme-dark');
+    currentPopupContainer.classList.add(`theme-${newTheme}`);
+  }
+});
 
 // Initialize MutationObserver for AJAX-loaded and Shadow DOM links
 function initializeMutationObserver() {
@@ -171,58 +195,102 @@ async function handleLinkMouseEnter(event) {
   hoverTimer = setTimeout(async () => {
     if (hoverTargetUrl !== url) return;
 
-    const rect = target.getBoundingClientRect();
-    let x = rect.right + 10;
-    let y = rect.top;
+    const cursorX = event.clientX;
+    const cursorY = event.clientY;
 
-    const POPUP_WIDTH = 340;
+    let x = cursorX + 15;
+    let y = cursorY + 15;
+
+    const POPUP_WIDTH = 360;
     const POPUP_HEIGHT = 450;
 
-    // Position popup with edge detection
+    // Horizontal positioning
     if (x + POPUP_WIDTH > window.innerWidth) {
-      x = rect.left - POPUP_WIDTH - 10;
+      // Try to flip to the left of the cursor
+      x = cursorX - POPUP_WIDTH - 15;
+      if (x < 0) {
+        // If it doesn't fit on either side, snap to the right edge
+        x = window.innerWidth - POPUP_WIDTH - 10;
+        if (x < 10) x = 10;
+      }
     }
-    if (x < 0) x = 10;
 
+    // Vertical positioning
     if (y + POPUP_HEIGHT > window.innerHeight) {
-      y = rect.bottom - POPUP_HEIGHT;
+      // Try to flip above the cursor
+      y = cursorY - POPUP_HEIGHT - 15;
+      if (y < 0) {
+        // If it doesn't fit above either, snap to the bottom edge
+        y = window.innerHeight - POPUP_HEIGHT - 10;
+        if (y < 10) y = 10;
+      }
     }
-    if (y < 0) y = 10;
 
-    showLoadingPopup(x, y);
+    await showLoadingPopup(x, y);
 
-    currentAnalysisUrl = url;
-    currentRequestId = null;
-    const seq = ++requestSequence;
-
-    try {
-      chrome.runtime.sendMessage({ action: 'analyze_link', url }, (response) => {
-        if (currentAnalysisUrl !== url) return; // Stale response
-        if (seq !== requestSequence) return; // Stale sequence
-        if (response && response.success) {
-          currentRequestId = response.data.id;
-          updatePopupWithResult(response.data);
-        } else {
-          updatePopupWithError(response?.error || 'Unknown error');
+    // Instant Cache Check
+    chrome.runtime.sendMessage({ action: 'analyze_link', url, cache_only: true }, (response) => {
+      if (hoverTargetUrl !== url) return; // Moved away
+      if (response && response.success && !response.data.cache_miss) {
+        console.log(`%c[CACHE HIT] Ignoring delay for: ${url}`, 'color: #8b5cf6');
+        if (activationTimer) {
+          clearTimeout(activationTimer);
+          activationTimer = null;
         }
-      });
-    } catch (e) {
-      console.warn('VigilantLink: Context invalidated. Refresh page.', e);
-    }
+        
+        currentAnalysisUrl = url;
+        currentRequestId = response.data.id || null;
+        updatePopupWithResult(response.data);
+      }
+    });
+
+    console.log(`%c[HOVER] Timer started for activation: ${url}`, 'color: #3b82f6');
+    activationTimer = setTimeout(async () => {
+      activationTimer = null; // Mark timer as fired
+      if (hoverTargetUrl !== url) return;
+
+      console.log(`%c[SCAN] Hover threshold reached -> starting scan: ${url}`, 'color: #10b981');
+      currentAnalysisUrl = url;
+      currentRequestId = null;
+      const seq = ++requestSequence;
+
+      try {
+        chrome.runtime.sendMessage({ action: 'analyze_link', url }, (response) => {
+          if (currentAnalysisUrl !== url) return; // Stale response
+          if (seq !== requestSequence) return; // Stale sequence
+          if (response && response.success) {
+            currentRequestId = response.data.id;
+            updatePopupWithResult(response.data);
+          } else {
+            updatePopupWithError(response?.error || 'Unknown error');
+          }
+        });
+      } catch (e) {
+        console.warn('VigilantLink: Context invalidated. Refresh page.', e);
+      }
+    }, ACTIVATION_DELAY_MS);
   }, HOVER_DELAY_MS);
 }
 
 function handleLinkMouseLeave(event) {
   if (hoverTimer) {
-    // Only cancel if the popup hasn't appeared yet (still in debounce window)
     clearTimeout(hoverTimer);
     hoverTimer = null;
+  }
+
+  if (activationTimer) {
+    console.log(`%c[HOVER] Cancelled before threshold: ${hoverTargetUrl}`, 'color: #94a3b8');
+    clearTimeout(activationTimer);
+    activationTimer = null;
+    // If we were waiting for activation, the scan hasn't started yet.
+    // Close the popup since the user moved away.
+    closePopup();
+  }
+
+  if (!currentAnalysisUrl && !currentRequestId) {
     hoverTargetUrl = null;
     activeAnchor = null;
     ++requestSequence;
-    // No popup shown yet — cancel the in-flight request and clear state
-    currentAnalysisUrl = null;
-    currentRequestId = null;
     clearFreezeTimer();
     clearReconnectTimer();
     scanState = 'IDLE';
@@ -277,7 +345,7 @@ document.addEventListener('mousemove', (event) => {
     if (!closeTimer) {
       closeTimer = setTimeout(() => {
         closePopup();
-      }, 300);
+      }, 500); // 500ms grace period to move cursor to popup
     }
   } else {
     if (closeTimer) {
@@ -299,6 +367,7 @@ document.addEventListener('click', (event) => {
 
 // Listen for messages from popup and background worker
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log("Content script received:", message);
   if (message.action === 'settings_updated') {
     closePopup();
   } else if (message.action === 'set_override') {
@@ -599,18 +668,24 @@ function finalizeReconnectCard(data) {
   const screenshotContainer = document.createElement('div');
   screenshotContainer.className = 'screenshot-container';
   const placeholder = document.createElement('div');
-  placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
-  placeholder.textContent = 'Preview unavailable';
+  placeholder.className = 'preview-placeholder';
+  const isPending = data.s === 1 || data.p3 === 'pending';
+  placeholder.textContent = isPending ? 'Loading visual preview...' : 'Preview unavailable';
   screenshotContainer.appendChild(placeholder);
+  
+  const img = document.createElement('img');
+  img.className = 'preview-image';
+  img.alt = `Preview of ${final_url}`;
   const displayImage = screenshot_base64 || preview_image_url;
   if (displayImage) {
-    const img = document.createElement('img');
-    img.style.display = 'none';
-    img.alt = `Preview of ${final_url}`;
-    img.onload = () => { screenshotContainer.textContent = ''; img.style.display = ''; screenshotContainer.appendChild(img); };
+    img.onload = () => { 
+      img.classList.add('loaded');
+      placeholder.style.opacity = '0';
+    };
     img.onerror = () => { };
     img.src = displayImage;
   }
+  screenshotContainer.appendChild(img);
   bodyDiv.appendChild(screenshotContainer);
 
   const infoDiv = document.createElement('div');
@@ -638,18 +713,21 @@ function finalizeReconnectCard(data) {
   if (final_url) attachPopupEventHandlers(final_url);
 }
 
-function createShadowPopup(x, y) {
-  closePopup();
+async function createShadowPopup(x, y) {
+  if (currentPopupContainer) {
+    closePopup();
+  }
 
-  let styleUrl = "";
-  try {
-    styleUrl = chrome.runtime.getURL("styles/shadow-styles.css");
-  } catch (e) {
-    console.warn("VigilantLink: Extension context invalidated. Please refresh the page.");
+  const styleUrl = chrome.runtime.getURL("styles/shadow-styles.css");
+  if (!styleUrl) {
+    console.error("VigilantLink: Shadow styles not found!");
     return;
   }
 
+  const theme = await getTheme();
+
   const container = document.createElement("div");
+  container.className = `theme-${theme}`;
   // Container positioning
   container.style.position = "fixed";
   container.style.left = `${x}px`;
@@ -675,8 +753,8 @@ function createShadowPopup(x, y) {
   currentPopupContent = content;
 }
 
-function showLoadingPopup(x, y) {
-  createShadowPopup(x, y);
+async function showLoadingPopup(x, y) {
+  await createShadowPopup(x, y);
   if (!currentPopupContent) return;
 
   clearFreezeTimer();
@@ -703,7 +781,7 @@ function showLoadingPopup(x, y) {
   headerDiv.appendChild(logoDiv);
 
   const badgeDiv = document.createElement('div');
-  badgeDiv.className = 'badge gray';
+  badgeDiv.className = 'badge gray loading-badge';
   badgeDiv.textContent = 'Analyzing...';
   headerDiv.appendChild(badgeDiv);
 
@@ -971,7 +1049,7 @@ function updatePopupWithResult(data) {
   urlDestDiv.className = 'url-dest';
   urlDestDiv.style.marginBottom = '8px';
   urlDestDiv.style.fontSize = '11px';
-  urlDestDiv.style.color = '#555';
+  urlDestDiv.style.color = 'var(--v-text-primary)';
   urlDestDiv.style.display = 'flex';
   urlDestDiv.style.alignItems = 'center';
   urlDestDiv.style.gap = '6px';
@@ -991,6 +1069,7 @@ function updatePopupWithResult(data) {
   linkEl.style.maxWidth = '210px';
   linkEl.style.display = 'inline-block';
   linkEl.style.verticalAlign = 'middle';
+  linkEl.style.color = 'var(--v-accent)';
   linkEl.textContent = final_url;
   urlDestDiv.appendChild(linkEl);
 
@@ -1039,27 +1118,30 @@ function updatePopupWithResult(data) {
 
   const makePlaceholder = () => {
     const d = document.createElement('div');
-    d.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
-    d.textContent = 'Preview unavailable';
+    d.className = 'preview-placeholder';
+    const isPending = data.s === 1 || data.p3 === 'pending';
+    d.textContent = isPending ? 'Loading visual preview...' : 'Preview unavailable';
     return d;
   };
 
-  screenshotContainer.appendChild(makePlaceholder());
+  const placeholder = makePlaceholder();
+  screenshotContainer.appendChild(placeholder);
 
+  const img = document.createElement('img');
+  img.className = 'preview-image';
+  img.alt = `Preview of ${final_url}`;
+  
   const displayImage = screenshot_base64 || preview_image_url;
   if (displayImage) {
-    const img = document.createElement('img');
-    img.style.display = 'none';
-    img.alt = `Preview of ${final_url}`;
     img.onload = () => {
-      screenshotContainer.textContent = '';
-      img.style.display = '';
-      screenshotContainer.appendChild(img);
+      img.classList.add('loaded');
+      placeholder.style.opacity = '0';
     };
     img.onerror = () => { };
     img.src = displayImage;
   }
-
+  
+  screenshotContainer.appendChild(img);
   bodyDiv.appendChild(screenshotContainer);
 
   const infoDiv = document.createElement('div');
@@ -1123,15 +1205,14 @@ function mergeDeepScanResult(data) {
   scanState = 'FINALIZED';
 
   // Route based on previous state:
-  // ANALYZING    → incremental patch (header + forensics only, body DOM is already full)
+  // ANALYZING / FINALIZED → incremental patch (header + forensics only, body DOM is already full)
   // RECONNECTING → in-card transition (header patch + body swap)
-  // SCANNING /
   // anything else → full rebuild (phase1 never rendered a result)
   if (prevState === 'RECONNECTING') {
     finalizeReconnectCard(data);
     return;
   }
-  if (prevState !== 'ANALYZING') {
+  if (prevState !== 'ANALYZING' && prevState !== 'FINALIZED') {
     updatePopupWithResult(data);
     return;
   }
@@ -1147,11 +1228,13 @@ function mergeDeepScanResult(data) {
     let verdictText = security.safe ? 'Safe' : 'Suspicious';
     if (verdictClass === 'red') verdictText = 'Dangerous';
 
-    // Remove old header classes and apply new
-    header.className = `header ${verdictClass}-header`;
-    badge.className = `badge ${verdictClass}`;
-    badge.textContent = verdictText;
-    logo.textContent = `Safety Score: ${100 - security.rs}/100`;
+    // Only update if changed to avoid micro-flicker
+    if (badge.textContent !== verdictText) {
+      header.className = `header ${verdictClass}-header`;
+      badge.className = `badge ${verdictClass}`;
+      badge.textContent = verdictText;
+      logo.textContent = `Safety Score: ${100 - security.rs}/100`;
+    }
   }
 
   // Update or add warning box
@@ -1160,7 +1243,8 @@ function mergeDeepScanResult(data) {
     const existingWarning = currentPopupShadowRoot.querySelector('.warning-box');
     const newWarning = createWarningBox(security.v, security.tt);
 
-    if (existingWarning && newWarning) {
+    // Only patch if warning box changed
+    if (existingWarning && newWarning && existingWarning.className !== newWarning.className) {
       existingWarning.replaceWith(newWarning);
     } else if (!existingWarning && newWarning) {
       body.insertBefore(newWarning, body.firstChild);
@@ -1171,8 +1255,6 @@ function mergeDeepScanResult(data) {
     // Update or add forensic section
     const existingInfo = currentPopupShadowRoot.querySelector('.info');
     if (existingInfo && security.r && security.r.length > 0) {
-      existingInfo.textContent = '';
-
       let filteredReasons = security.r;
 
       // Suppress uncertainty penalty and internal reasons for safe verdicts
@@ -1184,8 +1266,16 @@ function mergeDeepScanResult(data) {
         );
       }
 
-      const forensicSection = createForensicSection(filteredReasons);
-      if (forensicSection) existingInfo.appendChild(forensicSection);
+      // Check if reasons actually changed before wiping the text (prevents flicker on Phase 3)
+      const currentBadges = existingInfo.querySelectorAll('.forensic-badge');
+      const currentTexts = Array.from(currentBadges).map(b => b.textContent).join('|');
+      const newTexts = filteredReasons.join('|');
+
+      if (currentTexts !== newTexts) {
+        existingInfo.textContent = '';
+        const forensicSection = createForensicSection(filteredReasons);
+        if (forensicSection) existingInfo.appendChild(forensicSection);
+      }
     }
   }
 
@@ -1193,22 +1283,40 @@ function mergeDeepScanResult(data) {
   if (data.ss) {
     const container = currentPopupShadowRoot.querySelector('.screenshot-container');
     if (container) {
-      container.textContent = '';
-      const placeholderDiv = document.createElement('div');
-      placeholderDiv.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-style:italic;text-align:center;padding:0 20px';
-      placeholderDiv.textContent = 'Preview unavailable';
-      container.appendChild(placeholderDiv);
-
-      const img = document.createElement('img');
-      img.style.display = 'none';
-      img.alt = 'Site preview';
-      img.onload = () => {
-        container.textContent = '';
-        img.style.display = '';
+      let img = container.querySelector('.preview-image');
+      let placeholder = container.querySelector('.preview-placeholder');
+      
+      if (!img) {
+        img = document.createElement('img');
+        img.className = 'preview-image';
+        img.alt = 'Site preview';
         container.appendChild(img);
-      };
-      img.onerror = () => { };
-      img.src = data.ss;
+      }
+      
+      if (!placeholder) {
+        placeholder = document.createElement('div');
+        placeholder.className = 'preview-placeholder';
+        container.insertBefore(placeholder, container.firstChild);
+      }
+
+      if (img.src !== data.ss) {
+        if (!img.classList.contains('loaded')) {
+          placeholder.textContent = 'Rendering preview...';
+        }
+        
+        img.onload = () => {
+          img.classList.add('loaded');
+          placeholder.style.opacity = '0';
+        };
+        img.onerror = () => { };
+        img.src = data.ss;
+      }
+    }
+  } else {
+    const placeholder = currentPopupShadowRoot.querySelector('.preview-placeholder');
+    if (placeholder) {
+      const isPending = data.p3 === 'pending';
+      placeholder.textContent = isPending ? 'Loading visual preview...' : 'Preview unavailable';
     }
   }
 }
