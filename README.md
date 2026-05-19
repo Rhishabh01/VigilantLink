@@ -156,31 +156,27 @@ The system aggregates all security signals and produces one of:
 
 # Installation
 
-## Backend Setup
+## Backend Setup (Railway Deployment)
 
-```bash
-git clone <repo-url>
-cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-playwright install chromium
-uvicorn app.main:app --host localhost --port 8000
-```
+To deploy the backend to Railway:
+1. Connect your GitHub repository to **Railway** and create a new project.
+2. Set the **Root Directory** to `backend/` in your service settings.
+3. Add a **Redis** service to your Railway project (Railway automatically configures the `REDIS_URL` environment variable).
+4. Set the `GOOGLE_SAFE_BROWSING_API_KEY` environment variable in your Railway service settings.
+5. Deploy. Railway will automatically build and run the backend using the provided `Dockerfile`.
 
-*Note: The backend will be available at `http://localhost:8000`.*
+*For local development setup instructions, please refer to [docs/deployment.md](docs/deployment.md).*
 
 ---
 
 ## Extension Setup
 
-1.  Open Chrome and navigate to `chrome://extensions/`.
-2.  Enable **Developer Mode**.
-3.  Click **Load unpacked**.
-4.  Select the `extension/` directory.
+1. Open Chrome and navigate to `chrome://extensions/`.
+2. Enable **Developer Mode** in the top-right corner.
+3. Click **Load unpacked** and select the `extension/` directory of this repository.
 
 > [!TIP]
-> By default, the extension points to the production backend. To use your local backend, update `BACKEND_URL` in `extension/scripts/background.js` to `http://localhost:8000`.
+> By default, the extension is configured to use the production Railway backend (`https://vigilantlink-production.up.railway.app`). If you want to connect it to your own deployed Railway backend, update the `BACKEND_URL` variable at the top of `extension/scripts/background.js` to your service URL (e.g., `https://your-app-name.up.railway.app`).
 
 ---
 
