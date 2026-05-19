@@ -47,18 +47,15 @@ Starts from the heuristic base score produced by Pass 1, then applies external s
 
 **Additional signals applied:**
 
-| Signal | Condition | Effect |
-|---|---|---|
-| VirusTotal vendor flags | ≥1 flag with corroboration | `WEIGHT_VT × min(10 × flags, 40)` |
-| Trusted domain abuse | Hosting domain + VT flag or phishing keyword | Score floored at `VERDICT_YELLOW_THRESHOLD + 1` |
+| PhishTank / OpenPhish | Flagged as phishing by external feeds | Score floored at 80 (PhishTank) or 90 (OpenPhish) |
+| Trusted domain abuse | Hosting domain + PhishTank/OpenPhish flag or phishing keyword | Score floored at `VERDICT_YELLOW_THRESHOLD + 1` |
 | Hosted phishing escalation | Suspicious path/param on trusted hosting platform | Score floored at `VERDICT_YELLOW_THRESHOLD + 5` |
 | SSL cert age | Certificate issued recently | `WEIGHT_SSL_AGE × penalty` (tiered) |
 | Domain age (RDAP) | Domain registered recently | `WEIGHT_RDAP_AGE × penalty` (tiered) |
-| New domain + VT synergy | Domain < `NEWLY_REGISTERED_DAYS` and VT flags ≥ 1 | Score floored at 60 |
+| New domain + Threat feed synergy | Domain < `NEWLY_REGISTERED_DAYS` and flagged by PhishTank or OpenPhish | Score floored at 90 |
 | Google Safe Browsing | Match found | Score overridden to `GSB_THREAT_MIN_SCORES[threat_type]` |
 | Uncertainty penalty | Timed-out sources × conditions | +2 to +5 per source |
 | Trusted platform cap | Strong signals absent | Score capped at `TRUSTED_PLATFORM_CAP`, weak reasons removed |
-| VirusTotal critical | Flags > `SEVERE_VENDOR_FLAGS_THRESHOLD` | Forced `red`, score = 99 |
 
 ---
 
@@ -71,7 +68,7 @@ Starts from the heuristic base score produced by Pass 1, then applies external s
 | < `SSL_CERT_RECENT_DAYS` | `SSL_CERT_RECENT_PENALTY` |
 | < `SSL_CERT_YOUNG_DAYS` | `SSL_CERT_YOUNG_PENALTY` |
 
-If the domain shows no other risk signals (`typosquatting`, `punycode`, `synergy`, VT flags, GSB match), the penalty is capped at 5 regardless of age. This prevents young-but-legitimate sites from false-positiving.
+If the domain shows no other risk signals (`typosquatting`, `punycode`, `synergy`, PhishTank/OpenPhish flags, GSB match), the penalty is capped at 5 regardless of age. This prevents young-but-legitimate sites from false-positiving.
 
 ---
 
@@ -92,20 +89,18 @@ Weights are applied as multipliers before adding to the base score:
 |---|---|
 | `WEIGHT_HEURISTIC` | Brand penalty, synergy, typosquatting |
 | `WEIGHT_SSL_AGE` | SSL certificate age penalty |
-| `WEIGHT_VT` | VirusTotal vendor flag penalty |
 | `WEIGHT_REDIRECT_DEPTH` | Per-hop redirect penalty |
 | `WEIGHT_RDAP_AGE` | Domain age penalty |
 
 ---
 
-## VirusTotal Confidence Filtering
+## PhishTank & OpenPhish Direct Flagging
 
-Low-confidence VT signals are suppressed when:
+PhishTank and OpenPhish act as high-confidence malicious indicators:
+- **PhishTank Match**: Floor risk score at 80 (Dangerous).
+- **OpenPhish Match**: Floor risk score at 90 (Dangerous).
 
-- `vendor_flags < VT_LOW_CONFIDENCE_THRESHOLD` **and** no corroboration (no GSB match, no phishing keywords, flags < `CORROBORATION_MIN_VENDOR_FLAGS`)
-- OR the domain is a trusted platform **and** flags < 3
-
-This prevents single-vendor noise from triggering yellow verdicts on legitimate domains.
+These feeds do not require threshold corroboration and override standard heuristic calculations.
 
 ---
 
@@ -134,7 +129,7 @@ This ensures GSB matches always produce at least a `red` verdict regardless of h
 
 Domains matching `TRUSTED_PLATFORMS` (e.g., `github.com`, `google.com`) have their score capped at `TRUSTED_PLATFORM_CAP` unless any of the following strong signals are present:
 
-- VirusTotal flags ≥ 3
+- PhishTank or OpenPhish match
 - GSB match
 - Redirect chain depth > `MAX_REDIRECT_HOPS_FREE`
 - Punycode detected
@@ -155,7 +150,7 @@ When capping applies, reasons matching `WEAK_SIGNAL_PATTERNS` are also removed f
 | `deceptive_param` | Query parameter redirects to an untrusted domain |
 | `redirect_chain_suspicious` | Hop chain passes through an untrusted domain |
 
-Corroboration count aggregates all signals + VT flags + phishing keywords. `active=True` triggers a score floor at `VERDICT_YELLOW_THRESHOLD + 5`.
+Corroboration count aggregates all signals + PhishTank/OpenPhish flags + phishing keywords. `active=True` triggers a score floor at `VERDICT_YELLOW_THRESHOLD + 5`.
 
 ---
 
@@ -165,7 +160,7 @@ Applied when external sources time out. Penalties are conditional — they do no
 
 **SSL timeout:** +2, only if `base_score >= VERDICT_YELLOW_THRESHOLD` or heuristics are suspicious.
 
-**VT / GSB / RDAP timeout:** +5 per timed-out source, only if:
+**PhishTank / OpenPhish / GSB / RDAP timeout:** +5 per timed-out source, only if:
 - Two or more of these sources timed out, **or**
 - Heuristics are suspicious (`typosquatting`, `punycode`, `synergy`, `suspicious_keywords`), **or**
 - `base_score >= VERDICT_YELLOW_THRESHOLD - 5`

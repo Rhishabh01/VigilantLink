@@ -50,6 +50,11 @@ async function updateToggles() {
   const { globalEnabled, disabledSites, customSites, hiddenPresets } = await getSettings();
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
+  const globalToggle = document.getElementById('global-toggle');
+  if (globalToggle) {
+    globalToggle.checked = globalEnabled;
+  }
+
   if (!tab) return;
 
   const url = new URL(tab.url);
@@ -59,18 +64,21 @@ async function updateToggles() {
   const currentDomainEl = document.getElementById('current-domain');
   const siteToggle = document.getElementById('site-toggle');
   const badgeEl = document.getElementById('site-status-badge');
+
   if (isBrowserPage) {
-    currentDomainEl.textContent = 'N/A (Browser Page)';
-    siteToggle.disabled = true;
-    siteToggle.checked = false;
+    if (currentDomainEl) currentDomainEl.textContent = 'N/A (Browser Page)';
+    if (siteToggle) {
+      siteToggle.disabled = true;
+      siteToggle.checked = false;
+    }
     if (badgeEl) {
       badgeEl.textContent = 'N/A';
       badgeEl.style.background = 'rgba(255,255,255,0.1)';
       badgeEl.style.color = '#94a3b8';
     }
   } else {
-    currentDomainEl.textContent = currentHostname;
-    siteToggle.disabled = false;
+    if (currentDomainEl) currentDomainEl.textContent = currentHostname;
+    if (siteToggle) siteToggle.disabled = false;
 
     let tabOverride = null;
     try {
@@ -79,14 +87,14 @@ async function updateToggles() {
     } catch (e) {
     }
 
-    const isDefaultDisabled = disabledSites.some(d => currentHostname === d || currentHostname.endsWith('.' + d));
+    const isDefaultDisabled = !globalEnabled || disabledSites.some(d => currentHostname === d || currentHostname.endsWith('.' + d));
 
     let isCurrentlyDisabled;
     if (tabOverride === 'enabled') isCurrentlyDisabled = false;
     else if (tabOverride === 'disabled') isCurrentlyDisabled = true;
     else isCurrentlyDisabled = isDefaultDisabled;
 
-    siteToggle.checked = !isCurrentlyDisabled;
+    if (siteToggle) siteToggle.checked = !isCurrentlyDisabled;
 
     if (isCurrentlyDisabled) {
       if (badgeEl) {
@@ -235,7 +243,11 @@ function notifyTabs() {
 }
 
 document.addEventListener('change', async (e) => {
-  if (e.target.id === 'site-toggle') {
+  if (e.target.id === 'global-toggle') {
+    await chrome.storage.local.set({ globalEnabled: e.target.checked });
+    notifyTabs();
+    updateToggles();
+  } else if (e.target.id === 'site-toggle') {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab) {
       try {
