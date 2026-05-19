@@ -2,7 +2,7 @@
 // Phase 1: Instant analysis (POST /analyze) — returned immediately
 // Phase 2: Deep scan polling (GET /analyze/deep/{request_id}) — background poll
 
-const BACKEND_URL = "https://extension-production-4bd4.up.railway.app";
+const BACKEND_URL = "https://vigilantlink-production.up.railway.app";
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 15000;
 const BACKGROUND_POLL_MAX_MS = 30000;
