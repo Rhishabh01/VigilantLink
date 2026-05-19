@@ -28,7 +28,7 @@ from ..core.constants import (
     VERDICT_RED_THRESHOLD, VERDICT_YELLOW_THRESHOLD, PUNYCODE_MIN_SCORE,
     MAX_REDIRECT_HOPS_FREE, SEVERE_VENDOR_FLAGS_THRESHOLD,
     VT_LOW_CONFIDENCE_THRESHOLD, CORROBORATION_MIN_VENDOR_FLAGS, TRUSTED_PLATFORM_CAP,
-    DEFAULT_DOMAIN_AGE_DAYS, TOTAL_VENDORS_COUNT,
+    DEFAULT_DOMAIN_AGE_DAYS,
     BRAND_PENALTY_SCORE, SYNERGY_PENALTY_SCORE, TYPOSQUATTING_PENALTY,
     REDIRECT_CHAIN_MAJOR_PENALTY, REDIRECT_CHAIN_MINOR_PENALTY,
     VENDOR_FLAG_PENALTY,
@@ -98,7 +98,8 @@ def detect_hosted_phishing(
     final_url: str,
     hops: List[Dict[str, Any]],
     metadata: Optional[Dict[str, Any]],
-    vendor_flags: int,
+    phishtank_flagged: bool,
+    openphish_flagged: bool,
     has_phishing_keywords: bool,
 ) -> Dict[str, Any]:
     """
@@ -153,7 +154,7 @@ def detect_hosted_phishing(
                 break
 
     count = 0
-    if vendor_flags >= 1:
+    if phishtank_flagged or openphish_flagged:
         count += 1
     if signals["suspicious_path"]:
         count += 1
@@ -176,13 +177,14 @@ def detect_hosted_phishing(
 def _apply_uncertainty(
     base_score: int,
     ssl_uncertain: bool,
-    vt_uncertain: bool,
+    phishtank_uncertain: bool,
+    openphish_uncertain: bool,
     rdap_uncertain: bool = False,
     gsb_uncertain: bool = False,
     is_suspicious: bool = False,
 ) -> Tuple[int, int, int]:
     """
-    Revised uncertainty penalty logic for 4 external sources.
+    Revised uncertainty penalty logic for 5 external sources.
     Returns (total_score, ssl_penalty, security_penalty).
     """
     ssl_penalty = 0
@@ -192,17 +194,19 @@ def _apply_uncertainty(
     if ssl_uncertain and (is_suspicious or base_score >= VERDICT_YELLOW_THRESHOLD):
         ssl_penalty = 2
         
-    # Security sources (VT/GSB/RDAP): +5 each only if multiple fail OR heuristics exist OR near threshold
-    if vt_uncertain or gsb_uncertain or rdap_uncertain:
-        timeout_count = sum([vt_uncertain, gsb_uncertain, rdap_uncertain])
+    # Security sources (PhishTank/OpenPhish/GSB/RDAP): +5 each only if multiple fail OR heuristics exist OR near threshold
+    if phishtank_uncertain or openphish_uncertain or gsb_uncertain or rdap_uncertain:
+        timeout_count = sum([phishtank_uncertain, openphish_uncertain, gsb_uncertain, rdap_uncertain])
         near_threshold = base_score >= (VERDICT_YELLOW_THRESHOLD - 5)
         
         if timeout_count >= 2 or is_suspicious or near_threshold:
-            if vt_uncertain: security_penalty += 5
+            if phishtank_uncertain: security_penalty += 5
+            if openphish_uncertain: security_penalty += 5
             if gsb_uncertain: security_penalty += 5
             if rdap_uncertain: security_penalty += 5
             
     return min(base_score + ssl_penalty + security_penalty, 100), ssl_penalty, security_penalty
+
 
 
 def compute_heuristic_score(
@@ -343,7 +347,7 @@ def compute_final_score(
     ssl_error: bool = False,
 ) -> Tuple[int, str, bool, List[str]]:
     """
-    Phase 2 Final Score — heuristics + RDAP + VirusTotal + uncertainty penalty.
+    Phase 2 Final Score — heuristics + RDAP + GSB + PhishTank + OpenPhish + uncertainty penalty.
 
     Returns (score, verdict, is_safe, reasons).
     """
@@ -353,11 +357,11 @@ def compute_final_score(
     )
     logger.debug(f"[SCORING] {final_url[:50]}... - Initial base score: {risk_score}")
 
-    # Phase 2 Signal: VirusTotal flags
-    vendor_flags = external.get("vendor_flags", 0)
+    phishtank_flagged = external.get("phishtank_flagged", False)
+    openphish_flagged = external.get("openphish_flagged", False)
     gsb_threats = external.get("gsb_threats", [])
 
-    # NEW: Detect trusted platform early — used to dampen VT domain-level leakage
+    # NEW: Detect trusted platform early — used to dampen external signal leaks
     domain_lower = urlparse(final_url).netloc.lower()
     is_trusted_platform = any(
         domain_lower == d or domain_lower.endswith(f".{d}")
@@ -373,28 +377,21 @@ def compute_final_score(
     if any(kw in text for kw in PHISHING_KEYWORDS for text in content_to_check):
         has_phishing_keywords = True
 
-    # Low-confidence VT suppression: vendor_flags < threshold + no corroboration = zero contribution
-    has_vt_corroboration = (
-        bool(gsb_threats) or
-        has_phishing_keywords or
-        vendor_flags >= CORROBORATION_MIN_VENDOR_FLAGS
-    )
+    # PhishTank and OpenPhish signal processing
+    if phishtank_flagged:
+        risk_score += 50
+        reasons.append("Confirmed Phishing (PhishTank)")
+        risk_score = max(risk_score, 80)
 
-    if vendor_flags >= 1:
-        if vendor_flags < VT_LOW_CONFIDENCE_THRESHOLD and not has_vt_corroboration:
-            vt_penalty = 0
-        elif is_trusted_platform and vendor_flags < 3:
-            vt_penalty = 0
-        else:
-            vt_penalty = min(10 * vendor_flags, 40)
-        if vt_penalty > 0:
-            risk_score += round(WEIGHT_VT * vt_penalty)
-            reasons.append(f"Flagged by {vendor_flags} security vendor(s)")
+    if openphish_flagged:
+        risk_score += 60
+        reasons.append("Active Phishing Campaign (OpenPhish)")
+        risk_score = max(risk_score, 90)
 
     # NEW: Trusted-Domain Abuse Detection
     is_trusted_hosting = any(domain_lower == d or domain_lower.endswith(f".{d}") for d in TRUSTED_HOSTING_DOMAINS)
 
-    if is_trusted_hosting and (vendor_flags >= 1 or has_phishing_keywords):
+    if is_trusted_hosting and (phishtank_flagged or openphish_flagged or has_phishing_keywords):
         if risk_score < 50:
             risk_score = 50
         reasons.append("Suspicious content hosted on trusted platform")
@@ -402,7 +399,7 @@ def compute_final_score(
 
     # Hosted phishing escalation with corroboration
     hosted_signals = detect_hosted_phishing(
-        final_url, hops, metadata, vendor_flags, has_phishing_keywords
+        final_url, hops, metadata, phishtank_flagged, openphish_flagged, has_phishing_keywords
     )
     if hosted_signals.get("active"):
         if hosted_signals.get("suspicious_path"):
@@ -435,7 +432,8 @@ def compute_final_score(
                 heuristics.get("typosquatting_detected") or 
                 heuristics.get("punycode_detected") or 
                 heuristics.get("synergy_detected") or
-                vendor_flags >= 1 or
+                phishtank_flagged or
+                openphish_flagged or
                 bool(gsb_threats)
             )
             
@@ -466,16 +464,17 @@ def compute_final_score(
             else:
                 reasons.append(f"Recent domain registration ({domain_age} days ago)")
                 
-            # Synergy: New Domain + VT flags (even 1)
-            if domain_age < NEWLY_REGISTERED_DAYS and vendor_flags >= 1:
+            # Synergy: New Domain + external flag
+            if domain_age < NEWLY_REGISTERED_DAYS and (phishtank_flagged or openphish_flagged):
                 risk_score = max(risk_score, 60)
-                reasons.append("Synergy: New domain flagged by security vendor")
+                reasons.append("Synergy: New domain flagged by security source")
 
     logger.debug(f"[SCORING] {final_url[:50]}... - Heuristic base score: {risk_score}")
             
     # Uncertainty penalty for timed-out sources
     ssl_uncertain = external.get("ssl_timed_out", False)
-    vt_uncertain = external.get("vt_timed_out", False)
+    phishtank_uncertain = external.get("phishtank_timed_out", False)
+    openphish_uncertain = external.get("openphish_timed_out", False)
     gsb_uncertain = external.get("gsb_timed_out", False)
     rdap_uncertain = external.get("rdap_uncertain", False)
     
@@ -487,13 +486,13 @@ def compute_final_score(
     )
     
     risk_score, p_ssl, p_sec = _apply_uncertainty(
-        risk_score, ssl_uncertain, vt_uncertain, rdap_uncertain, gsb_uncertain, is_susp_heur
+        risk_score, ssl_uncertain, phishtank_uncertain, openphish_uncertain, rdap_uncertain, gsb_uncertain, is_susp_heur
     )
     
     # Store uncertainty info for filtered reason display
     uncertainty_info = None
     if p_ssl > 0 or p_sec > 0:
-        timed_out_count = sum([ssl_uncertain, vt_uncertain, gsb_uncertain, rdap_uncertain])
+        timed_out_count = sum([ssl_uncertain, phishtank_uncertain, openphish_uncertain, gsb_uncertain, rdap_uncertain])
         uncertainty_info = (timed_out_count, p_ssl + p_sec)
 
     # Google Safe Browsing Scoring
@@ -508,7 +507,8 @@ def compute_final_score(
     # Trusted platform calibration: dampen weak/noisy signals
     if is_trusted_platform:
         has_strong_signals = (
-            vendor_flags >= 3 or
+            phishtank_flagged or
+            openphish_flagged or
             bool(gsb_threats) or
             len(hops) > MAX_REDIRECT_HOPS_FREE or
             heuristics.get("punycode_detected", False) or
@@ -549,12 +549,13 @@ def compute_final_score(
             verdict != "green" and (
                 timed_out_count >= 2 or
                 bool(gsb_threats) or
-                vendor_flags >= 1 or
+                phishtank_flagged or
+                openphish_flagged or
                 is_suspicious_heuristics
             )
         )
         if show_uncertainty:
-            reasons.append(f"Uncertainty penalty (+{penalty}): {timed_out_count}/4 sources timed out")
+            reasons.append(f"Uncertainty penalty (+{penalty}): {timed_out_count}/5 sources timed out")
 
     logger.debug(f"[SCORING] {final_url[:50]}... - Final Verdict: {verdict}, Safe: {is_safe}, Final Score: {capped_score}")
     return capped_score, verdict, is_safe, reasons
@@ -677,25 +678,28 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
         external = {
             "ssl_cert_age_days": None,
             "domain_age_days": None,
-            "vendor_flags": 0,
-            "total_vendors": TOTAL_VENDORS_COUNT,
             "threat_type": None,
             "gsb_threats": [],
             "gsb_matched": False,
             "gsb_threat_type": None,
             "popularity_rank": None,
             "ssl_timed_out": True,
-            "vt_timed_out": True,
             "gsb_timed_out": True,
             "rdap_timed_out": True,
             "cf_timed_out": True,
+            "phishtank_flagged": False,
+            "openphish_flagged": False,
+            "phishtank_timed_out": True,
+            "openphish_timed_out": True,
         }
 
     # Concise structured logging for timeouts - use debug level to reduce noise
     if external.get("ssl_timed_out"):
         logger.debug(f"[PHASE2] SSL cert age timeout: {root_domain}")
-    if external.get("vt_timed_out"):
-        logger.debug(f"[PHASE2] VT timeout: {root_domain}")
+    if external.get("phishtank_timed_out"):
+        logger.debug(f"[PHASE2] PhishTank timeout: {root_domain}")
+    if external.get("openphish_timed_out"):
+        logger.debug(f"[PHASE2] OpenPhish timeout: {root_domain}")
     if external.get("gsb_timed_out"):
         logger.debug(f"[PHASE2] GSB timeout: {root_domain}")
     if external.get("rdap_timed_out"):
@@ -719,13 +723,17 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
 
     duration_ms = int((time.monotonic() - start) * 1000)
 
+    # Compute backward-compatible vendor_flags and total_vendors
+    vf = (1 if external.get("phishtank_flagged") else 0) + (1 if external.get("openphish_flagged") else 0)
+    tv = 2
+
     return {
         "security": {
             "is_safe": is_safe,
             "verdict": verdict,
             "threat_type": threat_type,
-            "vendor_flags": external.get("vendor_flags", 0),
-            "total_vendors": external.get("total_vendors", TOTAL_VENDORS_COUNT),
+            "vendor_flags": vf,
+            "total_vendors": tv,
             "ssl_cert_age_days": external.get("ssl_cert_age_days"),
             "risk_score": risk_score,
             "suspicious_redirects": len(hops) > MAX_REDIRECT_HOPS_FREE,

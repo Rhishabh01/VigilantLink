@@ -72,7 +72,6 @@ UNCERTAINTY_PENALTY: int = 15
 # Fallbacks
 # ============================================================
 DEFAULT_DOMAIN_AGE_DAYS = 3000
-TOTAL_VENDORS_COUNT = 70
 
 # ============================================================
 # Deadlines & Budgets
