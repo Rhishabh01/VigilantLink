@@ -74,15 +74,20 @@ ALLOWED_EXTENSION_IDS_STR = (
     os.getenv("EXTENSIONS_IDS") or 
     "[MY_EXTENSION_ID]"
 )
-ALLOWED_EXTENSION_IDS = [ext_id.strip() for ext_id in ALLOWED_EXTENSION_IDS_STR.split(",") if ext_id.strip()]
+ALLOWED_EXTENSION_IDS = [
+    ext_id.strip().strip("'\"") 
+    for ext_id in ALLOWED_EXTENSION_IDS_STR.split(",") 
+    if ext_id.strip()
+]
 
 def is_allowed_origin(origin: str | None) -> bool:
     if DEV_MODE:
         return True
     if not origin:
         return True
-    if origin.startswith("chrome-extension://"):
-        ext_id = origin.replace("chrome-extension://", "")
+    origin_clean = origin.rstrip("/")
+    if origin_clean.startswith("chrome-extension://"):
+        ext_id = origin_clean.replace("chrome-extension://", "")
         return ext_id in ALLOWED_EXTENSION_IDS
     return False
 
@@ -91,9 +96,11 @@ async def verify_origin_middleware(request: Request, call_next):
     if request.url.path == "/analyze":
         origin = request.headers.get("origin")
         if not is_allowed_origin(origin):
+            allowed_info = f"Origin: {origin}, Allowed IDs: {ALLOWED_EXTENSION_IDS}, DEV_MODE: {DEV_MODE}"
+            logger.warning(f"[ORIGIN_DENIED] {allowed_info}")
             return JSONResponse(
                 status_code=403,
-                content={"detail": "Forbidden: Access restricted to official Chrome Extension."}
+                content={"detail": f"Forbidden: Access restricted to official Chrome Extension. ({allowed_info})"}
             )
     return await call_next(request)
 
