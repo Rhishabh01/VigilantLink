@@ -6,18 +6,23 @@ const PRESET_SITES = [
   { name: 'GitHub', domain: 'github.com' }
 ];
 
+const DEFAULT_BACKEND_URL = 'https://vigilantlink-production.up.railway.app';
+
 async function getSettings() {
-  const data = await chrome.storage.local.get(['globalEnabled', 'disabledSites', 'customSites', 'hiddenPresets', 'theme']);
-  
+  const data = await chrome.storage.local.get(['globalEnabled', 'disabledSites', 'customSites', 'hiddenPresets', 'theme', 'siteOrder', 'backendUrl', 'autoAddSite']);
+
   // Determine default theme based on system preference
   const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  
+
   return {
     globalEnabled: data.globalEnabled !== false,
     disabledSites: data.disabledSites || [],
     customSites: data.customSites || [],
     hiddenPresets: data.hiddenPresets || [],
-    theme: data.theme || systemTheme
+    theme: data.theme || systemTheme,
+    siteOrder: data.siteOrder || [],
+    backendUrl: data.backendUrl || DEFAULT_BACKEND_URL,
+    autoAddSite: data.autoAddSite === true
   };
 }
 
@@ -47,7 +52,7 @@ async function toggleTheme() {
 }
 
 async function updateToggles() {
-  const { globalEnabled, disabledSites, customSites, hiddenPresets } = await getSettings();
+  const { globalEnabled, disabledSites, customSites, hiddenPresets, siteOrder } = await getSettings();
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
   const globalToggle = document.getElementById('global-toggle');
@@ -111,27 +116,82 @@ async function updateToggles() {
     }
   }
 
-  renderSiteList(disabledSites, customSites, hiddenPresets);
+  renderSiteList(disabledSites, customSites, hiddenPresets, siteOrder);
 }
 
-function renderSiteList(disabledSites, customSites, hiddenPresets) {
+function renderSiteList(disabledSites, customSites, hiddenPresets, siteOrder) {
   const listEl = document.getElementById('preset-list');
   if (!listEl) return;
 
   listEl.textContent = '';
 
-  const availablePresets = PRESET_SITES.filter(site => !hiddenPresets.includes(site.domain));
+  const presets = PRESET_SITES.filter(site => !hiddenPresets.includes(site.domain)).map(site => ({
+    ...site,
+    isPreset: true
+  }));
 
-  availablePresets.forEach(site => {
+  const custom = customSites.map(site => ({
+    ...site,
+    isPreset: false
+  }));
+
+  const allSites = [...presets, ...custom];
+
+  // Sort according to siteOrder
+  allSites.sort((a, b) => {
+    let idxA = siteOrder.indexOf(a.domain);
+    let idxB = siteOrder.indexOf(b.domain);
+    if (idxA === -1) idxA = 999;
+    if (idxB === -1) idxB = 999;
+    return idxA - idxB;
+  });
+
+  allSites.forEach(site => {
     const isEnabled = !disabledSites.includes(site.domain);
     const item = document.createElement('div');
-    item.className = 'preset-item';
+    item.className = 'site-item';
+    item.draggable = true;
+    item.dataset.domain = site.domain;
 
-    const siteName = document.createElement('span');
-    siteName.className = 'site-name';
-    siteName.textContent = site.name;
-    item.appendChild(siteName);
+    // Drag handle
+    const dragHandle = document.createElement('div');
+    dragHandle.className = 'drag-handle';
+    dragHandle.innerHTML = `
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="9" cy="12" r="1.5"></circle>
+        <circle cx="9" cy="5" r="1.5"></circle>
+        <circle cx="9" cy="19" r="1.5"></circle>
+        <circle cx="15" cy="12" r="1.5"></circle>
+        <circle cx="15" cy="5" r="1.5"></circle>
+        <circle cx="15" cy="19" r="1.5"></circle>
+      </svg>
+    `;
+    item.appendChild(dragHandle);
 
+    // Left Side: Status & Details
+    const leftEl = document.createElement('div');
+    leftEl.className = 'site-left';
+
+    const statusEl = document.createElement('div');
+    statusEl.className = `site-status-dot ${isEnabled ? 'active' : 'deactive'}`;
+    leftEl.appendChild(statusEl);
+
+    const infoEl = document.createElement('div');
+    infoEl.className = 'site-info';
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'site-name';
+    nameEl.textContent = site.name;
+    infoEl.appendChild(nameEl);
+
+    leftEl.appendChild(infoEl);
+    item.appendChild(leftEl);
+
+    // Right Side: Controls
+    const controlsEl = document.createElement('div');
+    controlsEl.className = 'site-controls';
+
+    // Toggle Checkbox
     const labelEl = document.createElement('label');
     labelEl.className = 'toggle';
 
@@ -146,11 +206,13 @@ function renderSiteList(disabledSites, customSites, hiddenPresets) {
     sliderSpan.className = 'slider';
     labelEl.appendChild(sliderSpan);
 
-    item.appendChild(labelEl);
+    controlsEl.appendChild(labelEl);
 
+    // Remove Button
     const removeBtn = document.createElement('span');
     removeBtn.className = 'remove';
     removeBtn.dataset.domain = site.domain;
+    removeBtn.dataset.isPreset = site.isPreset ? 'true' : 'false';
     removeBtn.title = 'Remove';
     removeBtn.innerHTML = `
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -158,65 +220,9 @@ function renderSiteList(disabledSites, customSites, hiddenPresets) {
         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
       </svg>
     `;
-    item.appendChild(removeBtn);
+    controlsEl.appendChild(removeBtn);
 
-    listEl.appendChild(item);
-  });
-
-  customSites.forEach((site, index) => {
-    const isEnabled = !disabledSites.includes(site.domain);
-    const item = document.createElement('div');
-    item.className = 'custom-site-item';
-
-    const siteInfoDiv = document.createElement('div');
-    siteInfoDiv.className = 'site-info';
-
-    const nameDiv = document.createElement('div');
-    nameDiv.className = 'site-name';
-    nameDiv.textContent = site.name;
-    siteInfoDiv.appendChild(nameDiv);
-
-    const domainDiv = document.createElement('div');
-    domainDiv.className = 'site-domain';
-    domainDiv.textContent = site.domain;
-    siteInfoDiv.appendChild(domainDiv);
-
-    item.appendChild(siteInfoDiv);
-
-    const controlsDiv = document.createElement('div');
-    controlsDiv.style.display = 'flex';
-    controlsDiv.style.alignItems = 'center';
-    controlsDiv.style.gap = '8px';
-
-    const labelEl = document.createElement('label');
-    labelEl.className = 'toggle';
-
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'site-list-toggle';
-    checkbox.dataset.domain = site.domain;
-    checkbox.checked = isEnabled;
-    labelEl.appendChild(checkbox);
-
-    const sliderSpan = document.createElement('span');
-    sliderSpan.className = 'slider';
-    labelEl.appendChild(sliderSpan);
-
-    controlsDiv.appendChild(labelEl);
-
-    const removeBtn = document.createElement('span');
-    removeBtn.className = 'remove';
-    removeBtn.dataset.index = index;
-    removeBtn.title = 'Remove';
-    removeBtn.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="3 6 5 6 21 6"></polyline>
-        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-      </svg>
-    `;
-    controlsDiv.appendChild(removeBtn);
-
-    item.appendChild(controlsDiv);
+    item.appendChild(controlsEl);
     listEl.appendChild(item);
   });
 }
@@ -239,6 +245,50 @@ function notifyTabs() {
     tabs.forEach(tab => {
       chrome.tabs.sendMessage(tab.id, { action: 'settings_updated' }).catch(() => { });
     });
+  });
+}
+
+// Drag and drop event listeners setup on DomContentLoaded
+function initDragAndDrop() {
+  const listEl = document.getElementById('preset-list');
+  if (!listEl) return;
+
+  listEl.addEventListener('dragstart', (e) => {
+    const item = e.target.closest('.site-item');
+    if (item) {
+      item.classList.add('dragging');
+      e.dataTransfer.setData('text/plain', item.dataset.domain);
+      e.dataTransfer.effectAllowed = 'move';
+    }
+  });
+
+  listEl.addEventListener('dragend', (e) => {
+    const item = e.target.closest('.site-item');
+    if (item) {
+      item.classList.remove('dragging');
+    }
+  });
+
+  listEl.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    const draggingItem = listEl.querySelector('.dragging');
+    if (!draggingItem) return;
+
+    const siblings = [...listEl.querySelectorAll('.site-item:not(.dragging)')];
+    const nextSibling = siblings.find(sibling => {
+      const box = sibling.getBoundingClientRect();
+      const offset = e.clientY - box.top - box.height / 2;
+      return offset < 0;
+    });
+
+    listEl.insertBefore(draggingItem, nextSibling);
+  });
+
+  listEl.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    const itemEls = [...listEl.querySelectorAll('.site-item')];
+    const newOrder = itemEls.map(el => el.dataset.domain);
+    await chrome.storage.local.set({ siteOrder: newOrder });
   });
 }
 
@@ -267,6 +317,23 @@ document.addEventListener('click', async (e) => {
   if (e.target.id === 'show-add-btn') {
     document.getElementById('add-form').style.display = 'flex';
     e.target.style.display = 'none';
+    (async () => {
+      const { autoAddSite } = await getSettings();
+      if (autoAddSite) {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab && tab.url) {
+          try {
+            const url = new URL(tab.url);
+            if (url.protocol !== 'chrome:' && url.protocol !== 'chrome-extension:') {
+              const hostname = url.hostname;
+              const cleanName = hostname.replace(/^www\./, '').replace(/\.[^.]+$/, '');
+              document.getElementById('site-name-input').value = cleanName;
+              document.getElementById('site-domain-input').value = hostname;
+            }
+          } catch (e) { /* ignore */ }
+        }
+      }
+    })();
     setTimeout(() => {
       document.getElementById('add-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 100);
@@ -280,8 +347,13 @@ document.addEventListener('click', async (e) => {
 
     if (name && domain) {
       const { customSites } = await getSettings();
-      customSites.push({ name, domain });
+      customSites.push({
+        name,
+        domain
+      });
       await chrome.storage.local.set({ customSites });
+      document.getElementById('site-name-input').value = '';
+      document.getElementById('site-domain-input').value = '';
       document.getElementById('add-form').style.display = 'none';
       document.getElementById('show-add-btn').style.display = 'block';
       updateToggles();
@@ -289,16 +361,14 @@ document.addEventListener('click', async (e) => {
   } else if (e.target.closest('.remove')) {
     const removeBtn = e.target.closest('.remove');
     const domain = removeBtn.dataset.domain;
-    const index = removeBtn.dataset.index;
-    if (index !== undefined) {
+    const isPreset = removeBtn.dataset.isPreset === 'true';
+
+    if (!isPreset) {
       let { customSites, disabledSites } = await getSettings();
-      const site = customSites[parseInt(index)];
-      if (site) {
-        customSites.splice(parseInt(index), 1);
-        disabledSites = disabledSites.filter(d => d !== site.domain);
-        await chrome.storage.local.set({ customSites, disabledSites });
-      }
-    } else if (domain) {
+      customSites = customSites.filter(site => site.domain !== domain);
+      disabledSites = disabledSites.filter(d => d !== domain);
+      await chrome.storage.local.set({ customSites, disabledSites });
+    } else {
       let { hiddenPresets } = await getSettings();
       if (!hiddenPresets.includes(domain)) hiddenPresets.push(domain);
       await chrome.storage.local.set({ hiddenPresets });
@@ -306,6 +376,108 @@ document.addEventListener('click', async (e) => {
     updateToggles();
   } else if (e.target.closest('#theme-toggle')) {
     toggleTheme();
+  } else if (e.target.closest('#settings-btn')) {
+    showSettingsView();
+  } else if (e.target.closest('#back-btn')) {
+    hideSettingsView();
+  }
+});
+
+// ── Settings View Logic ──
+
+async function showSettingsView() {
+  document.getElementById('main-view').style.display = 'none';
+  document.getElementById('settings-view').style.display = 'flex';
+  await loadSettingsData();
+}
+
+function hideSettingsView() {
+  document.getElementById('settings-view').style.display = 'none';
+  document.getElementById('main-view').style.display = 'block';
+}
+
+async function loadSettingsData() {
+  const settings = await getSettings();
+
+  // Populate auto-add toggle
+  const autoAddToggle = document.getElementById('settings-auto-add-toggle');
+  if (autoAddToggle) autoAddToggle.checked = settings.autoAddSite;
+
+  // Populate hidden presets
+  renderHiddenPresets(settings.hiddenPresets);
+}
+
+function renderHiddenPresets(hiddenPresets) {
+  const container = document.getElementById('presets-restore-list');
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (hiddenPresets.length === 0) {
+    container.innerHTML = '<div style="font-size:11px;color:var(--text-dim);text-align:center;padding:12px 0;font-style:italic;">No deleted presets.</div>';
+    return;
+  }
+
+  hiddenPresets.forEach(domain => {
+    const site = PRESET_SITES.find(s => s.domain === domain) || { name: domain, domain };
+    const row = document.createElement('div');
+    row.className = 'restore-item';
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'restore-name';
+    nameEl.textContent = `${site.name} (${site.domain})`;
+    row.appendChild(nameEl);
+
+    const restoreBtn = document.createElement('button');
+    restoreBtn.className = 'restore-btn';
+    restoreBtn.textContent = 'Restore';
+    restoreBtn.addEventListener('click', async () => {
+      let { hiddenPresets: current } = await getSettings();
+      current = current.filter(d => d !== domain);
+      await chrome.storage.local.set({ hiddenPresets: current });
+      loadSettingsData();
+      updateToggles();
+    });
+    row.appendChild(restoreBtn);
+
+    container.appendChild(row);
+  });
+}
+
+// Auto-add toggle handler
+document.getElementById('settings-auto-add-toggle')?.addEventListener('change', async (e) => {
+  await chrome.storage.local.set({ autoAddSite: e.target.checked });
+  if (e.target.checked) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab && tab.url) {
+      try {
+        const url = new URL(tab.url);
+        if (url.protocol === 'chrome:' || url.protocol === 'chrome-extension:') return;
+        const hostname = url.hostname.replace(/^www\./, '');
+        const { customSites, hiddenPresets } = await getSettings();
+        const alreadyCustom = customSites.some(s => s.domain === hostname);
+        if (!alreadyCustom && !PRESET_SITES.some(s => s.domain === hostname)) {
+          customSites.push({ name: hostname, domain: hostname });
+          await chrome.storage.local.set({ customSites });
+          updateToggles();
+        }
+      } catch (e) { /* ignore */ }
+    }
+  }
+});
+
+document.getElementById('settings-clear-custom-btn')?.addEventListener('click', async () => {
+  if (confirm('Clear all custom websites?')) {
+    await chrome.storage.local.set({ customSites: [] });
+    updateToggles();
+  }
+});
+
+document.getElementById('settings-reset-all-btn')?.addEventListener('click', async () => {
+  if (confirm('Reset all settings to default? This cannot be undone.')) {
+    await chrome.storage.local.clear();
+    initTheme();
+    updateToggles();
+    loadSettingsData();
   }
 });
 
@@ -316,4 +488,5 @@ chrome.storage.onChanged.addListener(() => {
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   updateToggles();
+  initDragAndDrop();
 });

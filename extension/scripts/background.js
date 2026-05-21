@@ -2,7 +2,12 @@
 // Phase 1: Instant analysis (POST /analyze) — returned immediately
 // Phase 2: Deep scan polling (GET /analyze/deep/{request_id}) — background poll
 
-const BACKEND_URL = "https://vigilantlink-production.up.railway.app";
+const DEFAULT_BACKEND_URL = "https://vigilantlink-production.up.railway.app";
+
+async function getBackendUrl() {
+  const data = await chrome.storage.local.get('backendUrl');
+  return data.backendUrl || DEFAULT_BACKEND_URL;
+}
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 15000;
 const BACKGROUND_POLL_MAX_MS = 30000;
@@ -85,8 +90,9 @@ function cancelRequest(tabId) {
 
 async function analyzeTwoPhase(url, signal, tabId, generation, cacheOnly = false) {
   // --- Phase 1: Instant fetch ---
-  console.log("Sending request to:", `${BACKEND_URL}/analyze`);
-  const phase1Response = await fetch(`${BACKEND_URL}/analyze`, {
+
+  const backendUrl = await getBackendUrl();
+  const phase1Response = await fetch(`${backendUrl}/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, cache_only: cacheOnly }),
@@ -151,7 +157,7 @@ function cleanupRequest(tabId, generation) {
 }
 
 async function pollForDeepScanBackground(requestId, signal, tabId, url, generation) {
-  console.log("Starting phase2 polling:", requestId);
+
   try {
     const phase2Data = await pollForDeepScan(requestId, signal, tabId, url, BACKGROUND_POLL_MAX_MS);
     // Check generation — but still send if the generation entry was cleaned up
@@ -160,7 +166,7 @@ async function pollForDeepScanBackground(requestId, signal, tabId, url, generati
     const entry = activeRequests.get(tabId);
     if (entry && entry.generation === generation && tabId) {
       try {
-        console.log("Sending phase2 result to content script");
+
         chrome.tabs.sendMessage(tabId, {
           action: "phase2_result",
           requestId: requestId,   // forward so content.js can gate on it
@@ -196,13 +202,14 @@ async function pollForDeepScan(requestId, signal, tabId, url, timeoutMs = POLL_T
   while (Date.now() - startTime < timeoutMs) {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
-    console.log("Polling...", requestId);
+
     await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
 
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
     try {
-      const response = await fetch(`${BACKEND_URL}/analyze/deep/${requestId}`, {
+      const backendUrl = await getBackendUrl();
+      const response = await fetch(`${backendUrl}/analyze/deep/${requestId}`, {
         signal
       });
 
@@ -212,11 +219,11 @@ async function pollForDeepScan(requestId, signal, tabId, url, timeoutMs = POLL_T
       if (!response.ok) continue;
 
       const data = await response.json();
-      console.log("Poll data received:", data);
+
 
       if (data.s === 2) {
         if (data.p3 === "pending") {
-          console.log("Phase2 intelligence ready, Phase3 pending. Sending update...");
+
           // Send partial result so UI shows intelligence immediately
           chrome.tabs.sendMessage(tabId, {
             action: "phase2_result",
@@ -228,7 +235,7 @@ async function pollForDeepScan(requestId, signal, tabId, url, timeoutMs = POLL_T
           continue;
         }
 
-        console.log("Phase2 and Phase3 complete:", data);
+
         return data;
       }
       // s=0 → keep polling
@@ -241,3 +248,37 @@ async function pollForDeepScan(requestId, signal, tabId, url, timeoutMs = POLL_T
 
   throw new Error("Deep scan polling timed out");
 }
+
+// ── Auto-add current website on navigation ──
+
+const PRESET_DOMAINS = ['youtube.com', 'x.com', 'instagram.com', 'linkedin.com', 'github.com'];
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'complete' || !tab.url) return;
+
+  try {
+    const url = new URL(tab.url);
+    if (url.protocol === 'chrome:' || url.protocol === 'chrome-extension:') return;
+
+    const data = await chrome.storage.local.get(['autoAddSite', 'customSites', 'hiddenPresets']);
+    if (!data.autoAddSite) return;
+
+    const hostname = url.hostname.replace(/^www\./, '');
+    const customSites = data.customSites || [];
+    const hiddenPresets = data.hiddenPresets || [];
+
+    // Skip if it's already a preset domain (and not hidden)
+    const isPreset = PRESET_DOMAINS.includes(hostname);
+    if (isPreset && !hiddenPresets.includes(hostname)) return;
+
+    // Skip if already in custom sites
+    const alreadyCustom = customSites.some(s => s.domain === hostname);
+    if (alreadyCustom) return;
+
+    // Auto-add it
+    customSites.push({ name: hostname, domain: hostname });
+    await chrome.storage.local.set({ customSites });
+  } catch (e) {
+    // Ignore invalid URLs
+  }
+});
