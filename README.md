@@ -103,7 +103,7 @@ https://testsafebrowsing.appspot.com/
 # Architecture
 
 <p align="center">
-  <img src="assets\ArcitectureIMG.png" width="1000" alt="VigilantLink Architecture Diagram"/>
+  <img src="assets\New Architecture.png" width="1000" alt="VigilantLink Architecture Diagram"/>
 </p>
 
 ### Architecture Overview
