@@ -69,6 +69,7 @@ async def root():
 # Origin validation (relaxed for local dev)
 DEV_MODE = os.getenv("DEV_MODE", "").lower() in ("true", "1", "yes")
 ALLOWED_EXTENSION_IDS_STR = (
+    os.getenv("ALLOWED_EXTENSION_IDS") or
     os.getenv("EXTENSION_ID") or 
     os.getenv("EXTENSION_IDS") or 
     os.getenv("EXTENSIONS_IDS") or 
