@@ -23,6 +23,46 @@ let lastLocation = location.href;
 let spaPatched = false;
 let spaInterval = null;
 
+// ── Micro-Cache ────────────────────────────────────────────────────────────
+const hoverCache = new Map();
+const CACHE_DURATIONS = {
+  safe: 60000,
+  suspicious: 10000,
+  malicious: 5000
+};
+
+function normalizeHostname(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '').toLowerCase().trim();
+  } catch {
+    return null;
+  }
+}
+
+function getCachedResult(hostname) {
+  const entry = hoverCache.get(hostname);
+  if (!entry) return null;
+  const elapsed = Date.now() - entry.timestamp;
+  if (elapsed > CACHE_DURATIONS[entry.riskLevel]) {
+    hoverCache.delete(hostname);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCachedResult(hostname, data) {
+  const riskLevel = getRiskLevel(data);
+  hoverCache.set(hostname, { data, timestamp: Date.now(), riskLevel });
+}
+
+function getRiskLevel(data) {
+  const sec = data.sec;
+  if (!sec) return 'suspicious';
+  if (sec.v === 'green' || sec.safe === true) return 'safe';
+  if (sec.v === 'red') return 'malicious';
+  return 'suspicious';
+}
+
 // ── Scan State Machine ─────────────────────────────────────────────────────
 // IDLE        : no active scan
 // SCANNING    : phase1 request in-flight, skeleton shown
@@ -59,6 +99,31 @@ function throttle(func, limit) {
       setTimeout(() => inThrottle = false, limit);
     }
   };
+}
+
+// Popup positioning helper
+function getPopupPosition(event) {
+  const cursorX = event.clientX;
+  const cursorY = event.clientY;
+  let x = cursorX + 15;
+  let y = cursorY + 15;
+  const POPUP_WIDTH = 365;
+  const POPUP_HEIGHT = 450;
+  if (x + POPUP_WIDTH > window.innerWidth) {
+    x = cursorX - POPUP_WIDTH - 15;
+    if (x < 0) {
+      x = window.innerWidth - POPUP_WIDTH - 10;
+      if (x < 10) x = 10;
+    }
+  }
+  if (y + POPUP_HEIGHT > window.innerHeight) {
+    y = cursorY - POPUP_HEIGHT - 15;
+    if (y < 0) {
+      y = window.innerHeight - POPUP_HEIGHT - 10;
+      if (y < 10) y = 10;
+    }
+  }
+  return { x, y };
 }
 
 const DEFAULT_SETTINGS = {
@@ -169,9 +234,8 @@ function attachLinkHoverListener(link) {
   link.addEventListener('mouseleave', handleLinkMouseLeave, false);
 }
 
-// Main hover handler with debouncing
+// Main hover handler with debouncing and micro-cache
 async function handleLinkMouseEnter(event) {
-  // Use event delegation: climb up to find the <a> tag
   let target = event.target;
   while (target && target.tagName !== 'A') {
     target = target.parentElement;
@@ -179,76 +243,57 @@ async function handleLinkMouseEnter(event) {
 
   if (!target || !target.href) return;
 
-  // Only analyze http/https links
   if (!target.href.startsWith('http://') && !target.href.startsWith('https://')) return;
 
   const enabled = await isEnabledForSite();
   if (!enabled) return;
 
   const url = target.href;
+
+  // ─── Micro-cache check ───
+  const hostname = normalizeHostname(url);
+  if (hostname) {
+    const cached = getCachedResult(hostname);
+    if (cached) {
+      hoverTargetUrl = url;
+      activeAnchor = target;
+      currentAnalysisUrl = url;
+      currentRequestId = cached.id || null;
+      if (activationTimer) { clearTimeout(activationTimer); activationTimer = null; }
+      scanState = cached.s === 2 ? 'FINALIZED' : 'ANALYZING';
+      const { x, y } = getPopupPosition(event);
+      await createShadowPopup(x, y);
+      if (currentPopupContent) updatePopupWithResult(cached);
+      return;
+    }
+  }
+
   hoverTargetUrl = url;
   activeAnchor = target;
 
   if (hoverTimer) clearTimeout(hoverTimer);
 
-  // Debounced hover popup display
   hoverTimer = setTimeout(async () => {
     if (hoverTargetUrl !== url) return;
 
-    const cursorX = event.clientX;
-    const cursorY = event.clientY;
-
-    let x = cursorX + 15;
-    let y = cursorY + 15;
-
-    const POPUP_WIDTH = 365;
-    const POPUP_HEIGHT = 450;
-
-    // Horizontal positioning
-    if (x + POPUP_WIDTH > window.innerWidth) {
-      // Try to flip to the left of the cursor
-      x = cursorX - POPUP_WIDTH - 15;
-      if (x < 0) {
-        // If it doesn't fit on either side, snap to the right edge
-        x = window.innerWidth - POPUP_WIDTH - 10;
-        if (x < 10) x = 10;
-      }
-    }
-
-    // Vertical positioning
-    if (y + POPUP_HEIGHT > window.innerHeight) {
-      // Try to flip above the cursor
-      y = cursorY - POPUP_HEIGHT - 15;
-      if (y < 0) {
-        // If it doesn't fit above either, snap to the bottom edge
-        y = window.innerHeight - POPUP_HEIGHT - 10;
-        if (y < 10) y = 10;
-      }
-    }
-
+    const { x, y } = getPopupPosition(event);
     await showLoadingPopup(x, y);
 
-    // Instant Cache Check
     chrome.runtime.sendMessage({ action: 'analyze_link', url, cache_only: true }, (response) => {
-      if (hoverTargetUrl !== url) return; // Moved away
+      if (hoverTargetUrl !== url) return;
       if (response && response.success && !response.data.cache_miss) {
-
-        if (activationTimer) {
-          clearTimeout(activationTimer);
-          activationTimer = null;
-        }
-
+        if (activationTimer) { clearTimeout(activationTimer); activationTimer = null; }
         currentAnalysisUrl = url;
         currentRequestId = response.data.id || null;
+        const h = normalizeHostname(url);
+        if (h) setCachedResult(h, response.data);
         updatePopupWithResult(response.data);
       }
     });
 
-
     activationTimer = setTimeout(async () => {
-      activationTimer = null; // Mark timer as fired
+      activationTimer = null;
       if (hoverTargetUrl !== url) return;
-
 
       currentAnalysisUrl = url;
       currentRequestId = null;
@@ -256,18 +301,18 @@ async function handleLinkMouseEnter(event) {
 
       try {
         chrome.runtime.sendMessage({ action: 'analyze_link', url }, (response) => {
-          if (currentAnalysisUrl !== url) return; // Stale response
-          if (seq !== requestSequence) return; // Stale sequence
+          if (currentAnalysisUrl !== url) return;
+          if (seq !== requestSequence) return;
           if (response && response.success) {
             currentRequestId = response.data.id;
+            const h = normalizeHostname(url);
+            if (h) setCachedResult(h, response.data);
             updatePopupWithResult(response.data);
           } else {
             updatePopupWithError(response?.error || 'Unknown error');
           }
         });
-      } catch (e) {
-
-      }
+      } catch (e) { }
     }, ACTIVATION_DELAY_MS);
   }, HOVER_DELAY_MS);
 }
@@ -1032,6 +1077,13 @@ function updatePopupWithResult(data) {
   if (!isPopupValid()) return;
 
   clearFreezeTimer();
+
+  // Store in micro-cache
+  if (data.url) {
+    const h = normalizeHostname(data.url);
+    if (h) setCachedResult(h, data);
+  }
+
   if (data.s === 1) {
     lastPhase1Result = data;
     scanState = 'ANALYZING';
@@ -1185,6 +1237,12 @@ function mergeDeepScanResult(data) {
   if (!isPopupValid()) return;
   clearFreezeTimer();
   clearReconnectTimer();
+
+  // Update micro-cache with final result
+  if (currentAnalysisUrl) {
+    const h = normalizeHostname(currentAnalysisUrl);
+    if (h) setCachedResult(h, data);
+  }
 
   const security = data.sec;
   if (!security) return;
