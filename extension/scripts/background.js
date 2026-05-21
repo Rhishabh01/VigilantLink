@@ -249,36 +249,5 @@ async function pollForDeepScan(requestId, signal, tabId, url, timeoutMs = POLL_T
   throw new Error("Deep scan polling timed out");
 }
 
-// ── Auto-add current website on navigation ──
 
-const PRESET_DOMAINS = ['youtube.com', 'x.com', 'instagram.com', 'linkedin.com', 'github.com'];
 
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (changeInfo.status !== 'complete' || !tab.url) return;
-
-  try {
-    const url = new URL(tab.url);
-    if (url.protocol === 'chrome:' || url.protocol === 'chrome-extension:') return;
-
-    const data = await chrome.storage.local.get(['autoAddSite', 'customSites', 'hiddenPresets']);
-    if (!data.autoAddSite) return;
-
-    const hostname = url.hostname.replace(/^www\./, '');
-    const customSites = data.customSites || [];
-    const hiddenPresets = data.hiddenPresets || [];
-
-    // Skip if it's already a preset domain (and not hidden)
-    const isPreset = PRESET_DOMAINS.includes(hostname);
-    if (isPreset && !hiddenPresets.includes(hostname)) return;
-
-    // Skip if already in custom sites
-    const alreadyCustom = customSites.some(s => s.domain === hostname);
-    if (alreadyCustom) return;
-
-    // Auto-add it
-    customSites.push({ name: hostname, domain: hostname });
-    await chrome.storage.local.set({ customSites });
-  } catch (e) {
-    // Ignore invalid URLs
-  }
-});

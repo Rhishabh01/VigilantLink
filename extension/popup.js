@@ -304,7 +304,7 @@ document.addEventListener('change', async (e) => {
         await chrome.tabs.sendMessage(tab.id, { action: 'set_override', enabled: e.target.checked });
         updateToggles();
       } catch (err) {
-        console.error("Could not send override to tab:", err);
+        // tab may not have content script yet
       }
     }
   } else if (e.target.classList.contains('site-list-toggle')) {
@@ -443,26 +443,10 @@ function renderHiddenPresets(hiddenPresets) {
   });
 }
 
-// Auto-add toggle handler
+// Auto-add toggle handler — only saves the preference.
+// The actual auto-fill happens when the user clicks "Add Website".
 document.getElementById('settings-auto-add-toggle')?.addEventListener('change', async (e) => {
   await chrome.storage.local.set({ autoAddSite: e.target.checked });
-  if (e.target.checked) {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab && tab.url) {
-      try {
-        const url = new URL(tab.url);
-        if (url.protocol === 'chrome:' || url.protocol === 'chrome-extension:') return;
-        const hostname = url.hostname.replace(/^www\./, '');
-        const { customSites, hiddenPresets } = await getSettings();
-        const alreadyCustom = customSites.some(s => s.domain === hostname);
-        if (!alreadyCustom && !PRESET_SITES.some(s => s.domain === hostname)) {
-          customSites.push({ name: hostname, domain: hostname });
-          await chrome.storage.local.set({ customSites });
-          updateToggles();
-        }
-      } catch (e) { /* ignore */ }
-    }
-  }
 });
 
 document.getElementById('settings-clear-custom-btn')?.addEventListener('click', async () => {
