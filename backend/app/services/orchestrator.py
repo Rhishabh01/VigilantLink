@@ -14,8 +14,6 @@ Key patterns:
 """
 
 import asyncio
-import logging
-import socket
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple

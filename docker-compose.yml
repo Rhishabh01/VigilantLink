@@ -15,7 +15,7 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
     volumes:
-      - ./backend:/app
+      - ./backend:/app:ro
     # IPC host is recommended for Playwright to avoid shared memory issues
     ipc: host
 

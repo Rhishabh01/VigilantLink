@@ -1,6 +1,5 @@
 import asyncio
 import os
-import sys
 import time
 from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Request
@@ -68,12 +67,16 @@ async def root():
     return {"status": "VigilantLink backend running"}
 
 # Origin validation (relaxed for local dev)
+DEV_MODE = os.getenv("DEV_MODE", "").lower() in ("true", "1", "yes")
 ALLOWED_EXTENSION_ID = os.getenv("EXTENSION_ID", "[MY_EXTENSION_ID]")
 ALLOWED_ORIGIN = f"chrome-extension://{ALLOWED_EXTENSION_ID}"
 
-def is_allowed_origin(origin: str) -> bool:
-    # Relaxed for local development
-    return True
+def is_allowed_origin(origin: str | None) -> bool:
+    if DEV_MODE:
+        return True
+    if not origin:
+        return True
+    return origin == ALLOWED_ORIGIN
 
 @app.middleware("http")
 async def verify_origin_middleware(request: Request, call_next):
@@ -89,7 +92,6 @@ async def verify_origin_middleware(request: Request, call_next):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

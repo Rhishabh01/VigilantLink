@@ -1,6 +1,6 @@
 import httpx
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 from ..core.logging import get_logger
 
 logger = get_logger("VigilantLink")
