@@ -1,5 +1,6 @@
 import asyncio
 import os
+import sys
 import time
 from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Request
@@ -67,47 +68,28 @@ async def root():
     return {"status": "VigilantLink backend running"}
 
 # Origin validation (relaxed for local dev)
-DEV_MODE = os.getenv("DEV_MODE", "").lower() in ("true", "1", "yes")
-ALLOWED_EXTENSION_IDS_STR = (
-    os.getenv("ALLOWED_EXTENSION_IDS") or
-    os.getenv("EXTENSION_ID") or 
-    os.getenv("EXTENSION_IDS") or 
-    os.getenv("EXTENSIONS_IDS") or 
-    "[MY_EXTENSION_ID]"
-)
-ALLOWED_EXTENSION_IDS = [
-    ext_id.strip().strip("'\"") 
-    for ext_id in ALLOWED_EXTENSION_IDS_STR.split(",") 
-    if ext_id.strip()
-]
+ALLOWED_EXTENSION_ID = os.getenv("EXTENSION_ID", "[MY_EXTENSION_ID]")
+ALLOWED_ORIGIN = f"chrome-extension://{ALLOWED_EXTENSION_ID}"
 
-def is_allowed_origin(origin: str | None) -> bool:
-    if DEV_MODE:
-        return True
-    if not origin:
-        return True
-    origin_clean = origin.rstrip("/")
-    if origin_clean.startswith("chrome-extension://"):
-        ext_id = origin_clean.replace("chrome-extension://", "")
-        return ext_id in ALLOWED_EXTENSION_IDS
-    return False
+def is_allowed_origin(origin: str) -> bool:
+    # Relaxed for local development
+    return True
 
 @app.middleware("http")
 async def verify_origin_middleware(request: Request, call_next):
     if request.url.path == "/analyze":
         origin = request.headers.get("origin")
         if not is_allowed_origin(origin):
-            allowed_info = f"Origin: {origin}, Allowed IDs: {ALLOWED_EXTENSION_IDS}, DEV_MODE: {DEV_MODE}"
-            logger.warning(f"[ORIGIN_DENIED] {allowed_info}")
             return JSONResponse(
                 status_code=403,
-                content={"detail": f"Forbidden: Access restricted to official Chrome Extension. ({allowed_info})"}
+                content={"detail": "Forbidden: Access restricted to official Chrome Extension."}
             )
     return await call_next(request)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
