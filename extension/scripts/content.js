@@ -201,7 +201,7 @@ async function handleLinkMouseEnter(event) {
     let x = cursorX + 15;
     let y = cursorY + 15;
 
-    const POPUP_WIDTH = 360;
+    const POPUP_WIDTH = 365;
     const POPUP_HEIGHT = 450;
 
     // Horizontal positioning
@@ -232,24 +232,24 @@ async function handleLinkMouseEnter(event) {
     chrome.runtime.sendMessage({ action: 'analyze_link', url, cache_only: true }, (response) => {
       if (hoverTargetUrl !== url) return; // Moved away
       if (response && response.success && !response.data.cache_miss) {
-        console.log(`%c[CACHE HIT] Ignoring delay for: ${url}`, 'color: #8b5cf6');
+
         if (activationTimer) {
           clearTimeout(activationTimer);
           activationTimer = null;
         }
-        
+
         currentAnalysisUrl = url;
         currentRequestId = response.data.id || null;
         updatePopupWithResult(response.data);
       }
     });
 
-    console.log(`%c[HOVER] Timer started for activation: ${url}`, 'color: #3b82f6');
+
     activationTimer = setTimeout(async () => {
       activationTimer = null; // Mark timer as fired
       if (hoverTargetUrl !== url) return;
 
-      console.log(`%c[SCAN] Hover threshold reached -> starting scan: ${url}`, 'color: #10b981');
+
       currentAnalysisUrl = url;
       currentRequestId = null;
       const seq = ++requestSequence;
@@ -266,7 +266,7 @@ async function handleLinkMouseEnter(event) {
           }
         });
       } catch (e) {
-        console.warn('VigilantLink: Context invalidated. Refresh page.', e);
+
       }
     }, ACTIVATION_DELAY_MS);
   }, HOVER_DELAY_MS);
@@ -279,7 +279,7 @@ function handleLinkMouseLeave(event) {
   }
 
   if (activationTimer) {
-    console.log(`%c[HOVER] Cancelled before threshold: ${hoverTargetUrl}`, 'color: #94a3b8');
+
     clearTimeout(activationTimer);
     activationTimer = null;
     // If we were waiting for activation, the scan hasn't started yet.
@@ -367,7 +367,7 @@ document.addEventListener('click', (event) => {
 
 // Listen for messages from popup and background worker
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log("Content script received:", message);
+
   if (message.action === 'settings_updated') {
     closePopup();
   } else if (message.action === 'set_override') {
@@ -660,13 +660,13 @@ function finalizeReconnectCard(data) {
   const isPending = data.s === 1 || data.p3 === 'pending';
   placeholder.textContent = isPending ? 'Loading visual preview...' : 'Preview unavailable';
   screenshotContainer.appendChild(placeholder);
-  
+
   const img = document.createElement('img');
   img.className = 'preview-image';
   img.alt = `Preview of ${final_url}`;
   const displayImage = screenshot_base64 || preview_image_url;
   if (displayImage) {
-    img.onload = () => { 
+    img.onload = () => {
       img.classList.add('loaded');
       placeholder.style.opacity = '0';
     };
@@ -745,12 +745,12 @@ function appendCardFooter() {
   if (!currentPopupContent) return;
   const footerDiv = document.createElement('div');
   footerDiv.className = 'card-footer';
-  
+
   const disclaimer = document.createElement('div');
   disclaimer.className = 'disclaimer-text';
   disclaimer.textContent = 'Scans are advisory and not absolute. Always exercise caution and verify links independently.';
   footerDiv.appendChild(disclaimer);
-  
+
   currentPopupContent.appendChild(footerDiv);
 }
 
@@ -791,17 +791,17 @@ async function showLoadingPopup(x, y) {
   const bodyDiv = document.createElement('div');
   bodyDiv.className = 'body';
 
-  const skeletonImg = document.createElement('div');
-  skeletonImg.className = 'skeleton-img pulse-anim';
-  bodyDiv.appendChild(skeletonImg);
-
   const skeletonText1 = document.createElement('div');
-  skeletonText1.className = 'skeleton-text pulse-anim';
+  skeletonText1.className = 'skeleton-text short pulse-anim';
   bodyDiv.appendChild(skeletonText1);
 
   const skeletonText2 = document.createElement('div');
-  skeletonText2.className = 'skeleton-text short pulse-anim';
+  skeletonText2.className = 'skeleton-text pulse-anim';
   bodyDiv.appendChild(skeletonText2);
+
+  const skeletonImg = document.createElement('div');
+  skeletonImg.className = 'skeleton-img pulse-anim';
+  bodyDiv.appendChild(skeletonImg);
 
   currentPopupContent.appendChild(bodyDiv);
   appendCardFooter();
@@ -1119,7 +1119,7 @@ function updatePopupWithResult(data) {
   const img = document.createElement('img');
   img.className = 'preview-image';
   img.alt = `Preview of ${final_url}`;
-  
+
   const displayImage = screenshot_base64 || preview_image_url;
   if (displayImage) {
     img.onload = () => {
@@ -1129,7 +1129,7 @@ function updatePopupWithResult(data) {
     img.onerror = () => { };
     img.src = displayImage;
   }
-  
+
   screenshotContainer.appendChild(img);
   bodyDiv.appendChild(screenshotContainer);
 
@@ -1275,14 +1275,14 @@ function mergeDeepScanResult(data) {
     if (container) {
       let img = container.querySelector('.preview-image');
       let placeholder = container.querySelector('.preview-placeholder');
-      
+
       if (!img) {
         img = document.createElement('img');
         img.className = 'preview-image';
         img.alt = 'Site preview';
         container.appendChild(img);
       }
-      
+
       if (!placeholder) {
         placeholder = document.createElement('div');
         placeholder.className = 'preview-placeholder';
@@ -1293,10 +1293,12 @@ function mergeDeepScanResult(data) {
         if (!img.classList.contains('loaded')) {
           placeholder.textContent = 'Rendering preview...';
         }
-        
+
         img.onload = () => {
           img.classList.add('loaded');
           placeholder.style.opacity = '0';
+          const card = currentPopupShadowRoot?.querySelector('.vigilant-card') || currentPopupContent;
+          if (card) console.log(`[VigilantLink] Final card size: ${card.offsetWidth}x${card.offsetHeight}`);
         };
         img.onerror = () => { };
         img.src = data.ss;
@@ -1309,6 +1311,8 @@ function mergeDeepScanResult(data) {
       placeholder.textContent = isPending ? 'Loading visual preview...' : 'Preview unavailable';
     }
   }
+  const card = currentPopupShadowRoot?.querySelector('.vigilant-card') || currentPopupContent;
+  if (card) console.log(`[VigilantLink] Card size after Phase 2/3: ${card.offsetWidth}x${card.offsetHeight}`);
 }
 
 function attachPopupEventHandlers(finalUrl) {

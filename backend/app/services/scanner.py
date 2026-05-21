@@ -6,7 +6,6 @@ Tier 2 (Network): RDAP + VirusTotal in parallel (asyncwhois removed).
 """
 
 import asyncio
-import logging
 import os
 import ssl
 import socket

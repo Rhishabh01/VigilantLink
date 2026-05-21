@@ -57,7 +57,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 14px 20px;
+      padding: 10px 20px;
       border-bottom: 1px solid var(--border);
     }
 
@@ -136,51 +136,59 @@
       text-align: center;
     }
 
-    .toggle-section {
-      min-height: 50px;
-      max-height: 50px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 12px;
+    .protection-group {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
+      padding: 4px 0;
       margin-bottom: 12px;
-      transition: border-color 0.2s, background 0.2s;
     }
 
-    .toggle-section:hover {
-      border-color: var(--border-hover);
-      background: rgba(255, 255, 255, 0.03);
-    }
-
-    [data-theme="light"] .toggle-section:hover {
-      background: rgba(0, 0, 0, 0.02);
-    }
-
-    .toggle-section .toggle {
-      margin-left: auto;
-    }
-
-    .toggle-section::after {
-      content: '';
-      width: 2px;
-      flex-shrink: 0;
-    }
-
-    .toggle-label {
-      font-size: 13px;
-      font-weight: 500;
-    }
-
-    .toggle-hint {
-      font-size: 12px;
-      color: var(--text-muted);
-      line-height: 1.5;
-      margin-bottom: 16px;
+    .protection-row {
       display: flex;
-      gap: 6px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      gap: 12px;
+    }
+
+    .protection-info {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+
+    .protection-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .protection-desc {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 2px;
+      line-height: 1.4;
+    }
+
+    .info-icon {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 1px solid currentColor;
+      font-size: 7px;
+      font-weight: 700;
+      line-height: 10px;
+      text-align: center;
+      margin-right: 2px;
+      vertical-align: middle;
+    }
+
+    .protection-divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 0;
     }
 
     .toggle {
@@ -231,7 +239,7 @@
     }
 
     .section-title {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       color: var(--text-dim);
       text-transform: uppercase;
@@ -239,79 +247,122 @@
       margin-bottom: 8px;
     }
 
-    .preset-list,
-    .custom-list {
+    .preset-list {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 6px;
       margin-bottom: 12px;
-      height: 158px;
-      overflow-y: overlay;
+      height: 156px;
+      overflow-y: auto;
       overflow-x: hidden;
     }
 
-    .preset-list::-webkit-scrollbar,
-    .custom-list::-webkit-scrollbar {
+    .preset-list::-webkit-scrollbar {
       width: 3px;
     }
 
-    .preset-list::-webkit-scrollbar-track,
-    .custom-list::-webkit-scrollbar-track {
+    .preset-list::-webkit-scrollbar-track {
       background: transparent;
     }
 
-    .preset-list::-webkit-scrollbar-thumb,
-    .custom-list::-webkit-scrollbar-thumb {
+    .preset-list::-webkit-scrollbar-thumb {
       background: var(--border-hover);
       border-radius: 999px;
     }
 
-    .preset-item .toggle {
-      margin-left: auto;
-    }
-
-    .preset-item,
-    .custom-site-item {
-      min-height: 50px;
-      max-height: 50px;
+    .site-item {
+      min-height: 48px;
+      height: 48px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px;
-      padding: 6px 12px;
+      gap: 10px;
+      padding: 0 12px;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       flex-shrink: 0;
-      transition: border-color 0.2s, background 0.2s;
+      transition: border-color 0.2s, background 0.2s, opacity 0.2s;
     }
 
-    .preset-item:hover,
-    .custom-site-item:hover {
+    .site-item:hover {
       border-color: var(--border-hover);
       background: rgba(255, 255, 255, 0.03);
     }
 
-    [data-theme="light"] .preset-item:hover,
-    [data-theme="light"] .custom-site-item:hover {
+    [data-theme="light"] .site-item:hover {
       background: rgba(0, 0, 0, 0.02);
+    }
+
+    .site-item.dragging {
+      opacity: 0.4;
+      border: 1px dashed var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .drag-handle {
+      color: var(--text-dim);
+      cursor: grab;
+      flex-shrink: 0;
+      opacity: 0.5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.2s, color 0.2s;
+    }
+
+    .drag-handle:hover {
+      opacity: 1;
+      color: var(--text);
+    }
+
+    .site-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .site-status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin: 0 4px;
+    }
+
+    .site-status-dot.active {
+      background-color: #10b981;
+      box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+    }
+
+    .site-status-dot.deactive {
+      background-color: #ef4444;
+      box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+    }
+
+    .site-info {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      flex: 1;
     }
 
     .site-name {
       font-size: 13px;
-      font-weight: 500;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--text);
     }
 
-    .site-domain {
-      font-size: 10px;
-      color: var(--text-muted);
-      margin-top: 2px;
-    }
-
-    .controls {
+    .site-controls {
       display: flex;
       align-items: center;
       gap: 8px;
+      flex-shrink: 0;
     }
 
     .remove {
@@ -439,97 +490,310 @@
       opacity: 0.8;
       font-style: italic;
     }
+
+    #settings-view {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .settings-back-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .back-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 6px;
+      color: var(--text-muted);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    .back-btn:hover {
+      background: var(--border);
+      color: var(--text);
+    }
+
+    .settings-content {
+      padding: 14px 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .settings-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .settings-card-title {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+      margin-bottom: 2px;
+    }
+
+    .settings-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .settings-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .settings-desc {
+      font-size: 10px;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .settings-input-group {
+      display: flex;
+      gap: 6px;
+      width: 100%;
+    }
+
+    .settings-btn-row {
+      display: flex;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .settings-restore-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+
+    .restore-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+
+    .restore-name {
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .restore-btn {
+      background: var(--border);
+      border: none;
+      color: var(--text);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .restore-btn:hover {
+      background: var(--border-hover);
+    }
+
+    .settings-toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .settings-toggle-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      flex: 1;
+      min-width: 0;
+    }
   </style>
 </head>
 
 <body>
-  <div class="header">
-    <div class="logo-container">
-      <img src="icons/icon48.png" alt="VigilantLink Logo" class="logo">
-      <h1>VigilantLink</h1>
-    </div>
-    <div class="header-actions">
-      <button id="theme-toggle" class="theme-toggle" title="Toggle Theme">
-        <svg id="moon-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-        </svg>
-        <svg id="sun-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round" style="display:none;">
-          <circle cx="12" cy="12" r="5"></circle>
-          <line x1="12" y1="1" x2="12" y2="3"></line>
-          <line x1="12" y1="21" x2="12" y2="23"></line>
-          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-          <line x1="1" y1="12" x2="3" y2="12"></line>
-          <line x1="21" y1="12" x2="23" y2="12"></line>
-          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-        </svg>
-      </button>
-      <span id="site-status-badge">ACTIVE</span>
-    </div>
-  </div>
-
-  <div class="content">
-    <div class="current-site-label" style="padding-bottom: 8px;">Current Website</div>
-    <div class="domain" id="current-domain">Detecting...</div>
-
-    <div class="toggle-section">
-      <span class="toggle-label">Link Checking</span>
-      <label class="toggle">
-        <input type="checkbox" id="site-toggle">
-        <span class="slider"></span>
-      </label>
-    </div>
-    <div class="toggle-hint">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-        stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px">
-        <circle cx="12" cy="12" r="10"></circle>
-        <line x1="12" y1="16" x2="12" y2="12"></line>
-        <line x1="12" y1="8" x2="12.01" y2="8"></line>
-      </svg>
-      Toggling this will temporarily disable/enable link checking on this site.
+  <div id="main-view">
+    <div class="header">
+      <div class="logo-container">
+        <img src="icons/icon48.png" alt="VigilantLink Logo" class="logo">
+        <h1>VigilantLink</h1>
+        <span id="site-status-badge">ACTIVE</span>
+      </div>
+      <div class="header-actions">
+        <button id="theme-toggle" class="theme-toggle" title="Toggle Theme">
+          <svg id="moon-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+          <svg id="sun-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+        </button>
+        <button id="settings-btn" class="theme-toggle" title="Settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z">
+            </path>
+          </svg>
+        </button>
+      </div>
     </div>
 
-    <div class="toggle-section" style="margin-top: 12px;">
-      <span class="toggle-label">Global Protection</span>
-      <label class="toggle">
-        <input type="checkbox" id="global-toggle">
-        <span class="slider"></span>
-      </label>
-    </div>
-    <div class="toggle-hint">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-        stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px">
-        <circle cx="12" cy="12" r="10"></circle>
-        <line x1="12" y1="16" x2="12" y2="12"></line>
-        <line x1="12" y1="8" x2="12.01" y2="8"></line>
-      </svg>
-      Enable/Disable global protection.
-    </div>
+    <div class="content">
+      <div class="current-site-label" style="padding-bottom: 8px;">Current Website</div>
+      <div class="domain" id="current-domain">Detecting...</div>
 
-    <div class="preset-sites">
-      <div class="section-title">Websites</div>
-      <div class="preset-list" id="preset-list"></div>
+      <div class="protection-group">
+        <!-- Global Protection Toggle -->
+        <div class="protection-row">
+          <div class="protection-info">
+            <span class="protection-title">Global Protection</span>
+            <span class="protection-desc">
+              <span class="info-icon">i</span>
+              Enable or disable link checking globally across all websites.
+            </span>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="global-toggle">
+            <span class="slider"></span>
+          </label>
+        </div>
 
-      <div class="add-site-form" id="add-form" style="display: none;">
-        <input type="text" id="site-name-input" placeholder="e.g. My Secure Bank">
-        <input type="text" id="site-domain-input" placeholder="e.g. bank.com">
-        <div class="form-buttons">
-          <button class="btn btn-add" id="save-site-btn">Add Site</button>
-          <button class="btn btn-cancel" id="cancel-btn">Cancel</button>
+        <hr class="protection-divider">
+
+        <!-- Link Checking Toggle -->
+        <div class="protection-row">
+          <div class="protection-info">
+            <span class="protection-title">Link Checking</span>
+            <span class="protection-desc">
+              <span class="info-icon">i</span>
+              Temporarily enable or disable link checking on the current site.
+            </span>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="site-toggle">
+            <span class="slider"></span>
+          </label>
         </div>
       </div>
 
-      <button class="show-add-btn" id="show-add-btn">
-        <span>+</span> Add Website
-      </button>
-    </div>
-    <div class="disclaimer-text">
-      Scans are advisory and not absolute. Always exercise caution and verify links independently.
+      <div class="preset-sites">
+        <div class="section-title">Websites</div>
+        <div class="preset-list" id="preset-list"></div>
+
+        <div class="add-site-form" id="add-form" style="display: none;">
+          <input type="text" id="site-name-input" placeholder="e.g. My Secure Bank">
+          <input type="text" id="site-domain-input" placeholder="e.g. bank.com">
+          <div class="form-buttons">
+            <button class="btn btn-add" id="save-site-btn">Add Site</button>
+            <button class="btn btn-cancel" id="cancel-btn">Cancel</button>
+          </div>
+        </div>
+
+        <button class="show-add-btn" id="show-add-btn">
+          <span>+</span> Add Website
+        </button>
+      </div>
+      <div class="disclaimer-text">
+        Scans are advisory and not absolute. Always exercise caution and verify links independently.
+      </div>
     </div>
   </div>
+
+  <div id="settings-view" style="display: none;">
+    <div class="header">
+      <div class="settings-back-container">
+        <button id="back-btn" class="back-btn" title="Back to main view">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+        </button>
+        <h1>Settings</h1>
+      </div>
+    </div>
+
+    <div class="settings-content">
+      <!-- Auto-Add Current Site Card -->
+      <div class="settings-card">
+        <div class="settings-card-title">Behavior</div>
+        <div class="settings-toggle-row">
+          <div class="settings-toggle-info">
+            <span class="settings-label">Auto-add current website</span>
+            <span class="settings-desc">
+              <span class="info-icon">i</span>
+              Automatically add the active tab's domain to your protected list when you visit it.
+            </span>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="settings-auto-add-toggle">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Deleted Preset Card -->
+      <div class="settings-card">
+        <div class="settings-card-title">Deleted Preset</div>
+        <span class="settings-desc">
+          <span class="info-icon">i</span>
+          Restore preset websites removed from the list.
+        </span>
+        <div class="settings-restore-list" id="presets-restore-list">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
+      <!-- Reset Storage Card -->
+      <div class="settings-card">
+        <div class="settings-card-title">Data Management</div>
+        <div class="settings-btn-row" style="flex-direction: column; gap: 8px;">
+          <button class="btn btn-cancel" id="settings-clear-custom-btn"
+            style="padding: 8px; font-size: 11px; background: var(--danger-dim); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.2);">Clear
+            Custom Sites</button>
+          <button class="btn btn-cancel" id="settings-reset-all-btn"
+            style="padding: 8px; font-size: 11px; background: var(--danger-dim); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.2);">Factory
+            Reset All</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 
   <script src="popup.js"></script>
 </body>
