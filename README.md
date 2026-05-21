@@ -252,7 +252,6 @@ playwright install chromium
 # 4. Start the server (loads .env and runs on http://localhost:8000)
 python run.py
 
->>>>>>> 586b1030f106f7703582fad4cf8234b959389ac4
 ```
 
 Once running, the backend will be available at `http://localhost:8000`.
