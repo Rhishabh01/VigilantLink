@@ -2,11 +2,8 @@
 
 <p align="center" >Real-time, privacy-preserving phishing detection and deep link analysis for modern browsing.</p>
 
-<<<<<<< HEAD
-> This version is for local deployment and usage (No Minor or Patch Updates will be recived to this version only during Major Updates and Security Updates it will be updated ) 
-=======
 > This version (v2.0.0) is for local deployment and usage (No Minor or Patch Updates will be recived to this version only during Major Updates and Security Updates it will be updated) 
->>>>>>> 586b1030f106f7703582fad4cf8234b959389ac4
+
 <p align="center">
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
