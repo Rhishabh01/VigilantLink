@@ -72,7 +72,7 @@ ALLOWED_EXTENSION_IDS_STR = (
     os.getenv("EXTENSION_ID") or 
     os.getenv("EXTENSION_IDS") or 
     os.getenv("EXTENSIONS_IDS") or 
-    "cgihhghdcndalfckcnaepcijbdkelcli,[MY_EXTENSION_ID]"
+    "[MY_EXTENSION_ID]"
 )
 ALLOWED_EXTENSION_IDS = [
     ext_id.strip().strip("'\"") 
