@@ -2,7 +2,11 @@
 
 <p align="center" >Real-time, privacy-preserving phishing detection and deep link analysis for modern browsing.</p>
 
+<<<<<<< HEAD
 > This version is for local deployment and usage (No Minor or Patch Updates will be recived to this version only during Major Updates and Security Updates it will be updated ) 
+=======
+> This version (v2.0.0) is for local deployment and usage (No Minor or Patch Updates will be recived to this version only during Major Updates and Security Updates it will be updated) 
+>>>>>>> 586b1030f106f7703582fad4cf8234b959389ac4
 <p align="center">
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
@@ -220,6 +224,7 @@ The extension:
 ## Backend Setup
 
 ```bash
+<<<<<<< HEAD
 git clone <repo-url>
 
 cd backend
@@ -229,6 +234,28 @@ pip install -r requirements.txt
 playwright install chromium
 
 uvicorn app.main:app --host localhost --port 8000
+=======
+# Clone the repository
+git clone <repo-url>
+cd backend
+
+# 1. Create and activate a virtual environment (highly recommended)
+python -m venv venv
+# On Windows:
+venv\Scripts\activate
+# On macOS/Linux:
+source venv/bin/activate
+
+# 2. Install dependencies & Playwright browser
+pip install -r requirements.txt
+playwright install chromium
+
+# 3. Make sure .env is configured (already pre-configured in your workspace)
+
+# 4. Start the server (loads .env and runs on http://localhost:8000)
+python run.py
+
+>>>>>>> 586b1030f106f7703582fad4cf8234b959389ac4
 ```
 
 Once running, the backend will be available at `http://localhost:8000`.
