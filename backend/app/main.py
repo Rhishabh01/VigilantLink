@@ -68,15 +68,23 @@ async def root():
 
 # Origin validation (relaxed for local dev)
 DEV_MODE = os.getenv("DEV_MODE", "").lower() in ("true", "1", "yes")
-ALLOWED_EXTENSION_ID = os.getenv("EXTENSION_ID", "[MY_EXTENSION_ID]")
-ALLOWED_ORIGIN = f"chrome-extension://{ALLOWED_EXTENSION_ID}"
+ALLOWED_EXTENSION_IDS_STR = (
+    os.getenv("EXTENSION_ID") or 
+    os.getenv("EXTENSION_IDS") or 
+    os.getenv("EXTENSIONS_IDS") or 
+    "[MY_EXTENSION_ID]"
+)
+ALLOWED_EXTENSION_IDS = [ext_id.strip() for ext_id in ALLOWED_EXTENSION_IDS_STR.split(",") if ext_id.strip()]
 
 def is_allowed_origin(origin: str | None) -> bool:
     if DEV_MODE:
         return True
     if not origin:
         return True
-    return origin == ALLOWED_ORIGIN
+    if origin.startswith("chrome-extension://"):
+        ext_id = origin.replace("chrome-extension://", "")
+        return ext_id in ALLOWED_EXTENSION_IDS
+    return False
 
 @app.middleware("http")
 async def verify_origin_middleware(request: Request, call_next):
