@@ -220,15 +220,26 @@ The extension:
 ## Backend Setup
 
 ```bash
+# Clone the repository
 git clone <repo-url>
-
 cd backend
 
-pip install -r requirements.txt
+# 1. Create and activate a virtual environment (highly recommended)
+python -m venv venv
+# On Windows:
+venv\Scripts\activate
+# On macOS/Linux:
+source venv/bin/activate
 
+# 2. Install dependencies & Playwright browser
+pip install -r requirements.txt
 playwright install chromium
 
-uvicorn app.main:app --host localhost --port 8000
+# 3. Make sure .env is configured (already pre-configured in your workspace)
+
+# 4. Start the server (loads .env and runs on http://localhost:8000)
+python run.py
+
 ```
 
 Once running, the backend will be available at `http://localhost:8000`.
