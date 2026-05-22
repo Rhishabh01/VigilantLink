@@ -1126,7 +1126,7 @@ function updatePopupWithResult(data) {
       d.innerHTML = '';
       const btn = document.createElement('button');
       btn.className = 'preview-request-btn';
-      btn.textContent = 'Ask for preview';
+      btn.textContent = 'Load Preview';
       btn.dataset.url = original_url || data.url;
       d.appendChild(btn);
     }
@@ -1335,7 +1335,7 @@ function mergeDeepScanResult(data) {
         placeholder.innerHTML = '';
         const btn = document.createElement('button');
         btn.className = 'preview-request-btn';
-        btn.textContent = 'Ask for preview';
+        btn.textContent = 'Load Preview';
         btn.dataset.url = data.url || data.furl;
         placeholder.appendChild(btn);
       }
@@ -1443,7 +1443,7 @@ function attachPopupEventHandlers(finalUrl) {
         } else {
           previewBtn.textContent = 'Failed to load preview';
           setTimeout(() => {
-            previewBtn.textContent = 'Ask for preview';
+            previewBtn.textContent = 'Load Preview';
             previewBtn.disabled = false;
             previewBtn.style.cursor = 'pointer';
           }, 3000);
