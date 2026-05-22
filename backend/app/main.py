@@ -209,7 +209,9 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
 
         if needs_deep_scan:
             # Fire-and-forget Phase 2 in background for suspicious/dangerous links
-            asyncio.create_task(_run_phase2_background(request_id, canonical, phase1))
+            task = asyncio.create_task(_run_phase2_background(request_id, canonical, phase1))
+            background_tasks.add(task)
+            task.add_done_callback(background_tasks.discard)
             logger.info(f"Phase 1 complete for {url_str} in {phase1['duration_ms']}ms (id={request_id}). Deep scan triggered.")
         else:
             # Safe link: bypass deep analysis and Playwright to save resources.
@@ -261,6 +263,9 @@ async def get_deep_result(request_id: str) -> dict:
     return {"s": 0, "id": request_id}
 
 
+# Global set to hold strong references to background tasks to prevent GC
+background_tasks = set()
+
 async def _run_phase2_background(
     request_id: str, canonical_url: str, phase1: Dict[str, Any]
 ) -> None:
@@ -269,6 +274,9 @@ async def _run_phase2_background(
     """
     logger.info(f"[PHASE2] Background scan started: {request_id}")
     stage2_response = None
+    screenshot_base64 = None
+    phase2 = None
+    
     try:
         # 1. Run Phase 2 Intelligence
         phase2 = await run_phase2(canonical_url, phase1)
@@ -348,9 +356,15 @@ async def _run_phase2_background(
                 await redis_cache.set_pending(request_id, stage2_response)
 
         logger.info(f"[PHASE2] Deep scan complete for {canonical_url[:50]}...")
-
+        
     except Exception as e:
-        logger.exception(f"[ERROR] Phase 2 failed: {str(e)}")
+        logger.exception(f"[PHASE2] Background scan failed for {request_id}: {e}")
+    finally:
+        # Aggressive memory release for heavy background tasks
+        stage2_response = None
+        screenshot_base64 = None
+        phase2 = None
+        phase1 = None
         
         # Build failure fallback so polling doesn't hang — use Phase 1 data
         sec1 = phase1.get("security", {})

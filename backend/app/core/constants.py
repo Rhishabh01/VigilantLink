@@ -88,7 +88,7 @@ GSB_API_URL = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
 # ============================================================
 # Resource Limits
 # ============================================================
-MAX_CONCURRENT_SCREENSHOTS: int = 3  # Semaphore value for Playwright pages
+MAX_CONCURRENT_SCREENSHOTS: int = 2  # Aggressively limited to prevent OOM in Railway
 
 # ============================================================
 # URL Normalization — Tracking params to strip
