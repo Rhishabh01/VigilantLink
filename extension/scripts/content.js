@@ -657,8 +657,18 @@ function finalizeReconnectCard(data) {
   screenshotContainer.className = 'screenshot-container';
   const placeholder = document.createElement('div');
   placeholder.className = 'preview-placeholder';
+  const hasImage = !!(data.ss || data.img);
   const isPending = data.s === 1 || data.p3 === 'pending';
-  placeholder.textContent = isPending ? 'Loading visual preview...' : 'Preview unavailable';
+  if (isPending && !hasImage) {
+    placeholder.textContent = 'Loading visual preview...';
+  } else if (!hasImage) {
+    placeholder.innerHTML = '';
+    const btn = document.createElement('button');
+    btn.className = 'preview-request-btn';
+    btn.textContent = 'Ask for preview';
+    btn.dataset.url = final_url || original_url;
+    placeholder.appendChild(btn);
+  }
   screenshotContainer.appendChild(placeholder);
 
   const img = document.createElement('img');
@@ -1108,8 +1118,18 @@ function updatePopupWithResult(data) {
   const makePlaceholder = () => {
     const d = document.createElement('div');
     d.className = 'preview-placeholder';
+    const hasImage = !!(data.ss || data.img);
     const isPending = data.s === 1 || data.p3 === 'pending';
-    d.textContent = isPending ? 'Loading visual preview...' : 'Preview unavailable';
+    if (isPending && !hasImage) {
+      d.textContent = 'Loading visual preview...';
+    } else if (!hasImage) {
+      d.innerHTML = '';
+      const btn = document.createElement('button');
+      btn.className = 'preview-request-btn';
+      btn.textContent = 'Ask for preview';
+      btn.dataset.url = final_url || original_url;
+      d.appendChild(btn);
+    }
     return d;
   };
 
@@ -1307,8 +1327,18 @@ function mergeDeepScanResult(data) {
   } else {
     const placeholder = currentPopupShadowRoot.querySelector('.preview-placeholder');
     if (placeholder) {
+      const hasImage = !!(data.ss || data.img);
       const isPending = data.p3 === 'pending';
-      placeholder.textContent = isPending ? 'Loading visual preview...' : 'Preview unavailable';
+      if (isPending && !hasImage) {
+        placeholder.textContent = 'Loading visual preview...';
+      } else if (!hasImage) {
+        placeholder.innerHTML = '';
+        const btn = document.createElement('button');
+        btn.className = 'preview-request-btn';
+        btn.textContent = 'Ask for preview';
+        btn.dataset.url = data.furl || data.url;
+        placeholder.appendChild(btn);
+      }
     }
   }
   const card = currentPopupShadowRoot?.querySelector('.vigilant-card') || currentPopupContent;
@@ -1372,6 +1402,52 @@ function attachPopupEventHandlers(finalUrl) {
       if (compactView) compactView.style.display = isExpanded ? 'inline' : 'none';
       if (moreEl) moreEl.style.display = isExpanded ? 'inline' : 'inline';
       if (btn) btn.textContent = isExpanded ? 'Show full path' : 'Collapse path';
+      return;
+    }
+
+    const previewBtn = e.target.closest('.preview-request-btn');
+    if (previewBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const urlToPreview = previewBtn.dataset.url || finalUrl;
+      previewBtn.textContent = 'Loading visual preview...';
+      previewBtn.disabled = true;
+      previewBtn.style.cursor = 'wait';
+      
+      chrome.runtime.sendMessage({ action: 'request_preview', url: urlToPreview }, (response) => {
+        if (response && response.success && response.data && response.data.ss) {
+          // The backend completed the screenshot.
+          // We can let the background polling/messages update the UI, or update it directly here.
+          // But since the message might not come through Phase 2 polling (if Phase 2 was completed),
+          // we should inject the image manually.
+          const container = shadowRoot.querySelector('.screenshot-container');
+          if (container) {
+            let img = container.querySelector('.preview-image');
+            let placeholder = container.querySelector('.preview-placeholder');
+            if (!img) {
+              img = document.createElement('img');
+              img.className = 'preview-image';
+              img.alt = 'Site preview';
+              container.appendChild(img);
+            }
+            img.onload = () => {
+              img.classList.add('loaded');
+              if (placeholder) placeholder.style.opacity = '0';
+            };
+            img.src = response.data.ss;
+            if (placeholder) {
+              placeholder.textContent = ''; // clear out the button
+            }
+          }
+        } else {
+          previewBtn.textContent = 'Failed to load preview';
+          setTimeout(() => {
+            previewBtn.textContent = 'Ask for preview';
+            previewBtn.disabled = false;
+            previewBtn.style.cursor = 'pointer';
+          }, 3000);
+        }
+      });
       return;
     }
   });

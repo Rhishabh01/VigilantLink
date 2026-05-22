@@ -391,6 +391,41 @@ async def _run_phase2_background(
 
 
 # ============================================================
+# Manual Preview
+# ============================================================
+
+@app.post("/analyze/preview")
+async def request_preview(request: Request, body: AnalyzeRequest) -> dict:
+    await rate_limiter.check(request)
+    url_str = str(body.url)
+    canonical = normalize_url(url_str)
+    
+    logger.info(f"[PREVIEW] Manual preview requested for {url_str[:50]}...")
+    try:
+        screenshot_base64 = await asyncio.shield(
+            asyncio.wait_for(
+                browser_pool.capture_screenshot(url_str),
+                timeout=SCREENSHOT_TIMEOUT_S,
+            )
+        )
+    except Exception as e:
+        logger.error(f"[PREVIEW] Failed to capture screenshot: {e}")
+        screenshot_base64 = None
+
+    if screenshot_base64:
+        # Update full cache if exists
+        cached_full = await redis_cache.get_full(canonical)
+        if cached_full:
+            cached_full["ss"] = screenshot_base64
+            await redis_cache.set_full(canonical, cached_full)
+            req_id = cached_full.get("id")
+            if req_id:
+                await redis_cache.set_pending(req_id, cached_full)
+                
+    return {"ss": screenshot_base64}
+
+
+# ============================================================
 # Health Check
 # ============================================================
 

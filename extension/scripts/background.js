@@ -2,7 +2,7 @@
 // Phase 1: Instant analysis (POST /analyze) — returned immediately
 // Phase 2: Deep scan polling (GET /analyze/deep/{request_id}) — background poll
 
-const DEFAULT_BACKEND_URL = "https://vigilantlink-production.up.railway.app";
+const DEFAULT_BACKEND_URL = "https://extension-production-4bd4.up.railway.app";
 
 async function getBackendUrl() {
   const data = await chrome.storage.local.get('backendUrl');
@@ -76,6 +76,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     pollForDeepScanBackground(requestId, controller.signal, tabId, url, generation);
     sendResponse({ success: true });
     return false;
+  }
+
+  if (request.action === "request_preview") {
+    const { url } = request;
+    if (!url) {
+      sendResponse({ success: false });
+      return false;
+    }
+    getBackendUrl().then(backendUrl => {
+      fetch(`${backendUrl}/analyze/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url })
+      })
+      .then(res => {
+        if (!res.ok) throw new Error("Preview failed");
+        return res.json();
+      })
+      .then(data => sendResponse({ success: true, data }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    });
+    return true; // Async response
   }
 });
 
