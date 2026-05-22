@@ -195,10 +195,46 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
         # Cache partial result
         await redis_cache.set_partial(canonical, {**stage1_response, "_phase1_raw": phase1})
 
-        # Fire-and-forget Phase 2 in background
-        asyncio.create_task(_run_phase2_background(request_id, canonical, phase1))
+        # Determine if we need to trigger Phase 2 deep scan
+        # Gated to reduce backend compute/Railway usage. Safe links bypass deep analysis.
+        needs_deep_scan = False
+        if not sec["is_safe"] or sec["verdict"] != "green":
+            needs_deep_scan = True
+        elif sec["risk_score"] >= 20: # Threshold for early warning
+            needs_deep_scan = True
+        elif sec["suspicious_redirects"]:
+            needs_deep_scan = True
+        elif sec.get("typosquatting_detected", False):
+            needs_deep_scan = True
 
-        logger.info(f"Phase 1 complete for {url_str} in {phase1['duration_ms']}ms (id={request_id})")
+        if needs_deep_scan:
+            # Fire-and-forget Phase 2 in background for suspicious/dangerous links
+            asyncio.create_task(_run_phase2_background(request_id, canonical, phase1))
+            logger.info(f"Phase 1 complete for {url_str} in {phase1['duration_ms']}ms (id={request_id}). Deep scan triggered.")
+        else:
+            # Safe link: bypass deep analysis and Playwright to save resources.
+            # Mark as complete in Redis so frontend polling terminates immediately.
+            stage2_bypass = {
+                "s": 2,
+                "id": request_id,
+                "url": url_str,
+                "furl": phase1["final_url"],
+                "hops": [{"u": h["url"], "c": h["status_code"]} for h in phase1["hops"]],
+                "t": metadata.get("title"),
+                "d": metadata.get("description"),
+                "img": metadata.get("image_url"),
+                "fav": metadata.get("favicon_url"),
+                "ss": None,
+                "p3": "done",
+                "sec": stage1_response["sec"],
+                "ms": phase1["duration_ms"],
+            }
+            # Set pending immediately so background poller resolves
+            await redis_cache.set_pending(request_id, stage2_bypass)
+            # Cache the full safe result to skip phase 1 entirely on next hover
+            await redis_cache.set_full(canonical, stage2_bypass)
+            logger.info(f"Phase 1 complete for {url_str} in {phase1['duration_ms']}ms (id={request_id}). Safe link - bypassed Phase 2.")
+
         return stage1_response
 
     except Exception as e:

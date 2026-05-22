@@ -759,6 +759,15 @@ def needs_screenshot(
     redirect_depth: int = 0,
 ) -> bool:
     """
-    Phase 3 gatekeeper. Now updated to be COMPULSORY for all scans.
+    Phase 3 gatekeeper.
+    Gated to reduce backend compute/Railway usage. Safe links bypass deep analysis.
+    Only generate screenshots for suspicious or dangerous links.
     """
-    return True
+    if risk_score >= VERDICT_YELLOW_THRESHOLD:
+        return True
+    if vendor_flags > 0:
+        return True
+    if redirect_depth > MAX_REDIRECT_HOPS_FREE:
+        return True
+        
+    return False
