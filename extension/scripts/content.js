@@ -665,7 +665,7 @@ function finalizeReconnectCard(data) {
     placeholder.innerHTML = '';
     const btn = document.createElement('button');
     btn.className = 'preview-request-btn';
-    btn.textContent = 'Ask for preview';
+    btn.textContent = 'Load Preview';
     btn.dataset.url = original_url || data.url || url;
     placeholder.appendChild(btn);
   }
@@ -1414,7 +1414,7 @@ function attachPopupEventHandlers(finalUrl) {
       previewBtn.textContent = 'Loading visual preview...';
       previewBtn.disabled = true;
       previewBtn.style.cursor = 'wait';
-      
+
       chrome.runtime.sendMessage({ action: 'request_preview', url: urlToPreview }, (response) => {
         if (response && response.success && response.data && response.data.ss) {
           // The backend completed the screenshot.
