@@ -33,6 +33,10 @@ class BrowserPool:
     At most MAX_CONCURRENT_SCREENSHOTS pages open simultaneously.
     """
 
+    def __init__(self) -> None:
+        self._playwright = None
+        self._browser: Optional[Browser] = None
+        self._context: Optional[BrowserContext] = None
         self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_SCREENSHOTS)
         self._started: bool = False
         self._lifecycle_lock = asyncio.Lock()

@@ -359,12 +359,6 @@ async def _run_phase2_background(
         
     except Exception as e:
         logger.exception(f"[PHASE2] Background scan failed for {request_id}: {e}")
-    finally:
-        # Aggressive memory release for heavy background tasks
-        stage2_response = None
-        screenshot_base64 = None
-        phase2 = None
-        phase1 = None
         
         # Build failure fallback so polling doesn't hang — use Phase 1 data
         sec1 = phase1.get("security", {})
@@ -401,6 +395,12 @@ async def _run_phase2_background(
         if stage2_response:
             logger.debug(f"[PHASE2] Saving result to pending: {request_id}")
             await redis_cache.set_pending(request_id, stage2_response)
+            
+        # Aggressive memory release for heavy background tasks
+        stage2_response = None
+        screenshot_base64 = None
+        phase2 = None
+        phase1 = None
 
 
 
