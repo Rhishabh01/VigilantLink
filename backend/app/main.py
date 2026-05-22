@@ -402,9 +402,15 @@ async def request_preview(request: Request, body: AnalyzeRequest) -> dict:
     
     logger.info(f"[PREVIEW] Manual preview requested for {url_str[:50]}...")
     try:
+        # Check cache early to find the final URL to speed up Playwright
+        cached_full = await redis_cache.get_full(canonical)
+        target_url = cached_full.get("furl") if cached_full else url_str
+        if not target_url:
+            target_url = url_str
+
         screenshot_base64 = await asyncio.shield(
             asyncio.wait_for(
-                browser_pool.capture_screenshot(url_str),
+                browser_pool.capture_screenshot(target_url),
                 timeout=SCREENSHOT_TIMEOUT_S,
             )
         )
@@ -413,8 +419,10 @@ async def request_preview(request: Request, body: AnalyzeRequest) -> dict:
         screenshot_base64 = None
 
     if screenshot_base64:
-        # Update full cache if exists
-        cached_full = await redis_cache.get_full(canonical)
+        # We might not have had cached_full earlier if Phase 2 was still running
+        if not cached_full:
+            cached_full = await redis_cache.get_full(canonical)
+            
         if cached_full:
             cached_full["ss"] = screenshot_base64
             await redis_cache.set_full(canonical, cached_full)

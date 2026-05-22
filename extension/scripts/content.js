@@ -666,7 +666,7 @@ function finalizeReconnectCard(data) {
     const btn = document.createElement('button');
     btn.className = 'preview-request-btn';
     btn.textContent = 'Ask for preview';
-    btn.dataset.url = final_url || original_url;
+    btn.dataset.url = original_url || data.url || url;
     placeholder.appendChild(btn);
   }
   screenshotContainer.appendChild(placeholder);
@@ -1127,7 +1127,7 @@ function updatePopupWithResult(data) {
       const btn = document.createElement('button');
       btn.className = 'preview-request-btn';
       btn.textContent = 'Ask for preview';
-      btn.dataset.url = final_url || original_url;
+      btn.dataset.url = original_url || data.url;
       d.appendChild(btn);
     }
     return d;
@@ -1336,7 +1336,7 @@ function mergeDeepScanResult(data) {
         const btn = document.createElement('button');
         btn.className = 'preview-request-btn';
         btn.textContent = 'Ask for preview';
-        btn.dataset.url = data.furl || data.url;
+        btn.dataset.url = data.url || data.furl;
         placeholder.appendChild(btn);
       }
     }
@@ -1409,7 +1409,8 @@ function attachPopupEventHandlers(finalUrl) {
     if (previewBtn) {
       e.preventDefault();
       e.stopPropagation();
-      const urlToPreview = previewBtn.dataset.url || finalUrl;
+      // ALWAYS use the original url for cache lookup
+      const urlToPreview = previewBtn.dataset.url || currentAnalysisUrl;
       previewBtn.textContent = 'Loading visual preview...';
       previewBtn.disabled = true;
       previewBtn.style.cursor = 'wait';
