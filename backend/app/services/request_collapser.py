@@ -38,24 +38,31 @@ class RequestCollapser:
             The result dict from the single execution.
         """
         async with self._lock:
-            if key in self._in_flight:
-                existing_future = self._in_flight[key]
+            existing_future = self._in_flight.get(key)
+            if existing_future is None:
+                # This caller is the owner and publishes the shared result.
+                loop = asyncio.get_running_loop()
+                future: asyncio.Future[Dict[str, Any]] = loop.create_future()
+                self._in_flight[key] = future
+            else:
                 logger.debug(f"Request collapsed for key={key[:40]}...")
-                # Release lock, then await the existing future
-                return await existing_future
 
-            # This caller is the "owner" — create a Future for others to wait on
-            loop = asyncio.get_running_loop()
-            future: asyncio.Future[Dict[str, Any]] = loop.create_future()
-            self._in_flight[key] = future
+        if existing_future is not None:
+            return await existing_future
 
-        # Execute outside the lock so we don't block other keys
+        # Execute outside the lock so we don't block unrelated keys or waiters.
         try:
             result = await coro_factory()
-            future.set_result(result)
+            if not future.done():
+                future.set_result(result)
             return result
+        except asyncio.CancelledError:
+            if not future.done():
+                future.cancel()
+            raise
         except Exception as exc:
-            future.set_exception(exc)
+            if not future.done():
+                future.set_exception(exc)
             raise
         finally:
             async with self._lock:
