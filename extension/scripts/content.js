@@ -22,6 +22,8 @@ let activeAnchor = null;
 let lastLocation = location.href;
 let spaPatched = false;
 let spaInterval = null;
+let currentLinkText = null;
+let currentLinkDescription = null;
 
 // ── Scan State Machine ─────────────────────────────────────────────────────
 // IDLE        : no active scan
@@ -34,7 +36,7 @@ let scanState = 'IDLE';
 let reconnectTimer = null;
 let reconnectStartTime = 0;
 const MAX_RECONNECT_DURATION_MS = 25000; // 25 s total retry window
-const RECONNECT_INTERVAL_MS = 2500; // retry every 2.5 s
+const RECONNECT_INTERVAL_MS = 2000; // retry every 2 s
 
 // Debounce utility - prevents excessive function calls
 function debounce(func, wait) {
@@ -194,7 +196,13 @@ async function handleLinkMouseEnter(event) {
   if (!enabled) return;
 
   const url = target.href;
+  const linkText = target.textContent.trim() || target.title || null;
+  let linkDesc = target.getAttribute('aria-label') || target.title || null;
+  if (linkDesc === linkText) linkDesc = null;
+
   hoverTargetUrl = url;
+  currentLinkText = linkText;
+  currentLinkDescription = linkDesc;
   activeAnchor = target;
 
   if (hoverTimer) clearTimeout(hoverTimer);
@@ -228,10 +236,10 @@ async function handleLinkMouseEnter(event) {
         }
       }
     }
-    
+
     console.log(`[VigilantLink] isFixed: ${isFixed}, Final Scale: ${scale}`);
 
-    const POPUP_WIDTH = 350 * scale;
+    const POPUP_WIDTH = 340 * scale;
     const POPUP_HEIGHT = 410 * scale;
 
     // Horizontal positioning
@@ -556,7 +564,6 @@ function showReconnectingUI() {
     badge.className = 'badge gray';
     badge.textContent = 'Reconnecting…';
     logo.textContent = 'VigilantLink: Waiting for backend…';
-    logo.style.fontSize = '14px';
   } else {
     // Still in skeleton/loading state — rebuild as a minimal reconnect card
     currentPopupContent.textContent = '';
@@ -566,7 +573,6 @@ function showReconnectingUI() {
     const logoDiv = document.createElement('div');
     logoDiv.className = 'logo';
     logoDiv.textContent = 'VigilantLink';
-    logoDiv.style.fontSize = '14px';
     headerDiv.appendChild(logoDiv);
     const badgeDiv = document.createElement('div');
     badgeDiv.className = 'badge gray';
@@ -599,7 +605,6 @@ function enterInterruptedState() {
     badge.className = 'badge gray';
     badge.textContent = 'Scan Timed Out';
     logo.textContent = 'VigilantLink: Limited Protection';
-    logo.style.fontSize = '14px';
   } else {
     currentPopupContent.textContent = '';
     const headerDiv = document.createElement('div');
@@ -607,7 +612,6 @@ function enterInterruptedState() {
     const logoDiv = document.createElement('div');
     logoDiv.className = 'logo';
     logoDiv.textContent = 'VigilantLink: Limited Protection';
-    logoDiv.style.fontSize = '14px';
     headerDiv.appendChild(logoDiv);
     const badgeDiv = document.createElement('div');
     badgeDiv.className = 'badge gray';
@@ -646,7 +650,6 @@ function finalizeReconnectCard(data) {
     badge.className = `badge ${verdictClass}`;
     badge.textContent = verdictText;
     logo.textContent = `Safety Score: ${100 - security.rs}/100`;
-    logo.style.fontSize = '14px';
   } else {
     // Reconnect card lost its header nodes somehow — full rebuild
     updatePopupWithResult(data);
@@ -660,23 +663,24 @@ function finalizeReconnectCard(data) {
   const warningBox = createWarningBox(verdictClass, security.tt);
   if (warningBox) bodyDiv.appendChild(warningBox);
 
-  if (title || description) {
-    const metaSection = document.createElement('div');
-    metaSection.className = 'metadata-section';
-    if (title) {
-      const titleEl = document.createElement('div');
-      titleEl.className = 'metadata-title';
-      titleEl.textContent = title;
-      metaSection.appendChild(titleEl);
-    }
-    if (description) {
-      const descEl = document.createElement('div');
-      descEl.className = 'metadata-description';
-      descEl.textContent = description;
-      metaSection.appendChild(descEl);
-    }
-    bodyDiv.appendChild(metaSection);
+  // Metadata Section (Title & Description) - Always render
+  const metaSection = document.createElement('div');
+  metaSection.className = 'metadata-section';
+
+  const titleEl = document.createElement('div');
+  titleEl.className = 'metadata-title';
+  titleEl.textContent = title || currentLinkText || 'No title available';
+  metaSection.appendChild(titleEl);
+
+  const descEl = document.createElement('div');
+  descEl.className = 'metadata-description';
+  descEl.textContent = description || currentLinkDescription || 'No description available for this webpage.';
+  if (!description && !currentLinkDescription) {
+    descEl.style.fontStyle = 'italic';
   }
+  metaSection.appendChild(descEl);
+
+  bodyDiv.appendChild(metaSection);
 
   if (final_url) {
     const urlDestDiv = createUrlDestSection(final_url);
@@ -927,7 +931,7 @@ function createRedirectsSection(redirectChain) {
   redirectsDiv.appendChild(titleSmall);
 
   const pathDiv = document.createElement('div');
-  pathDiv.style.fontSize = '11px';
+  pathDiv.style.fontSize = '10px';
   pathDiv.style.color = '#666';
   pathDiv.style.marginTop = '4px';
   pathDiv.style.wordBreak = 'break-all';
@@ -955,7 +959,7 @@ function createRedirectsSection(redirectChain) {
     fullDiv.style.padding = '6px 8px';
     fullDiv.style.background = '#f8f9fa';
     fullDiv.style.borderRadius = '4px';
-    fullDiv.style.fontSize = '11px';
+    fullDiv.style.fontSize = '10px';
     fullDiv.style.color = '#666';
 
     redirectChain.forEach(r => {
@@ -977,7 +981,7 @@ function createRedirectsSection(redirectChain) {
     toggleBtn.style.border = '1px solid #ddd';
     toggleBtn.style.borderRadius = '4px';
     toggleBtn.style.background = '#f8f9fa';
-    toggleBtn.style.fontSize = '10px';
+    toggleBtn.style.fontSize = '9px';
     toggleBtn.style.cursor = 'pointer';
     toggleBtn.style.color = '#333';
     toggleBtn.style.fontWeight = '600';
@@ -1101,7 +1105,6 @@ function updatePopupWithResult(data) {
   const logoDiv = document.createElement('div');
   logoDiv.className = 'logo';
   logoDiv.textContent = data.s === 1 ? 'VigilantLink: Scanning...' : `Safety Score: ${100 - security.rs}/100`;
-  logoDiv.style.fontSize = '14px';
   headerDiv.appendChild(logoDiv);
 
   const badgeDiv = document.createElement('div');
@@ -1117,27 +1120,24 @@ function updatePopupWithResult(data) {
   const warningBox = createWarningBox(verdictClass, security.tt);
   if (warningBox) bodyDiv.appendChild(warningBox);
 
-  // Metadata Section (Title & Description)
-  if (title || description) {
-    const metaSection = document.createElement('div');
-    metaSection.className = 'metadata-section';
+  // Metadata Section (Title & Description) - Always render
+  const metaSection = document.createElement('div');
+  metaSection.className = 'metadata-section';
 
-    if (title) {
-      const titleEl = document.createElement('div');
-      titleEl.className = 'metadata-title';
-      titleEl.textContent = title;
-      metaSection.appendChild(titleEl);
-    }
+  const titleEl = document.createElement('div');
+  titleEl.className = 'metadata-title';
+  titleEl.textContent = title || currentLinkText || 'No title available';
+  metaSection.appendChild(titleEl);
 
-    if (description) {
-      const descEl = document.createElement('div');
-      descEl.className = 'metadata-description';
-      descEl.textContent = description;
-      metaSection.appendChild(descEl);
-    }
-
-    bodyDiv.appendChild(metaSection);
+  const descEl = document.createElement('div');
+  descEl.className = 'metadata-description';
+  descEl.textContent = description || currentLinkDescription || 'No description available for this webpage.';
+  if (!description && !currentLinkDescription) {
+    descEl.style.fontStyle = 'italic';
   }
+  metaSection.appendChild(descEl);
+
+  bodyDiv.appendChild(metaSection);
 
   if (final_url) {
     const urlDestDiv = createUrlDestSection(final_url);
