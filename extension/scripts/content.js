@@ -104,6 +104,14 @@ async function getTheme() {
   });
 }
 
+async function getFixedPhysicalSize() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['fixedPhysicalSize'], (result) => {
+      resolve(result.fixedPhysicalSize === true); // default to false (scales with browser)
+    });
+  });
+}
+
 // Watch for theme changes to update active popups
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.theme && currentPopupContainer) {
@@ -201,8 +209,30 @@ async function handleLinkMouseEnter(event) {
     let x = cursorX + 15;
     let y = cursorY + 15;
 
-    const POPUP_WIDTH = 365;
-    const POPUP_HEIGHT = 450;
+    const isFixed = await getFixedPhysicalSize();
+    let scale = 1;
+    if (isFixed) {
+      try {
+        const response = await new Promise(resolve => chrome.runtime.sendMessage({ action: 'get_zoom' }, resolve));
+        if (response && response.zoom) {
+          scale = 1 / response.zoom;
+        }
+      } catch (e) {
+        if (window.outerWidth && window.innerWidth) {
+          let browserZoom = window.outerWidth / window.innerWidth;
+          if (Math.abs(browserZoom - 1) < 0.08) browserZoom = 1;
+          if (browserZoom < 0.25) browserZoom = 0.25;
+          if (browserZoom > 5) browserZoom = 5;
+          scale = 1 / browserZoom;
+          console.log(`[VigilantLink] Zoom fallback used. BrowserZoom: ${browserZoom}, Scale: ${scale}`);
+        }
+      }
+    }
+    
+    console.log(`[VigilantLink] isFixed: ${isFixed}, Final Scale: ${scale}`);
+
+    const POPUP_WIDTH = 350 * scale;
+    const POPUP_HEIGHT = 410 * scale;
 
     // Horizontal positioning
     if (x + POPUP_WIDTH > window.innerWidth) {
@@ -226,7 +256,7 @@ async function handleLinkMouseEnter(event) {
       }
     }
 
-    await showLoadingPopup(x, y);
+    await showLoadingPopup(x, y, scale);
 
     // Instant Cache Check
     chrome.runtime.sendMessage({ action: 'analyze_link', url, cache_only: true }, (response) => {
@@ -711,7 +741,7 @@ function finalizeReconnectCard(data) {
   if (final_url) attachPopupEventHandlers(final_url);
 }
 
-async function createShadowPopup(x, y) {
+async function createShadowPopup(x, y, scale = 1) {
   if (currentPopupContainer) {
     closePopup();
   }
@@ -731,6 +761,8 @@ async function createShadowPopup(x, y) {
   container.style.left = `${x}px`;
   container.style.top = `${y}px`;
   container.style.zIndex = "2147483647"; // Max z-index
+  container.style.transform = `scale(${scale})`;
+  container.style.transformOrigin = "top left";
 
   // Use closed mode for Zero-Trust isolation from host page JS
   const shadowRoot = container.attachShadow({ mode: "closed" });
@@ -764,8 +796,8 @@ function appendCardFooter() {
   currentPopupContent.appendChild(footerDiv);
 }
 
-async function showLoadingPopup(x, y) {
-  await createShadowPopup(x, y);
+async function showLoadingPopup(x, y, scale = 1) {
+  await createShadowPopup(x, y, scale);
   if (!currentPopupContent) return;
 
   clearFreezeTimer();

@@ -2,7 +2,7 @@
 // Phase 1: Instant analysis (POST /analyze) — returned immediately
 // Phase 2: Deep scan polling (GET /analyze/deep/{request_id}) — background poll
 
-const DEFAULT_BACKEND_URL = "https://extension-production-4bd4.up.railway.app";
+const DEFAULT_BACKEND_URL = "https://vigilantlink-production.up.railway.app";
 
 async function getBackendUrl() {
   const data = await chrome.storage.local.get('backendUrl');
@@ -60,6 +60,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return false;
   }
 
+  if (request.action === "get_zoom") {
+    if (tabId) {
+      chrome.tabs.getZoom(tabId, (zoomFactor) => {
+        sendResponse({ zoom: zoomFactor || 1 });
+      });
+      return true;
+    }
+    sendResponse({ zoom: 1 });
+    return false;
+  }
+
   if (request.action === "resume_deep_scan") {
     const { requestId, url } = request;
     if (!tabId || !requestId || !url) {
@@ -90,12 +101,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url })
       })
-      .then(res => {
-        if (!res.ok) throw new Error("Preview failed");
-        return res.json();
-      })
-      .then(data => sendResponse({ success: true, data }))
-      .catch(err => sendResponse({ success: false, error: err.message }));
+        .then(res => {
+          if (!res.ok) throw new Error("Preview failed");
+          return res.json();
+        })
+        .then(data => sendResponse({ success: true, data }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
     });
     return true; // Async response
   }
