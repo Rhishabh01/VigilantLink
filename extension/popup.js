@@ -3,7 +3,9 @@ const PRESET_SITES = [
   { name: 'X (Twitter)', domain: 'x.com' },
   { name: 'Instagram', domain: 'instagram.com' },
   { name: 'LinkedIn', domain: 'linkedin.com' },
-  { name: 'GitHub', domain: 'github.com' }
+  { name: 'GitHub', domain: 'github.com' },
+  { name: 'Gmail', domain: 'mail.google.com' },
+  { name: 'Google Accounts', domain: 'accounts.google.com' }
 ];
 
 const DEFAULT_BACKEND_URL = 'https://vigilantlink-production.up.railway.app';
