@@ -22,6 +22,8 @@ let activeAnchor = null;
 let lastLocation = location.href;
 let spaPatched = false;
 let spaInterval = null;
+let currentLinkText = null;
+let currentLinkDescription = null;
 
 // ── Scan State Machine ─────────────────────────────────────────────────────
 // IDLE        : no active scan
@@ -34,7 +36,7 @@ let scanState = 'IDLE';
 let reconnectTimer = null;
 let reconnectStartTime = 0;
 const MAX_RECONNECT_DURATION_MS = 25000; // 25 s total retry window
-const RECONNECT_INTERVAL_MS = 2500; // retry every 2.5 s
+const RECONNECT_INTERVAL_MS = 2000; // retry every 2 s
 
 // Debounce utility - prevents excessive function calls
 function debounce(func, wait) {
@@ -100,6 +102,14 @@ async function getTheme() {
       // Fallback to system preference
       const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
       resolve(isDark ? 'dark' : 'light');
+    });
+  });
+}
+
+async function getFixedPhysicalSize() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['fixedPhysicalSize'], (result) => {
+      resolve(result.fixedPhysicalSize === true); // default to false (scales with browser)
     });
   });
 }
@@ -186,7 +196,13 @@ async function handleLinkMouseEnter(event) {
   if (!enabled) return;
 
   const url = target.href;
+  const linkText = target.textContent.trim() || target.title || null;
+  let linkDesc = target.getAttribute('aria-label') || target.title || null;
+  if (linkDesc === linkText) linkDesc = null;
+
   hoverTargetUrl = url;
+  currentLinkText = linkText;
+  currentLinkDescription = linkDesc;
   activeAnchor = target;
 
   if (hoverTimer) clearTimeout(hoverTimer);
@@ -201,8 +217,30 @@ async function handleLinkMouseEnter(event) {
     let x = cursorX + 15;
     let y = cursorY + 15;
 
-    const POPUP_WIDTH = 365;
-    const POPUP_HEIGHT = 450;
+    const isFixed = await getFixedPhysicalSize();
+    let scale = 1;
+    if (isFixed) {
+      try {
+        const response = await new Promise(resolve => chrome.runtime.sendMessage({ action: 'get_zoom' }, resolve));
+        if (response && response.zoom) {
+          scale = 1 / response.zoom;
+        }
+      } catch (e) {
+        if (window.outerWidth && window.innerWidth) {
+          let browserZoom = window.outerWidth / window.innerWidth;
+          if (Math.abs(browserZoom - 1) < 0.08) browserZoom = 1;
+          if (browserZoom < 0.25) browserZoom = 0.25;
+          if (browserZoom > 5) browserZoom = 5;
+          scale = 1 / browserZoom;
+          console.log(`[VigilantLink] Zoom fallback used. BrowserZoom: ${browserZoom}, Scale: ${scale}`);
+        }
+      }
+    }
+
+    console.log(`[VigilantLink] isFixed: ${isFixed}, Final Scale: ${scale}`);
+
+    const POPUP_WIDTH = 340 * scale;
+    const POPUP_HEIGHT = 410 * scale;
 
     // Horizontal positioning
     if (x + POPUP_WIDTH > window.innerWidth) {
@@ -226,7 +264,7 @@ async function handleLinkMouseEnter(event) {
       }
     }
 
-    await showLoadingPopup(x, y);
+    await showLoadingPopup(x, y, scale);
 
     // Instant Cache Check
     chrome.runtime.sendMessage({ action: 'analyze_link', url, cache_only: true }, (response) => {
@@ -526,7 +564,6 @@ function showReconnectingUI() {
     badge.className = 'badge gray';
     badge.textContent = 'Reconnecting…';
     logo.textContent = 'VigilantLink: Waiting for backend…';
-    logo.style.fontSize = '14px';
   } else {
     // Still in skeleton/loading state — rebuild as a minimal reconnect card
     currentPopupContent.textContent = '';
@@ -536,7 +573,6 @@ function showReconnectingUI() {
     const logoDiv = document.createElement('div');
     logoDiv.className = 'logo';
     logoDiv.textContent = 'VigilantLink';
-    logoDiv.style.fontSize = '14px';
     headerDiv.appendChild(logoDiv);
     const badgeDiv = document.createElement('div');
     badgeDiv.className = 'badge gray';
@@ -569,7 +605,6 @@ function enterInterruptedState() {
     badge.className = 'badge gray';
     badge.textContent = 'Scan Timed Out';
     logo.textContent = 'VigilantLink: Limited Protection';
-    logo.style.fontSize = '14px';
   } else {
     currentPopupContent.textContent = '';
     const headerDiv = document.createElement('div');
@@ -577,7 +612,6 @@ function enterInterruptedState() {
     const logoDiv = document.createElement('div');
     logoDiv.className = 'logo';
     logoDiv.textContent = 'VigilantLink: Limited Protection';
-    logoDiv.style.fontSize = '14px';
     headerDiv.appendChild(logoDiv);
     const badgeDiv = document.createElement('div');
     badgeDiv.className = 'badge gray';
@@ -616,7 +650,6 @@ function finalizeReconnectCard(data) {
     badge.className = `badge ${verdictClass}`;
     badge.textContent = verdictText;
     logo.textContent = `Safety Score: ${100 - security.rs}/100`;
-    logo.style.fontSize = '14px';
   } else {
     // Reconnect card lost its header nodes somehow — full rebuild
     updatePopupWithResult(data);
@@ -630,23 +663,24 @@ function finalizeReconnectCard(data) {
   const warningBox = createWarningBox(verdictClass, security.tt);
   if (warningBox) bodyDiv.appendChild(warningBox);
 
-  if (title || description) {
-    const metaSection = document.createElement('div');
-    metaSection.className = 'metadata-section';
-    if (title) {
-      const titleEl = document.createElement('div');
-      titleEl.className = 'metadata-title';
-      titleEl.textContent = title;
-      metaSection.appendChild(titleEl);
-    }
-    if (description) {
-      const descEl = document.createElement('div');
-      descEl.className = 'metadata-description';
-      descEl.textContent = description;
-      metaSection.appendChild(descEl);
-    }
-    bodyDiv.appendChild(metaSection);
+  // Metadata Section (Title & Description) - Always render
+  const metaSection = document.createElement('div');
+  metaSection.className = 'metadata-section';
+
+  const titleEl = document.createElement('div');
+  titleEl.className = 'metadata-title';
+  titleEl.textContent = title || currentLinkText || 'No title available';
+  metaSection.appendChild(titleEl);
+
+  const descEl = document.createElement('div');
+  descEl.className = 'metadata-description';
+  descEl.textContent = description || currentLinkDescription || 'No description available for this webpage.';
+  if (!description && !currentLinkDescription) {
+    descEl.style.fontStyle = 'italic';
   }
+  metaSection.appendChild(descEl);
+
+  bodyDiv.appendChild(metaSection);
 
   if (final_url) {
     const urlDestDiv = createUrlDestSection(final_url);
@@ -657,8 +691,18 @@ function finalizeReconnectCard(data) {
   screenshotContainer.className = 'screenshot-container';
   const placeholder = document.createElement('div');
   placeholder.className = 'preview-placeholder';
+  const hasImage = !!(data.ss || data.img);
   const isPending = data.s === 1 || data.p3 === 'pending';
-  placeholder.textContent = isPending ? 'Loading visual preview...' : 'Preview unavailable';
+  if (isPending && !hasImage) {
+    placeholder.textContent = 'Loading visual preview...';
+  } else if (!hasImage) {
+    placeholder.innerHTML = '';
+    const btn = document.createElement('button');
+    btn.className = 'preview-request-btn';
+    btn.textContent = 'Load Preview';
+    btn.dataset.url = original_url || data.url || url;
+    placeholder.appendChild(btn);
+  }
   screenshotContainer.appendChild(placeholder);
 
   const img = document.createElement('img');
@@ -701,7 +745,7 @@ function finalizeReconnectCard(data) {
   if (final_url) attachPopupEventHandlers(final_url);
 }
 
-async function createShadowPopup(x, y) {
+async function createShadowPopup(x, y, scale = 1) {
   if (currentPopupContainer) {
     closePopup();
   }
@@ -721,6 +765,8 @@ async function createShadowPopup(x, y) {
   container.style.left = `${x}px`;
   container.style.top = `${y}px`;
   container.style.zIndex = "2147483647"; // Max z-index
+  container.style.transform = `scale(${scale})`;
+  container.style.transformOrigin = "top left";
 
   // Use closed mode for Zero-Trust isolation from host page JS
   const shadowRoot = container.attachShadow({ mode: "closed" });
@@ -754,8 +800,8 @@ function appendCardFooter() {
   currentPopupContent.appendChild(footerDiv);
 }
 
-async function showLoadingPopup(x, y) {
-  await createShadowPopup(x, y);
+async function showLoadingPopup(x, y, scale = 1) {
+  await createShadowPopup(x, y, scale);
   if (!currentPopupContent) return;
 
   clearFreezeTimer();
@@ -885,7 +931,7 @@ function createRedirectsSection(redirectChain) {
   redirectsDiv.appendChild(titleSmall);
 
   const pathDiv = document.createElement('div');
-  pathDiv.style.fontSize = '11px';
+  pathDiv.style.fontSize = '10px';
   pathDiv.style.color = '#666';
   pathDiv.style.marginTop = '4px';
   pathDiv.style.wordBreak = 'break-all';
@@ -913,7 +959,7 @@ function createRedirectsSection(redirectChain) {
     fullDiv.style.padding = '6px 8px';
     fullDiv.style.background = '#f8f9fa';
     fullDiv.style.borderRadius = '4px';
-    fullDiv.style.fontSize = '11px';
+    fullDiv.style.fontSize = '10px';
     fullDiv.style.color = '#666';
 
     redirectChain.forEach(r => {
@@ -935,7 +981,7 @@ function createRedirectsSection(redirectChain) {
     toggleBtn.style.border = '1px solid #ddd';
     toggleBtn.style.borderRadius = '4px';
     toggleBtn.style.background = '#f8f9fa';
-    toggleBtn.style.fontSize = '10px';
+    toggleBtn.style.fontSize = '9px';
     toggleBtn.style.cursor = 'pointer';
     toggleBtn.style.color = '#333';
     toggleBtn.style.fontWeight = '600';
@@ -1059,7 +1105,6 @@ function updatePopupWithResult(data) {
   const logoDiv = document.createElement('div');
   logoDiv.className = 'logo';
   logoDiv.textContent = data.s === 1 ? 'VigilantLink: Scanning...' : `Safety Score: ${100 - security.rs}/100`;
-  logoDiv.style.fontSize = '14px';
   headerDiv.appendChild(logoDiv);
 
   const badgeDiv = document.createElement('div');
@@ -1075,27 +1120,24 @@ function updatePopupWithResult(data) {
   const warningBox = createWarningBox(verdictClass, security.tt);
   if (warningBox) bodyDiv.appendChild(warningBox);
 
-  // Metadata Section (Title & Description)
-  if (title || description) {
-    const metaSection = document.createElement('div');
-    metaSection.className = 'metadata-section';
+  // Metadata Section (Title & Description) - Always render
+  const metaSection = document.createElement('div');
+  metaSection.className = 'metadata-section';
 
-    if (title) {
-      const titleEl = document.createElement('div');
-      titleEl.className = 'metadata-title';
-      titleEl.textContent = title;
-      metaSection.appendChild(titleEl);
-    }
+  const titleEl = document.createElement('div');
+  titleEl.className = 'metadata-title';
+  titleEl.textContent = title || currentLinkText || 'No title available';
+  metaSection.appendChild(titleEl);
 
-    if (description) {
-      const descEl = document.createElement('div');
-      descEl.className = 'metadata-description';
-      descEl.textContent = description;
-      metaSection.appendChild(descEl);
-    }
-
-    bodyDiv.appendChild(metaSection);
+  const descEl = document.createElement('div');
+  descEl.className = 'metadata-description';
+  descEl.textContent = description || currentLinkDescription || 'No description available for this webpage.';
+  if (!description && !currentLinkDescription) {
+    descEl.style.fontStyle = 'italic';
   }
+  metaSection.appendChild(descEl);
+
+  bodyDiv.appendChild(metaSection);
 
   if (final_url) {
     const urlDestDiv = createUrlDestSection(final_url);
@@ -1108,8 +1150,18 @@ function updatePopupWithResult(data) {
   const makePlaceholder = () => {
     const d = document.createElement('div');
     d.className = 'preview-placeholder';
+    const hasImage = !!(data.ss || data.img);
     const isPending = data.s === 1 || data.p3 === 'pending';
-    d.textContent = isPending ? 'Loading visual preview...' : 'Preview unavailable';
+    if (isPending && !hasImage) {
+      d.textContent = 'Loading visual preview...';
+    } else if (!hasImage) {
+      d.innerHTML = '';
+      const btn = document.createElement('button');
+      btn.className = 'preview-request-btn';
+      btn.textContent = 'Load Preview';
+      btn.dataset.url = original_url || data.url;
+      d.appendChild(btn);
+    }
     return d;
   };
 
@@ -1307,8 +1359,18 @@ function mergeDeepScanResult(data) {
   } else {
     const placeholder = currentPopupShadowRoot.querySelector('.preview-placeholder');
     if (placeholder) {
+      const hasImage = !!(data.ss || data.img);
       const isPending = data.p3 === 'pending';
-      placeholder.textContent = isPending ? 'Loading visual preview...' : 'Preview unavailable';
+      if (isPending && !hasImage) {
+        placeholder.textContent = 'Loading visual preview...';
+      } else if (!hasImage) {
+        placeholder.innerHTML = '';
+        const btn = document.createElement('button');
+        btn.className = 'preview-request-btn';
+        btn.textContent = 'Load Preview';
+        btn.dataset.url = data.url || data.furl;
+        placeholder.appendChild(btn);
+      }
     }
   }
   const card = currentPopupShadowRoot?.querySelector('.vigilant-card') || currentPopupContent;
@@ -1372,6 +1434,53 @@ function attachPopupEventHandlers(finalUrl) {
       if (compactView) compactView.style.display = isExpanded ? 'inline' : 'none';
       if (moreEl) moreEl.style.display = isExpanded ? 'inline' : 'inline';
       if (btn) btn.textContent = isExpanded ? 'Show full path' : 'Collapse path';
+      return;
+    }
+
+    const previewBtn = e.target.closest('.preview-request-btn');
+    if (previewBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      // ALWAYS use the original url for cache lookup
+      const urlToPreview = previewBtn.dataset.url || currentAnalysisUrl;
+      previewBtn.textContent = 'Loading visual preview...';
+      previewBtn.disabled = true;
+      previewBtn.style.cursor = 'wait';
+
+      chrome.runtime.sendMessage({ action: 'request_preview', url: urlToPreview }, (response) => {
+        if (response && response.success && response.data && response.data.ss) {
+          // The backend completed the screenshot.
+          // We can let the background polling/messages update the UI, or update it directly here.
+          // But since the message might not come through Phase 2 polling (if Phase 2 was completed),
+          // we should inject the image manually.
+          const container = shadowRoot.querySelector('.screenshot-container');
+          if (container) {
+            let img = container.querySelector('.preview-image');
+            let placeholder = container.querySelector('.preview-placeholder');
+            if (!img) {
+              img = document.createElement('img');
+              img.className = 'preview-image';
+              img.alt = 'Site preview';
+              container.appendChild(img);
+            }
+            img.onload = () => {
+              img.classList.add('loaded');
+              if (placeholder) placeholder.style.opacity = '0';
+            };
+            img.src = response.data.ss;
+            if (placeholder) {
+              placeholder.textContent = ''; // clear out the button
+            }
+          }
+        } else {
+          previewBtn.textContent = 'Failed to load preview';
+          setTimeout(() => {
+            previewBtn.textContent = 'Load Preview';
+            previewBtn.disabled = false;
+            previewBtn.style.cursor = 'pointer';
+          }, 3000);
+        }
+      });
       return;
     }
   });

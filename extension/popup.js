@@ -3,13 +3,15 @@ const PRESET_SITES = [
   { name: 'X (Twitter)', domain: 'x.com' },
   { name: 'Instagram', domain: 'instagram.com' },
   { name: 'LinkedIn', domain: 'linkedin.com' },
-  { name: 'GitHub', domain: 'github.com' }
+  { name: 'GitHub', domain: 'github.com' },
+  { name: 'Gmail', domain: 'mail.google.com' },
+  { name: 'Google Accounts', domain: 'accounts.google.com' }
 ];
 
 const DEFAULT_BACKEND_URL = 'https://vigilantlink-production.up.railway.app';
 
 async function getSettings() {
-  const data = await chrome.storage.local.get(['globalEnabled', 'disabledSites', 'customSites', 'hiddenPresets', 'theme', 'siteOrder', 'backendUrl', 'autoAddSite']);
+  const data = await chrome.storage.local.get(['globalEnabled', 'disabledSites', 'customSites', 'hiddenPresets', 'theme', 'siteOrder', 'backendUrl', 'autoAddSite', 'fixedPhysicalSize']);
 
   // Determine default theme based on system preference
   const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -22,7 +24,8 @@ async function getSettings() {
     theme: data.theme || systemTheme,
     siteOrder: data.siteOrder || [],
     backendUrl: data.backendUrl || DEFAULT_BACKEND_URL,
-    autoAddSite: data.autoAddSite === true
+    autoAddSite: data.autoAddSite === true,
+    fixedPhysicalSize: data.fixedPhysicalSize === true
   };
 }
 
@@ -403,6 +406,9 @@ async function loadSettingsData() {
   const autoAddToggle = document.getElementById('settings-auto-add-toggle');
   if (autoAddToggle) autoAddToggle.checked = settings.autoAddSite;
 
+  const fixedSizeToggle = document.getElementById('settings-fixed-size-toggle');
+  if (fixedSizeToggle) fixedSizeToggle.checked = settings.fixedPhysicalSize;
+
   // Populate hidden presets
   renderHiddenPresets(settings.hiddenPresets);
 }
@@ -447,6 +453,10 @@ function renderHiddenPresets(hiddenPresets) {
 // The actual auto-fill happens when the user clicks "Add Website".
 document.getElementById('settings-auto-add-toggle')?.addEventListener('change', async (e) => {
   await chrome.storage.local.set({ autoAddSite: e.target.checked });
+});
+
+document.getElementById('settings-fixed-size-toggle')?.addEventListener('change', async (e) => {
+  await chrome.storage.local.set({ fixedPhysicalSize: e.target.checked });
 });
 
 document.getElementById('settings-clear-custom-btn')?.addEventListener('click', async () => {

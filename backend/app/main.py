@@ -195,10 +195,48 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
         # Cache partial result
         await redis_cache.set_partial(canonical, {**stage1_response, "_phase1_raw": phase1})
 
-        # Fire-and-forget Phase 2 in background
-        asyncio.create_task(_run_phase2_background(request_id, canonical, phase1))
+        # Determine if we need to trigger Phase 2 deep scan
+        # Gated to reduce backend compute/Railway usage. Safe links bypass deep analysis.
+        needs_deep_scan = False
+        if not sec["is_safe"] or sec["verdict"] != "green":
+            needs_deep_scan = True
+        elif sec["risk_score"] >= 20: # Threshold for early warning
+            needs_deep_scan = True
+        elif sec["suspicious_redirects"]:
+            needs_deep_scan = True
+        elif sec.get("typosquatting_detected", False):
+            needs_deep_scan = True
 
-        logger.info(f"Phase 1 complete for {url_str} in {phase1['duration_ms']}ms (id={request_id})")
+        if needs_deep_scan:
+            # Fire-and-forget Phase 2 in background for suspicious/dangerous links
+            task = asyncio.create_task(_run_phase2_background(request_id, canonical, phase1))
+            background_tasks.add(task)
+            task.add_done_callback(background_tasks.discard)
+            logger.info(f"Phase 1 complete for {url_str} in {phase1['duration_ms']}ms (id={request_id}). Deep scan triggered.")
+        else:
+            # Safe link: bypass deep analysis and Playwright to save resources.
+            # Mark as complete in Redis so frontend polling terminates immediately.
+            stage2_bypass = {
+                "s": 2,
+                "id": request_id,
+                "url": url_str,
+                "furl": phase1["final_url"],
+                "hops": [{"u": h["url"], "c": h["status_code"]} for h in phase1["hops"]],
+                "t": metadata.get("title"),
+                "d": metadata.get("description"),
+                "img": metadata.get("image_url"),
+                "fav": metadata.get("favicon_url"),
+                "ss": None,
+                "p3": "done",
+                "sec": stage1_response["sec"],
+                "ms": phase1["duration_ms"],
+            }
+            # Set pending immediately so background poller resolves
+            await redis_cache.set_pending(request_id, stage2_bypass)
+            # Cache the full safe result to skip phase 1 entirely on next hover
+            await redis_cache.set_full(canonical, stage2_bypass)
+            logger.info(f"Phase 1 complete for {url_str} in {phase1['duration_ms']}ms (id={request_id}). Safe link - bypassed Phase 2.")
+
         return stage1_response
 
     except Exception as e:
@@ -225,6 +263,9 @@ async def get_deep_result(request_id: str) -> dict:
     return {"s": 0, "id": request_id}
 
 
+# Global set to hold strong references to background tasks to prevent GC
+background_tasks = set()
+
 async def _run_phase2_background(
     request_id: str, canonical_url: str, phase1: Dict[str, Any]
 ) -> None:
@@ -233,6 +274,9 @@ async def _run_phase2_background(
     """
     logger.info(f"[PHASE2] Background scan started: {request_id}")
     stage2_response = None
+    screenshot_base64 = None
+    phase2 = None
+    
     try:
         # 1. Run Phase 2 Intelligence
         phase2 = await run_phase2(canonical_url, phase1)
@@ -312,9 +356,9 @@ async def _run_phase2_background(
                 await redis_cache.set_pending(request_id, stage2_response)
 
         logger.info(f"[PHASE2] Deep scan complete for {canonical_url[:50]}...")
-
+        
     except Exception as e:
-        logger.exception(f"[ERROR] Phase 2 failed: {str(e)}")
+        logger.exception(f"[PHASE2] Background scan failed for {request_id}: {e}")
         
         # Build failure fallback so polling doesn't hang — use Phase 1 data
         sec1 = phase1.get("security", {})
@@ -351,7 +395,56 @@ async def _run_phase2_background(
         if stage2_response:
             logger.debug(f"[PHASE2] Saving result to pending: {request_id}")
             await redis_cache.set_pending(request_id, stage2_response)
+            
+        # Aggressive memory release for heavy background tasks
+        stage2_response = None
+        screenshot_base64 = None
+        phase2 = None
+        phase1 = None
 
+
+
+# ============================================================
+# Manual Preview
+# ============================================================
+
+@app.post("/analyze/preview")
+async def request_preview(request: Request, body: AnalyzeRequest) -> dict:
+    await rate_limiter.check(request)
+    url_str = str(body.url)
+    canonical = normalize_url(url_str)
+    
+    logger.info(f"[PREVIEW] Manual preview requested for {url_str[:50]}...")
+    try:
+        # Check cache early to find the final URL to speed up Playwright
+        cached_full = await redis_cache.get_full(canonical)
+        target_url = cached_full.get("furl") if cached_full else url_str
+        if not target_url:
+            target_url = url_str
+
+        screenshot_base64 = await asyncio.shield(
+            asyncio.wait_for(
+                browser_pool.capture_screenshot(target_url),
+                timeout=SCREENSHOT_TIMEOUT_S,
+            )
+        )
+    except Exception as e:
+        logger.error(f"[PREVIEW] Failed to capture screenshot: {e}")
+        screenshot_base64 = None
+
+    if screenshot_base64:
+        # We might not have had cached_full earlier if Phase 2 was still running
+        if not cached_full:
+            cached_full = await redis_cache.get_full(canonical)
+            
+        if cached_full:
+            cached_full["ss"] = screenshot_base64
+            await redis_cache.set_full(canonical, cached_full)
+            req_id = cached_full.get("id")
+            if req_id:
+                await redis_cache.set_pending(req_id, cached_full)
+                
+    return {"ss": screenshot_base64}
 
 
 # ============================================================

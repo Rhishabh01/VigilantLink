@@ -23,10 +23,10 @@ import redis.asyncio as redis
 
 logger = logging.getLogger(__name__)
 
-HARD_TTL_S: int = 3600      # 1 hour — Redis auto-expires
-SOFT_TTL_S: int = 600       # 10 min — triggers background refresh
-PARTIAL_TTL_S: int = 300    # 5 min for stage-1 partials
-PENDING_TTL_S: int = 300    # 5 min for in-flight deep scan results
+HARD_TTL_S: int = 1800      # 30 min — Aggressive purge to free memory
+SOFT_TTL_S: int = 300       # 5 min — triggers background refresh
+PARTIAL_TTL_S: int = 120    # 2 min for stage-1 partials
+PENDING_TTL_S: int = 60     # 1 min for in-flight deep scan results
 KEY_PREFIX: str = "vl:report:v2:"
 PENDING_PREFIX: str = "vl:pending:v2:"
 REFRESH_LOCK_PREFIX: str = "vl:refresh_lock:v2:"

@@ -60,6 +60,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return false;
   }
 
+  if (request.action === "get_zoom") {
+    if (tabId) {
+      chrome.tabs.getZoom(tabId, (zoomFactor) => {
+        sendResponse({ zoom: zoomFactor || 1 });
+      });
+      return true;
+    }
+    sendResponse({ zoom: 1 });
+    return false;
+  }
+
   if (request.action === "resume_deep_scan") {
     const { requestId, url } = request;
     if (!tabId || !requestId || !url) {
@@ -76,6 +87,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     pollForDeepScanBackground(requestId, controller.signal, tabId, url, generation);
     sendResponse({ success: true });
     return false;
+  }
+
+  if (request.action === "request_preview") {
+    const { url } = request;
+    if (!url) {
+      sendResponse({ success: false });
+      return false;
+    }
+    getBackendUrl().then(backendUrl => {
+      fetch(`${backendUrl}/analyze/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url })
+      })
+        .then(res => {
+          if (!res.ok) throw new Error("Preview failed");
+          return res.json();
+        })
+        .then(data => sendResponse({ success: true, data }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+    });
+    return true; // Async response
   }
 });
 
