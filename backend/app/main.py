@@ -321,14 +321,17 @@ async def _run_phase2_background(
         await redis_cache.set_pending(request_id, stage2_response)
         logger.info(f"[CACHE] Phase 2 result stored for {canonical_url[:50]} (id={request_id})")
 
-        # 3. Run Phase 3: Compulsory screenshot
+        # 3. Run Phase 3: Risk-adaptive screenshot capture
+        # Safe (green)   → no Playwright, no automatic screenshot (uses OG metadata or manual button)
+        # Suspicious (yellow)  → screenshot allowed
+        # Dangerous (red) → screenshot always captured
         screenshot_base64: Optional[str] = None
         ssl_age = phase2["security"].get("ssl_cert_age_days")
         vendor_flags = phase2["security"].get("vendor_flags", 0)
         redirect_depth = len(phase1.get("hops", []))
 
         if needs_screenshot(metadata, risk_score, ssl_age, vendor_flags, redirect_depth):
-            logger.info(f"[PHASE2] Launching browser for compulsory screenshot: {final_url[:50]}...")
+            logger.info(f"[PHASE2] Launching browser for screenshot: {final_url[:50]}...")
             try:
                 screenshot_base64 = await asyncio.shield(
                     asyncio.wait_for(
@@ -336,24 +339,18 @@ async def _run_phase2_background(
                         timeout=SCREENSHOT_TIMEOUT_S,
                     )
                 )
-                
-                # Update status regardless of success to signal polling can stop
-                stage2_response["p3"] = "done"
 
                 if screenshot_base64:
-                    # Upgrade the cache entry with the screenshot
                     stage2_response["ss"] = screenshot_base64
                     await redis_cache.set_full(canonical_url, stage2_response)
-                    await redis_cache.set_pending(request_id, stage2_response)
                     logger.info(f"[CACHE] Phase 3 cache upgraded with screenshot for {request_id}")
                 else:
                     logger.debug(f"[PHASE2] Screenshot capture returned empty")
-                    # Still need to update pending status so pollers stop
-                    await redis_cache.set_pending(request_id, stage2_response)
             except Exception as e:
                 logger.warning(f"[PHASE2] Screenshot failed: {e}")
-                stage2_response["p3"] = "done"
-                await redis_cache.set_pending(request_id, stage2_response)
+
+        stage2_response["p3"] = "done"
+        await redis_cache.set_pending(request_id, stage2_response)
 
         logger.info(f"[PHASE2] Deep scan complete for {canonical_url[:50]}...")
         

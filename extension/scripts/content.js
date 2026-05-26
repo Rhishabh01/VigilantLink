@@ -699,7 +699,7 @@ function finalizeReconnectCard(data) {
     placeholder.innerHTML = '';
     const btn = document.createElement('button');
     btn.className = 'preview-request-btn';
-    btn.textContent = 'Load Preview';
+    btn.textContent = 'Generate Preview';
     btn.dataset.url = original_url || data.url || url;
     placeholder.appendChild(btn);
   }
@@ -1158,7 +1158,7 @@ function updatePopupWithResult(data) {
       d.innerHTML = '';
       const btn = document.createElement('button');
       btn.className = 'preview-request-btn';
-      btn.textContent = 'Load Preview';
+      btn.textContent = 'Generate Preview';
       btn.dataset.url = original_url || data.url;
       d.appendChild(btn);
     }
@@ -1367,7 +1367,7 @@ function mergeDeepScanResult(data) {
         placeholder.innerHTML = '';
         const btn = document.createElement('button');
         btn.className = 'preview-request-btn';
-        btn.textContent = 'Load Preview';
+        btn.textContent = 'Generate Preview';
         btn.dataset.url = data.url || data.furl;
         placeholder.appendChild(btn);
       }
@@ -1475,7 +1475,7 @@ function attachPopupEventHandlers(finalUrl) {
         } else {
           previewBtn.textContent = 'Failed to load preview';
           setTimeout(() => {
-            previewBtn.textContent = 'Load Preview';
+            previewBtn.textContent = 'Generate Preview';
             previewBtn.disabled = false;
             previewBtn.style.cursor = 'pointer';
           }, 3000);
