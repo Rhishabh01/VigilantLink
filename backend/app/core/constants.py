@@ -9,10 +9,7 @@ PHISHING_KEYWORDS = ["login", "verify", "password", "account", "security", "wall
 TRUSTED_HOSTING_DOMAINS = ["docs.google.com", "github.io", "pages.dev", "notion.site", "pastebin.com"]
 TRUSTED_PLATFORMS = [
     "youtube.com", "google.com", "github.com", "microsoft.com",
-    "cloudflare.com", "discord.com", "linkedin.com","mail.google.com",
-]
-SAFE_DOMAINS = [
-    "accounts.google.com",
+    "cloudflare.com", "discord.com", "linkedin.com","mail.google.com","accounts.google.com",
 ]
 
 # ============================================================
