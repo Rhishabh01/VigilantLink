@@ -354,6 +354,12 @@ async def _run_phase2_background(
                 logger.warning(f"[PHASE2] Screenshot failed: {e}")
                 stage2_response["p3"] = "done"
                 await redis_cache.set_pending(request_id, stage2_response)
+        else:
+            # Screenshot not needed — mark Phase 3 done immediately so polling
+            # terminates and the UI can show the "Load Preview" button.
+            stage2_response["p3"] = "done"
+            await redis_cache.set_pending(request_id, stage2_response)
+            await redis_cache.set_full(canonical_url, stage2_response)
 
         logger.info(f"[PHASE2] Deep scan complete for {canonical_url[:50]}...")
         
