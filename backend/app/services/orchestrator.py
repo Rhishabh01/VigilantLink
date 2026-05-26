@@ -41,6 +41,7 @@ from ..core.constants import (
     TRUSTED_HOSTING_DOMAINS, TRUSTED_PLATFORMS, SUSPICIOUS_TLDS,
     DECEPTIVE_QUERY_PARAMS, SUSPICIOUS_HOSTED_PATHS, WEAK_SIGNAL_PATTERNS,
     GSB_THREAT_MIN_SCORES,
+    GOOGLE_TRUSTED_ROOT_DOMAINS,
 )
 from ..core.logging import get_logger
 
@@ -88,6 +89,22 @@ def normalize_url(raw: str) -> str:
         sorted_qs,
         "",  # strip fragment for normalization
     ))
+
+
+def _all_hops_within_google(hops: List[Dict[str, Any]], final_url: str) -> bool:
+    """Check if all redirect hops (including final URL) stay within Google-owned subdomains.
+
+    Legitimate authentication flows (e.g., accounts.google.com → mail.google.com)
+    should never be flagged as suspicious redirect chains.
+    """
+    if not hops:
+        return False
+    def _is_google(domain: str) -> bool:
+        d = domain.lower()
+        return any(d == root or d.endswith(f".{root}") for root in GOOGLE_TRUSTED_ROOT_DOMAINS)
+    if not _is_google(urlparse(final_url).netloc):
+        return False
+    return all(_is_google(urlparse(h["url"]).netloc) for h in hops)
 
 
 # ============================================================
@@ -304,7 +321,8 @@ def compute_heuristic_score(
         reasons.append(heuristics.get("synergy_reason", "High-Risk TLD & Keyword Synergy"))
 
     # Signal 4: Redirect chain depth
-    if len(hops) > MAX_REDIRECT_HOPS_FREE:
+    # Skip penalty for legitimate Google auth flows (e.g. accounts → mail → workspace)
+    if len(hops) > MAX_REDIRECT_HOPS_FREE and not _all_hops_within_google(hops, final_url):
         redirect_score = 0
         for i in range(MAX_REDIRECT_HOPS_FREE, len(hops)):
             prev_domain = urlparse(hops[i - 1]["url"]).netloc
@@ -642,7 +660,7 @@ async def run_phase1(url: str) -> Dict[str, Any]:
             "total_vendors": 0,
             "ssl_cert_age_days": None,
             "risk_score": risk_score,
-            "suspicious_redirects": len(hops) > MAX_REDIRECT_HOPS_FREE,
+            "suspicious_redirects": len(hops) > MAX_REDIRECT_HOPS_FREE and not _all_hops_within_google(hops, final_url),
             "typosquatting_detected": heuristics.get("typosquatting_detected", False),
             "ssl_error": trace_result.get("ssl_error", False),
             "reasons": reasons,
@@ -736,7 +754,7 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             "total_vendors": tv,
             "ssl_cert_age_days": external.get("ssl_cert_age_days"),
             "risk_score": risk_score,
-            "suspicious_redirects": len(hops) > MAX_REDIRECT_HOPS_FREE,
+            "suspicious_redirects": len(hops) > MAX_REDIRECT_HOPS_FREE and not _all_hops_within_google(hops, final_url),
             "typosquatting_detected": heuristics.get("typosquatting_detected", False),
             "ssl_error": phase1_result["security"].get("ssl_error", False),
             "reasons": reasons,

@@ -12,6 +12,9 @@ TRUSTED_PLATFORMS = [
     "cloudflare.com", "discord.com", "linkedin.com","mail.google.com","accounts.google.com",
 ]
 
+# Google-owned root domains — redirects staying within these are legitimate auth flows
+GOOGLE_TRUSTED_ROOT_DOMAINS = frozenset({"google.com"})
+
 # ============================================================
 # Scoring Thresholds
 # ============================================================

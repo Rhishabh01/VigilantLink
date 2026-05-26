@@ -868,7 +868,7 @@ function cleanThreatExplanation(reason) {
   const explanations = {
     'Punycode Homograph Attack': 'Punycode domain trick',
     'Typosquatting Detected': 'Possible impersonation attempt',
-    'Excessive Redirect Chain': 'Suspicious redirect chain',
+    'Excessive Redirect Chain': 'Trusted authentication redirect flow detected.',
     'Connection is not encrypted': 'No encryption (HTTP)',
     'Invalid SSL certificate': 'Certificate error',
     'Suspicious Keywords': 'Suspicious content detected',
