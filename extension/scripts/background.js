@@ -2,7 +2,7 @@
 // Phase 1: Instant analysis (POST /analyze) — returned immediately
 // Phase 2: Deep scan polling (GET /analyze/deep/{request_id}) — background poll
 
-const DEFAULT_BACKEND_URL = "https://vigilantlink-production.up.railway.app";
+const DEFAULT_BACKEND_URL = "https://extension-production-4bd4.up.railway.app";
 
 async function getBackendUrl() {
   const data = await chrome.storage.local.get('backendUrl');
