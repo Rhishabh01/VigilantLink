@@ -13,7 +13,7 @@ from .core.logging import setup_logging, get_logger
 
 from .models import AnalyzeRequest
 from .services.orchestrator import (
-    run_phase1, run_phase2, generate_request_id, normalize_url,
+    run_phase1, run_phase2, generate_request_id, normalize_url, needs_screenshot,
 )
 from .services.browser_pool import browser_pool
 from .services.redis_cache import RedisCache
@@ -321,28 +321,36 @@ async def _run_phase2_background(
         await redis_cache.set_pending(request_id, stage2_response)
         logger.info(f"[CACHE] Phase 2 result stored for {canonical_url[:50]} (id={request_id})")
 
-        # 3. Run Phase 3: Compulsory screenshot — always capture regardless of gating
+        # 3. Run Phase 3: Risk-adaptive screenshot capture
+        # Safe (green)   → no Playwright, no automatic screenshot (uses OG metadata or manual button)
+        # Suspicious (yellow)  → screenshot allowed
+        # Dangerous (red) → screenshot always captured
         screenshot_base64: Optional[str] = None
-        logger.info(f"[PHASE2] Launching browser for compulsory screenshot: {final_url[:50]}...")
-        try:
-            screenshot_base64 = await asyncio.shield(
-                asyncio.wait_for(
-                    browser_pool.capture_screenshot(final_url),
-                    timeout=SCREENSHOT_TIMEOUT_S,
-                )
-            )
+        ssl_age = phase2["security"].get("ssl_cert_age_days")
+        vendor_flags = phase2["security"].get("vendor_flags", 0)
+        redirect_depth = len(phase1.get("hops", []))
 
-            if screenshot_base64:
-                stage2_response["ss"] = screenshot_base64
-                await redis_cache.set_full(canonical_url, stage2_response)
-                logger.info(f"[CACHE] Phase 3 cache upgraded with screenshot for {request_id}")
-            else:
-                logger.debug(f"[PHASE2] Screenshot capture returned empty")
-        except Exception as e:
-            logger.warning(f"[PHASE2] Screenshot failed: {e}")
-        finally:
-            stage2_response["p3"] = "done"
-            await redis_cache.set_pending(request_id, stage2_response)
+        if needs_screenshot(metadata, risk_score, ssl_age, vendor_flags, redirect_depth):
+            logger.info(f"[PHASE2] Launching browser for screenshot: {final_url[:50]}...")
+            try:
+                screenshot_base64 = await asyncio.shield(
+                    asyncio.wait_for(
+                        browser_pool.capture_screenshot(final_url),
+                        timeout=SCREENSHOT_TIMEOUT_S,
+                    )
+                )
+
+                if screenshot_base64:
+                    stage2_response["ss"] = screenshot_base64
+                    await redis_cache.set_full(canonical_url, stage2_response)
+                    logger.info(f"[CACHE] Phase 3 cache upgraded with screenshot for {request_id}")
+                else:
+                    logger.debug(f"[PHASE2] Screenshot capture returned empty")
+            except Exception as e:
+                logger.warning(f"[PHASE2] Screenshot failed: {e}")
+
+        stage2_response["p3"] = "done"
+        await redis_cache.set_pending(request_id, stage2_response)
 
         logger.info(f"[PHASE2] Deep scan complete for {canonical_url[:50]}...")
         
