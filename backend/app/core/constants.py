@@ -3,13 +3,13 @@
 # ============================================================
 SUSPICIOUS_TLDS = ['.top', '.xyz', '.biz', '.zip', '.click', '.gq', '.tk', '.work', '.country']
 HIGH_RISK_KEYWORDS = ['verify', 'login', 'bank', 'secure', 'account']
-HIGH_VALUE_TARGETS = ['google', 'amazon', 'paypal', 'github', 'microsoft', 'apple']
+HIGH_VALUE_TARGETS = ['amazon', 'paypal', 'github', 'microsoft', 'apple']
 SUSPICIOUS_KEYWORDS = ["free", "login", "update", "verify", "secure", "account"]
 PHISHING_KEYWORDS = ["login", "verify", "password", "account", "security", "wallet", "banking", "auth"]
 TRUSTED_HOSTING_DOMAINS = ["docs.google.com", "github.io", "pages.dev", "notion.site", "pastebin.com"]
 TRUSTED_PLATFORMS = [
     "youtube.com", "google.com", "github.com", "microsoft.com",
-    "cloudflare.com", "discord.com", "linkedin.com","mail.google.com","accounts.google.com","https://accounts.google.com/v3/signin/identifier?continue=https%3A%2F%2Fmail.google.com%2Fmail%2Fu%2F0%2F&dsh=S1076801522%3A1779808963069509&emr=1&followup=https%3A%2F%2Fmail.google.com%2Fmail%2Fu%2F0%2F&osid=1&passive=1209600&service=mail&flowName=WebLiteSignIn&flowEntry=ServiceLogin&ifkv=AWa2Patd2JRvlFVaMF62jcC5zww873FqVHQy3-eld5fu4ayM57mPja7SRiA0N8ddND6gtWw1SU8F",
+    "cloudflare.com", "discord.com", "linkedin.com","mail.google.com","accounts.google.com",
 ]
 
 # ============================================================
