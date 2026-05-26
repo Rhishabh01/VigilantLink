@@ -11,6 +11,9 @@ TRUSTED_PLATFORMS = [
     "youtube.com", "google.com", "github.com", "microsoft.com",
     "cloudflare.com", "discord.com", "linkedin.com",
 ]
+SAFE_DOMAINS = [
+    "accounts.google.com",
+]
 
 # ============================================================
 # Scoring Thresholds
