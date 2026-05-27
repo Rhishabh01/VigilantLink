@@ -363,11 +363,7 @@ async def _run_phase2_background(
         # Suspicious (yellow)  → screenshot allowed
         # Dangerous (red) → screenshot always captured
         screenshot_base64: Optional[str] = None
-        ssl_age = phase2["security"].get("ssl_cert_age_days")
-        vendor_flags = phase2["security"].get("vendor_flags", 0)
-        redirect_depth = len(phase1.get("hops", []))
-
-        if needs_screenshot(metadata, risk_score, ssl_age, vendor_flags, redirect_depth):
+        if needs_screenshot(stage2_response):
             logger.info(f"[PHASE2] Launching browser for screenshot: {final_url[:50]}...")
             try:
                 screenshot_base64 = await asyncio.shield(

@@ -769,27 +769,32 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
 # Phase 3: Screenshot Gatekeeper
 # ============================================================
 
-def needs_screenshot(
-    metadata: Optional[Dict[str, Any]],
-    risk_score: int,
-    ssl_cert_age_days: Optional[int] = None,
-    vendor_flags: int = 0,
-    redirect_depth: int = 0,
-) -> bool:
+def needs_screenshot(result: Dict[str, Any]) -> bool:
     """
     Phase 3 gatekeeper.
-    Gated to reduce backend compute/Railway usage. Safe links bypass deep analysis.
-    Only generate screenshots for suspicious or dangerous links that lack an OpenGraph image.
+    Strictly gates screenshots to suspicious (yellow) or dangerous (red) links.
+    Returns False immediately for green/safe verdicts.
     """
-    # If the website already provided an OpenGraph preview, keep it and save credits
-    if metadata and metadata.get("image_url"):
+    sec = result.get("sec", {})
+    verdict = sec.get("v", "green")
+    
+    # Return FALSE immediately for green/safe verdicts
+    if verdict == "green":
         return False
         
-    if risk_score >= VERDICT_YELLOW_THRESHOLD:
-        return True
-    if vendor_flags > 0:
-        return True
-    if redirect_depth > MAX_REDIRECT_HOPS_FREE:
+    # Return TRUE only if:
+    # - verdict == yellow
+    # - verdict == red
+    # - phishing indicators exist
+    # - impersonation detected
+    # - redirect risk exceeds threshold
+    if (
+        verdict in ("yellow", "red") or
+        sec.get("gsb", False) or
+        sec.get("vf", 0) > 0 or
+        sec.get("ts", False) or
+        sec.get("sr", False)
+    ):
         return True
         
     return False
