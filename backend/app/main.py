@@ -118,7 +118,7 @@ async def verify_origin_and_version_middleware(request: Request, call_next):
         if not is_version_allowed(client_version):
             return JSONResponse(
                 status_code=403,
-                content={"Visit the extension store to get the updated version."}
+                content={"detail": "Visit the extension store to get the updated version."}
             )
             
     return await call_next(request)
