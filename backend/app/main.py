@@ -67,13 +67,20 @@ app = FastAPI(title="VigilantLink Security API", lifespan=lifespan)
 async def root():
     return {"status": "VigilantLink backend running"}
 
-# Origin validation (relaxed for local dev)
-ALLOWED_EXTENSION_ID = os.getenv("EXTENSION_ID", "[MY_EXTENSION_ID]")
-ALLOWED_ORIGIN = f"chrome-extension://{ALLOWED_EXTENSION_ID}"
+DEV_MODE = os.getenv("DEV_MODE", "").lower() in ("true", "1", "yes")
 
-def is_allowed_origin(origin: str) -> bool:
-    # Relaxed for local development
-    return True
+def is_allowed_origin(origin: Optional[str]) -> bool:
+    if DEV_MODE:
+        return True
+    if not origin:
+        return False
+
+    # Check ALLOWED_EXTENSION_IDS (from Railway), EXTENSIONS_IDS, or EXTENSION_ID
+    allowed_ids_str = os.getenv("ALLOWED_EXTENSION_IDS") or os.getenv("EXTENSIONS_IDS") or os.getenv("EXTENSION_ID") or ""
+    allowed_ids = [ext_id.strip() for ext_id in allowed_ids_str.split(",") if ext_id.strip()]
+    allowed_origins = {f"chrome-extension://{ext_id}" for ext_id in allowed_ids}
+
+    return origin in allowed_origins
 
 @app.middleware("http")
 async def verify_origin_middleware(request: Request, call_next):
