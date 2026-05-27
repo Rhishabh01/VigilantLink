@@ -99,7 +99,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     getBackendUrl().then(backendUrl => {
       fetch(`${backendUrl}/analyze/preview`, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           "X-Extension-Version": EXTENSION_VERSION
         },
@@ -131,7 +131,7 @@ async function analyzeTwoPhase(url, signal, tabId, generation, cacheOnly = false
   const backendUrl = await getBackendUrl();
   const phase1Response = await fetch(`${backendUrl}/analyze`, {
     method: "POST",
-    headers: { 
+    headers: {
       "Content-Type": "application/json",
       "X-Extension-Version": EXTENSION_VERSION
     },

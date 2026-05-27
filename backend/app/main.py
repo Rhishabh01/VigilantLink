@@ -110,7 +110,7 @@ async def verify_origin_and_version_middleware(request: Request, call_next):
             if not is_allowed_origin(origin):
                 return JSONResponse(
                     status_code=403,
-                    content={"detail": "Forbidden: Access restricted to official Chrome Extension."}
+                    content={"detail": "Forbidden Access: Restricted to official VigilantLink Extension."}
                 )
         
         # 2. Verify Version
@@ -118,7 +118,7 @@ async def verify_origin_and_version_middleware(request: Request, call_next):
         if not is_version_allowed(client_version):
             return JSONResponse(
                 status_code=403,
-                content={"detail": "Visit chrome webstore to get the latest version."}
+                content={"Visit the extension store to get the updated version."}
             )
             
     return await call_next(request)
