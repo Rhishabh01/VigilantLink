@@ -82,15 +82,45 @@ def is_allowed_origin(origin: Optional[str]) -> bool:
 
     return origin in allowed_origins
 
+MIN_EXTENSION_VERSION = os.getenv("MIN_EXTENSION_VERSION", "2.0.0")
+
+def parse_version(version_str: str) -> tuple:
+    try:
+        parts = [int(x) for x in version_str.split(".") if x.strip().isdigit()]
+        while len(parts) < 3:
+            parts.append(0)
+        return tuple(parts[:3])
+    except Exception:
+        return (0, 0, 0)
+
+def is_version_allowed(version_str: Optional[str]) -> bool:
+    if DEV_MODE:
+        return True
+    if not version_str:
+        return False
+    return parse_version(version_str) >= parse_version(MIN_EXTENSION_VERSION)
+
 @app.middleware("http")
-async def verify_origin_middleware(request: Request, call_next):
-    if request.url.path == "/analyze":
-        origin = request.headers.get("origin")
-        if not is_allowed_origin(origin):
+async def verify_origin_and_version_middleware(request: Request, call_next):
+    path = request.url.path
+    if path == "/analyze" or path == "/analyze/preview" or path.startswith("/analyze/deep/"):
+        # 1. Verify Origin (only for POST requests)
+        if path in ("/analyze", "/analyze/preview"):
+            origin = request.headers.get("origin")
+            if not is_allowed_origin(origin):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Forbidden Access: Restricted to official VigilantLink Extension."}
+                )
+        
+        # 2. Verify Version
+        client_version = request.headers.get("x-extension-version")
+        if not is_version_allowed(client_version):
             return JSONResponse(
                 status_code=403,
-                content={"detail": "Forbidden: Access restricted to official Chrome Extension."}
+                content={"detail": "Visit the extension store to get the updated version."}
             )
+            
     return await call_next(request)
 
 app.add_middleware(
