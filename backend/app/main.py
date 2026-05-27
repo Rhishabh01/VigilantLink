@@ -75,8 +75,8 @@ def is_allowed_origin(origin: Optional[str]) -> bool:
     if not origin:
         return False
 
-    # Check both EXTENSIONS_IDS (plural) and EXTENSION_ID (singular)
-    allowed_ids_str = os.getenv("EXTENSIONS_IDS") or os.getenv("EXTENSION_ID") or ""
+    # Check ALLOWED_EXTENSION_IDS (from Railway), EXTENSIONS_IDS, or EXTENSION_ID
+    allowed_ids_str = os.getenv("ALLOWED_EXTENSION_IDS") or os.getenv("EXTENSIONS_IDS") or os.getenv("EXTENSION_ID") or ""
     allowed_ids = [ext_id.strip() for ext_id in allowed_ids_str.split(",") if ext_id.strip()]
     allowed_origins = {f"chrome-extension://{ext_id}" for ext_id in allowed_ids}
 
