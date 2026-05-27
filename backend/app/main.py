@@ -67,23 +67,60 @@ app = FastAPI(title="VigilantLink Security API", lifespan=lifespan)
 async def root():
     return {"status": "VigilantLink backend running"}
 
-# Origin validation (relaxed for local dev)
-ALLOWED_EXTENSION_ID = os.getenv("EXTENSION_ID", "[MY_EXTENSION_ID]")
-ALLOWED_ORIGIN = f"chrome-extension://{ALLOWED_EXTENSION_ID}"
+DEV_MODE = os.getenv("DEV_MODE", "").lower() in ("true", "1", "yes")
 
-def is_allowed_origin(origin: str) -> bool:
-    # Relaxed for local development
-    return True
+def is_allowed_origin(origin: Optional[str]) -> bool:
+    if DEV_MODE:
+        return True
+    if not origin:
+        return False
+
+    # Check ALLOWED_EXTENSION_IDS (from Railway), EXTENSIONS_IDS, or EXTENSION_ID
+    allowed_ids_str = os.getenv("ALLOWED_EXTENSION_IDS") or os.getenv("EXTENSIONS_IDS") or os.getenv("EXTENSION_ID") or ""
+    allowed_ids = [ext_id.strip() for ext_id in allowed_ids_str.split(",") if ext_id.strip()]
+    allowed_origins = {f"chrome-extension://{ext_id}" for ext_id in allowed_ids}
+
+    return origin in allowed_origins
+
+MIN_EXTENSION_VERSION = os.getenv("MIN_EXTENSION_VERSION", "2.0.0")
+
+def parse_version(version_str: str) -> tuple:
+    try:
+        parts = [int(x) for x in version_str.split(".") if x.strip().isdigit()]
+        while len(parts) < 3:
+            parts.append(0)
+        return tuple(parts[:3])
+    except Exception:
+        return (0, 0, 0)
+
+def is_version_allowed(version_str: Optional[str]) -> bool:
+    if DEV_MODE:
+        return True
+    if not version_str:
+        return False
+    return parse_version(version_str) >= parse_version(MIN_EXTENSION_VERSION)
 
 @app.middleware("http")
-async def verify_origin_middleware(request: Request, call_next):
-    if request.url.path == "/analyze":
-        origin = request.headers.get("origin")
-        if not is_allowed_origin(origin):
+async def verify_origin_and_version_middleware(request: Request, call_next):
+    path = request.url.path
+    if path == "/analyze" or path == "/analyze/preview" or path.startswith("/analyze/deep/"):
+        # 1. Verify Origin (only for POST requests)
+        if path in ("/analyze", "/analyze/preview"):
+            origin = request.headers.get("origin")
+            if not is_allowed_origin(origin):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Forbidden: Access restricted to official Chrome Extension."}
+                )
+        
+        # 2. Verify Version
+        client_version = request.headers.get("x-extension-version")
+        if not is_version_allowed(client_version):
             return JSONResponse(
                 status_code=403,
-                content={"detail": "Forbidden: Access restricted to official Chrome Extension."}
+                content={"detail": "Visit chrome webstore to get the latest version."}
             )
+            
     return await call_next(request)
 
 app.add_middleware(

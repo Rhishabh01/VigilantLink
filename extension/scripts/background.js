@@ -3,6 +3,7 @@
 // Phase 2: Deep scan polling (GET /analyze/deep/{request_id}) — background poll
 
 const DEFAULT_BACKEND_URL = "https://vigilantlink-production.up.railway.app";
+const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 
 async function getBackendUrl() {
   const data = await chrome.storage.local.get('backendUrl');
@@ -98,7 +99,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     getBackendUrl().then(backendUrl => {
       fetch(`${backendUrl}/analyze/preview`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "X-Extension-Version": EXTENSION_VERSION
+        },
         body: JSON.stringify({ url })
       })
         .then(res => {
@@ -127,7 +131,10 @@ async function analyzeTwoPhase(url, signal, tabId, generation, cacheOnly = false
   const backendUrl = await getBackendUrl();
   const phase1Response = await fetch(`${backendUrl}/analyze`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "Content-Type": "application/json",
+      "X-Extension-Version": EXTENSION_VERSION
+    },
     body: JSON.stringify({ url, cache_only: cacheOnly }),
     signal
   });
@@ -243,6 +250,9 @@ async function pollForDeepScan(requestId, signal, tabId, url, timeoutMs = POLL_T
     try {
       const backendUrl = await getBackendUrl();
       const response = await fetch(`${backendUrl}/analyze/deep/${requestId}`, {
+        headers: {
+          "X-Extension-Version": EXTENSION_VERSION
+        },
         signal
       });
 
