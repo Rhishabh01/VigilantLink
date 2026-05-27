@@ -3,14 +3,17 @@
 # ============================================================
 SUSPICIOUS_TLDS = ['.top', '.xyz', '.biz', '.zip', '.click', '.gq', '.tk', '.work', '.country']
 HIGH_RISK_KEYWORDS = ['verify', 'login', 'bank', 'secure', 'account']
-HIGH_VALUE_TARGETS = ['google', 'amazon', 'paypal', 'github', 'microsoft', 'apple']
+HIGH_VALUE_TARGETS = ['amazon', 'paypal', 'github', 'microsoft', 'apple']
 SUSPICIOUS_KEYWORDS = ["free", "login", "update", "verify", "secure", "account"]
 PHISHING_KEYWORDS = ["login", "verify", "password", "account", "security", "wallet", "banking", "auth"]
 TRUSTED_HOSTING_DOMAINS = ["docs.google.com", "github.io", "pages.dev", "notion.site", "pastebin.com"]
 TRUSTED_PLATFORMS = [
     "youtube.com", "google.com", "github.com", "microsoft.com",
-    "cloudflare.com", "discord.com", "linkedin.com",
+    "cloudflare.com", "discord.com", "linkedin.com","mail.google.com","accounts.google.com",
 ]
+
+# Google-owned root domains — redirects staying within these are legitimate auth flows
+GOOGLE_TRUSTED_ROOT_DOMAINS = frozenset({"google.com"})
 
 # ============================================================
 # Scoring Thresholds
