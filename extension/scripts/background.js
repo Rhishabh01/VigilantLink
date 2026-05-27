@@ -3,10 +3,8 @@
 // Phase 2: Deep scan polling (GET /analyze/deep/{request_id}) — background poll
 
 const DEFAULT_BACKEND_URL = "https://vigilantlink-production.up.railway.app";
-<<<<<<< Updated upstream
-=======
 const EXTENSION_VERSION = chrome.runtime.getManifest().version;
->>>>>>> Stashed changes
+
 
 async function getBackendUrl() {
   const data = await chrome.storage.local.get('backendUrl');
