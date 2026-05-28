@@ -76,7 +76,7 @@ Detailed technical documentation is available in the [docs/](docs/) directory:
 ## Safe Website Detection
 
 <p align="center">
-  <img src="assets/newsafegif.gif" width="900" alt="Safe Website Detection Demo"/>
+  <img src="assets/newsafegif.gif" width="500" alt="Safe Website Detection Demo"/>
 </p>
 
 Fast real-time analysis of trusted domains using heuristic scanning, domain intelligence, and threat reputation checks.
@@ -86,7 +86,7 @@ Fast real-time analysis of trusted domains using heuristic scanning, domain inte
 ## Malicious Website Detection
 
 <p align="center">
-  <img src="assets/newunsafegif.gif" width="900" alt="Malicious Website Detection Demo"/>
+  <img src="assets/newunsafegif.gif" width="500" alt="Malicious Website Detection Demo"/>
 </p>
 
 Detection of phishing indicators, malicious redirects, and suspicious browser behavior using the progressive deep-scan engine.
@@ -141,14 +141,6 @@ The system aggregates all security signals and produces one of:
 
 <p align="center">
   <img src="./assets/ExtensionSet.png" width="500" alt="Extension Settings Popup"/>
-</p>
-
----
-
-## Safe Website Result
-
-<p align="center">
-  <img src="assets/safess.png" width="350" height="400" alt="Safe Website Scan"/>
 </p>
 
 ---
