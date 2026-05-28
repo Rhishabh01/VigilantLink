@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/newsafegif.gif" width="600" height="500" alt="VigilantLink Main Demo"/>
+  <img src="assets/newsafegif.gif" width="500" height="500" alt="VigilantLink Main Demo"/>
 </p>
 
 <p align="center">
