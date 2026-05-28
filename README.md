@@ -133,14 +133,14 @@ The system aggregates all security signals and produces one of:
 ## Extension Options Popup
 
 <p align="center">
-  <img src="./assets/Extensionopt.png" width="500" alt="Extension Popup"/>
+  <img src="./assets/Extensionopt.png" width="200" alt="Extension Popup"/>
 </p>
 
 ---
 ## Extension Settings Popup
 
 <p align="center">
-  <img src="./assets/ExtensionSet.png" width="500" alt="Extension Settings Popup"/>
+  <img src="./assets/ExtensionSet.png" width="200" alt="Extension Settings Popup"/>
 </p>
 
 ---
