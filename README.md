@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/SafeGif.gif" width="600" height="500" alt="VigilantLink Main Demo"/>
+  <img src="assets/newsafegif.gif" width="600" height="500" alt="VigilantLink Main Demo"/>
 </p>
 
 <p align="center">
@@ -76,7 +76,7 @@ Detailed technical documentation is available in the [docs/](docs/) directory:
 ## Safe Website Detection
 
 <p align="center">
-  <img src="assets/SafeGif.gif" width="900" alt="Safe Website Detection Demo"/>
+  <img src="assets/newsafegif.gif" width="900" alt="Safe Website Detection Demo"/>
 </p>
 
 Fast real-time analysis of trusted domains using heuristic scanning, domain intelligence, and threat reputation checks.
@@ -86,12 +86,12 @@ Fast real-time analysis of trusted domains using heuristic scanning, domain inte
 ## Malicious Website Detection
 
 <p align="center">
-  <img src="assets/UnsafeGif.gif" width="900" alt="Malicious Website Detection Demo"/>
+  <img src="assets/newunsafegif.gif" width="900" alt="Malicious Website Detection Demo"/>
 </p>
 
 Detection of phishing indicators, malicious redirects, and suspicious browser behavior using the progressive deep-scan engine.
 
-*Testing source (in Demo): [testsafebrowsing.appspot.com](https://testsafebrowsing.appspot.com/)*
+*Testing source (in Demo): [badssl.com](https://badssl.com/)*
 
 ---
 
@@ -133,7 +133,16 @@ The system aggregates all security signals and produces one of:
 ## Extension Options Popup
 
 <p align="center">
-  <img src="./assets/ExtensionOptions.png" width="500" alt="Extension Popup"/>
+  <img src="./assets/Extensionopt.png" width="500" alt="Extension Popup"/>
+</p>
+
+---
+
+---
+## Extension Settings Popup
+
+<p align="center">
+  <img src="./assets/ExtensionSet.png" width="500" alt="Extension Settings Popup"/>
 </p>
 
 ---
@@ -141,15 +150,22 @@ The system aggregates all security signals and produces one of:
 ## Safe Website Result
 
 <p align="center">
-  <img src="assets/SafeSS.png" width="350" height="400" alt="Safe Website Scan"/>
+  <img src="assets/safess.png" width="350" height="400" alt="Safe Website Scan"/>
 </p>
 
 ---
 
+## Safe Website Result
+
+<p align="center">
+  <img src="assets/safess.png" width="350" height="400" alt="Safe Website Scan"/>
+</p>
+
+---
 ## Dangerous Website Detection
 
 <p align="center">
-  <img src="assets/UnSafeSS.png" width="300" height="400" alt="Dangerous Website Detection"/>
+  <img src="assets/unsafess.png" width="300" height="400" alt="Dangerous Website Detection"/>
 </p>
 
 ---
