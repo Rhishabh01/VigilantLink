@@ -137,8 +137,6 @@ The system aggregates all security signals and produces one of:
 </p>
 
 ---
-
----
 ## Extension Settings Popup
 
 <p align="center">
