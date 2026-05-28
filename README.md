@@ -148,14 +148,14 @@ The system aggregates all security signals and produces one of:
 ## Safe Website Result
 
 <p align="center">
-  <img src="assets/SafeSS.png" width="500" alt="Safe Website Scan"/>
+  <img src="assets/SafeSS.png" width="300" alt="Safe Website Scan"/>
 </p>
 
 ---
 ## Dangerous Website Detection
 
 <p align="center">
-  <img src="assets/UnSafeSS.png" width="500" alt="Dangerous Website Detection"/>
+  <img src="assets/UnSafeSS.png" width="300" alt="Dangerous Website Detection"/>
 </p>
 
 ---
