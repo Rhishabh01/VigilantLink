@@ -520,7 +520,7 @@ def compute_final_score(
     )
     
     risk_score, p_ssl, p_sec = _apply_uncertainty(
-        risk_score, ssl_uncertain, phishtank_uncertain, openphish_uncertain, rdap_uncertain, gsb_uncertain, is_susp_heur
+        risk_score, ssl_uncertain, phishtank_uncertain, openphish_uncertain, rdap_uncertain, gsb_timed_out, is_susp_heur
     )
     
     # Store uncertainty info for filtered reason display
