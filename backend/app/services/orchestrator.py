@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from .tracer import trace_url
 from .metadata_fetcher import fetch_metadata
-from .scanner import run_heuristics, run_external_scans
+from .scanner import run_heuristics, run_external_scans, check_google_safe_browsing
 from ..core.constants import (
     VERDICT_RED_THRESHOLD, VERDICT_YELLOW_THRESHOLD, PUNYCODE_MIN_SCORE,
     MAX_REDIRECT_HOPS_FREE, SEVERE_VENDOR_FLAGS_THRESHOLD,
@@ -40,7 +40,7 @@ from ..core.constants import (
     UNCERTAINTY_PENALTY, TRACKING_PARAMS, PHISHING_KEYWORDS,
     TRUSTED_HOSTING_DOMAINS, TRUSTED_PLATFORMS, SUSPICIOUS_TLDS,
     DECEPTIVE_QUERY_PARAMS, SUSPICIOUS_HOSTED_PATHS, WEAK_SIGNAL_PATTERNS,
-    GSB_THREAT_MIN_SCORES,
+    GSB_THREAT_MIN_SCORES, GSB_TIMEOUT_S, GSB_THREAT_PRIORITY,
     GOOGLE_TRUSTED_ROOT_DOMAINS,
 )
 from ..core.logging import get_logger
@@ -234,6 +234,7 @@ def compute_heuristic_score(
     has_metadata: bool,
     metadata: Optional[Dict[str, Any]] = None,
     ssl_error: bool = False,
+    gsb_threats: Optional[List[str]] = None,
 ) -> Tuple[int, str, bool, List[str]]:
     """
     Phase 1 Preliminary Score — uses ONLY local CPU heuristics.
@@ -340,6 +341,20 @@ def compute_heuristic_score(
         risk_score += round(WEIGHT_HEURISTIC * TYPOSQUATTING_PENALTY)
         reasons.append("Typosquatting Detected (High Value Target)")
 
+    # Google Safe Browsing Scoring
+    if gsb_threats:
+        gsb_threat_type = None
+        for threat in GSB_THREAT_PRIORITY:
+            if threat in gsb_threats:
+                gsb_threat_type = threat
+                break
+        
+        if gsb_threat_type:
+            min_score = GSB_THREAT_MIN_SCORES.get(gsb_threat_type, 90)
+            risk_score = max(risk_score, min_score)
+            reasons.append(f"CRITICAL: Flagged by Google Safe Browsing ({', '.join(gsb_threats)})")
+            logger.debug(f"[SCORING] {final_url[:50]}... - After GSB override: {risk_score}")
+
     capped_score = min(risk_score, 100)
 
     is_safe = True
@@ -363,6 +378,8 @@ def compute_final_score(
     has_metadata: bool,
     metadata: Optional[Dict[str, Any]] = None,
     ssl_error: bool = False,
+    gsb_threats: Optional[List[str]] = None,
+    gsb_timed_out: bool = False,
 ) -> Tuple[int, str, bool, List[str]]:
     """
     Phase 2 Final Score — heuristics + RDAP + GSB + PhishTank + OpenPhish + uncertainty penalty.
@@ -371,13 +388,13 @@ def compute_final_score(
     """
     # Start with heuristic base score
     risk_score, _, _, reasons = compute_heuristic_score(
-        heuristics, hops, final_url, dns_resolves, has_metadata, metadata, ssl_error
+        heuristics, hops, final_url, dns_resolves, has_metadata, metadata, ssl_error, gsb_threats
     )
     logger.debug(f"[SCORING] {final_url[:50]}... - Initial base score: {risk_score}")
 
     phishtank_flagged = external.get("phishtank_flagged", False)
     openphish_flagged = external.get("openphish_flagged", False)
-    gsb_threats = external.get("gsb_threats", [])
+    gsb_threats = gsb_threats or []
 
     # NEW: Detect trusted platform early — used to dampen external signal leaks
     domain_lower = urlparse(final_url).netloc.lower()
@@ -493,7 +510,6 @@ def compute_final_score(
     ssl_uncertain = external.get("ssl_timed_out", False)
     phishtank_uncertain = external.get("phishtank_timed_out", False)
     openphish_uncertain = external.get("openphish_timed_out", False)
-    gsb_uncertain = external.get("gsb_timed_out", False)
     rdap_uncertain = external.get("rdap_uncertain", False)
     
     is_susp_heur = (
@@ -510,17 +526,8 @@ def compute_final_score(
     # Store uncertainty info for filtered reason display
     uncertainty_info = None
     if p_ssl > 0 or p_sec > 0:
-        timed_out_count = sum([ssl_uncertain, phishtank_uncertain, openphish_uncertain, gsb_uncertain, rdap_uncertain])
+        timed_out_count = sum([ssl_uncertain, phishtank_uncertain, openphish_uncertain, gsb_timed_out, rdap_uncertain])
         uncertainty_info = (timed_out_count, p_ssl + p_sec)
-
-    # Google Safe Browsing Scoring
-    gsb_threat_type = external.get("gsb_threat_type")
-    logger.debug(f"[SCORING] {final_url[:50]}... - GSB result: matched={bool(gsb_threats)}, type={gsb_threat_type}")
-    if gsb_threats and gsb_threat_type:
-        min_score = GSB_THREAT_MIN_SCORES.get(gsb_threat_type, 90)
-        risk_score = max(risk_score, min_score)
-        reasons.append(f"CRITICAL: Flagged by Google Safe Browsing ({', '.join(gsb_threats)})")
-        logger.debug(f"[SCORING] {final_url[:50]}... - After GSB override: {risk_score}")
 
     # Trusted platform calibration: dampen weak/noisy signals
     if is_trusted_platform:
@@ -600,10 +607,22 @@ async def run_phase1(url: str) -> Dict[str, Any]:
         trace_task = tg.create_task(trace_url(url))
         meta_task = tg.create_task(fetch_metadata(url))
         dns_task = tg.create_task(check_dns(domain_to_check))
+        
+        async def _safe_gsb(target_url: str) -> Tuple[List[str], bool]:
+            try:
+                threats = await asyncio.wait_for(check_google_safe_browsing(target_url), timeout=GSB_TIMEOUT_S)
+                return threats, False
+            except asyncio.TimeoutError:
+                return [], True
+            except Exception:
+                return [], True
+                
+        gsb_task = tg.create_task(_safe_gsb(url))
 
     trace_result = trace_task.result()
     metadata = meta_task.result()
     dns_resolves = dns_task.result()
+    gsb_threats, gsb_timed_out = gsb_task.result()
 
     final_url = trace_result["final_url"]
     hops = trace_result["hops"]
@@ -629,12 +648,22 @@ async def run_phase1(url: str) -> Dict[str, Any]:
     # Compute initial score (heuristics only — preliminary)
     risk_score, verdict, is_safe, reasons = compute_heuristic_score(
         heuristics, hops, final_url, dns_resolves, has_metadata, 
-        metadata=metadata, ssl_error=trace_result.get("ssl_error", False)
+        metadata=metadata, ssl_error=trace_result.get("ssl_error", False),
+        gsb_threats=gsb_threats,
     )
+
+    gsb_threat_type = None
+    if gsb_threats:
+        for threat in GSB_THREAT_PRIORITY:
+            if threat in gsb_threats:
+                gsb_threat_type = threat
+                break
 
     # Determine threat type from heuristics
     threat_type: Optional[str] = None
-    if heuristics.get("brand_penalty_reason"):
+    if gsb_threat_type:
+        threat_type = gsb_threat_type
+    elif heuristics.get("brand_penalty_reason"):
         threat_type = "Typosquatting Detected"
     elif heuristics.get("synergy_detected"):
         threat_type = heuristics.get("synergy_reason")
@@ -664,6 +693,10 @@ async def run_phase1(url: str) -> Dict[str, Any]:
             "typosquatting_detected": heuristics.get("typosquatting_detected", False),
             "ssl_error": trace_result.get("ssl_error", False),
             "reasons": reasons,
+            "gsb_matched": bool(gsb_threats),
+            "gsb_threat_type": gsb_threat_type,
+            "gsb_threats": gsb_threats,
+            "gsb_timed_out": gsb_timed_out,
         },
         "duration_ms": duration_ms,
     }
@@ -697,12 +730,8 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             "ssl_cert_age_days": None,
             "domain_age_days": None,
             "threat_type": None,
-            "gsb_threats": [],
-            "gsb_matched": False,
-            "gsb_threat_type": None,
             "popularity_rank": None,
             "ssl_timed_out": True,
-            "gsb_timed_out": True,
             "rdap_timed_out": True,
             "cf_timed_out": True,
             "phishtank_flagged": False,
@@ -718,8 +747,6 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
         logger.debug(f"[PHASE2] PhishTank timeout: {root_domain}")
     if external.get("openphish_timed_out"):
         logger.debug(f"[PHASE2] OpenPhish timeout: {root_domain}")
-    if external.get("gsb_timed_out"):
-        logger.debug(f"[PHASE2] GSB timeout: {root_domain}")
     if external.get("rdap_timed_out"):
         logger.debug(f"[PHASE2] RDAP timeout: {root_domain}")
 
@@ -729,14 +756,14 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
         phase1_result.get("dns_resolves", True),
         phase1_result.get("has_metadata", True),
         metadata=phase1_result.get("metadata"),
-        ssl_error=phase1_result["security"].get("ssl_error", False)
+        ssl_error=phase1_result["security"].get("ssl_error", False),
+        gsb_threats=phase1_result["security"].get("gsb_threats", []),
+        gsb_timed_out=phase1_result["security"].get("gsb_timed_out", False),
     )
 
     # Determine threat type (external threats override heuristic-only threats)
     threat_type = phase1_result["security"].get("threat_type")
-    if external.get("gsb_threat_type"):
-        threat_type = external["gsb_threat_type"]
-    elif external.get("threat_type"):
+    if external.get("threat_type"):
         threat_type = external["threat_type"]
 
     duration_ms = int((time.monotonic() - start) * 1000)
@@ -758,8 +785,8 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             "typosquatting_detected": heuristics.get("typosquatting_detected", False),
             "ssl_error": phase1_result["security"].get("ssl_error", False),
             "reasons": reasons,
-            "gsb_matched": external.get("gsb_matched", False),
-            "gsb_threat_type": external.get("gsb_threat_type"),
+            "gsb_matched": phase1_result["security"].get("gsb_matched", False),
+            "gsb_threat_type": phase1_result["security"].get("gsb_threat_type"),
         },
         "duration_ms": duration_ms,
     }
