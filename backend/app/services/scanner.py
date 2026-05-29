@@ -251,8 +251,13 @@ async def check_google_safe_browsing(url: str) -> List[str]:
     """Check a URL against Google Safe Browsing v4 threatMatches."""
     api_key = os.getenv("GOOGLE_SAFE_BROWSING_API_KEY")
     normalized = _normalize_gsb_url(url)
-    if not api_key or not normalized:
+    if not api_key:
+        logger.warning("[GSB] GOOGLE_SAFE_BROWSING_API_KEY not set — skipping GSB check")
         return []
+    if not normalized:
+        logger.debug(f"[GSB] Could not normalize URL: {url[:80]}")
+        return []
+    logger.info(f"[GSB] Checking: {normalized[:80]}")
 
     payload = {
         "client": {
@@ -287,7 +292,12 @@ async def check_google_safe_browsing(url: str) -> List[str]:
             data = response.json()
             matches = data.get("matches", [])
             threats = [match.get("threatType") for match in matches if match.get("threatType") in GSB_THREAT_TYPES]
-            return list(dict.fromkeys([t for t in threats if t]))
+            result = list(dict.fromkeys([t for t in threats if t]))
+            if result:
+                logger.warning(f"[GSB] THREATS FOUND for {normalized[:80]}: {result}")
+            else:
+                logger.info(f"[GSB] Clean — no threats for {normalized[:80]}")
+            return result
 
     except httpx.TimeoutException:
         logger.debug(f"[GSB] Request timed out")

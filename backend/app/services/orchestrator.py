@@ -610,11 +610,15 @@ async def run_phase1(url: str) -> Dict[str, Any]:
         
         async def _safe_gsb(target_url: str) -> Tuple[List[str], bool]:
             try:
+                logger.info(f"[PHASE1-GSB] Starting GSB check for: {target_url[:80]}")
                 threats = await asyncio.wait_for(check_google_safe_browsing(target_url), timeout=GSB_TIMEOUT_S)
+                logger.info(f"[PHASE1-GSB] Result: {threats} (timed_out=False)")
                 return threats, False
             except asyncio.TimeoutError:
+                logger.warning(f"[PHASE1-GSB] Timed out for: {target_url[:80]}")
                 return [], True
-            except Exception:
+            except Exception as e:
+                logger.error(f"[PHASE1-GSB] Exception for {target_url[:80]}: {e}")
                 return [], True
                 
         gsb_task = tg.create_task(_safe_gsb(url))
@@ -623,6 +627,8 @@ async def run_phase1(url: str) -> Dict[str, Any]:
     metadata = meta_task.result()
     dns_resolves = dns_task.result()
     gsb_threats, gsb_timed_out = gsb_task.result()
+
+    logger.info(f"[PHASE1] GSB complete — threats={gsb_threats}, timed_out={gsb_timed_out}")
 
     final_url = trace_result["final_url"]
     hops = trace_result["hops"]
@@ -644,18 +650,21 @@ async def run_phase1(url: str) -> Dict[str, Any]:
         new_gsb_threats, new_gsb_timed_out = gsb_task2.result()
         gsb_threats = list(set(gsb_threats + new_gsb_threats))
         gsb_timed_out = gsb_timed_out or new_gsb_timed_out
+        logger.info(f"[PHASE1] GSB after redirect — combined threats={gsb_threats}")
         
     has_metadata = metadata is not None
 
     # CPU heuristics — instant
     heuristics = run_heuristics(final_url)
 
-    # Compute initial score (heuristics only — preliminary)
+    # Compute initial score (heuristics + GSB)
     risk_score, verdict, is_safe, reasons = compute_heuristic_score(
         heuristics, hops, final_url, dns_resolves, has_metadata, 
         metadata=metadata, ssl_error=trace_result.get("ssl_error", False),
         gsb_threats=gsb_threats,
     )
+
+    logger.info(f"[PHASE1] Score={risk_score}, verdict={verdict}, gsb_matched={bool(gsb_threats)}")
 
     gsb_threat_type = None
     if gsb_threats:
