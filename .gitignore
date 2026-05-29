@@ -47,7 +47,7 @@ backend/.env
 backend/test_*.py
 backend/create_icons.py
 backend/test_suite.py
-
+Architecture_Update*
 # Playwright
 test-results/
 screenshots/
