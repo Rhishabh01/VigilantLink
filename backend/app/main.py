@@ -2,6 +2,9 @@ import asyncio
 import os
 import sys
 import time
+from dotenv import load_dotenv
+
+load_dotenv()
 from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse

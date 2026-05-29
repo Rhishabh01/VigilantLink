@@ -637,8 +637,13 @@ async def run_phase1(url: str) -> Dict[str, Any]:
         async with asyncio.TaskGroup() as tg2:
             meta_task2 = tg2.create_task(fetch_metadata(final_url))
             dns_task2 = tg2.create_task(check_dns(final_domain))
+            gsb_task2 = tg2.create_task(_safe_gsb(final_url))
         metadata = meta_task2.result()
         dns_resolves = dns_task2.result()
+        
+        new_gsb_threats, new_gsb_timed_out = gsb_task2.result()
+        gsb_threats = list(set(gsb_threats + new_gsb_threats))
+        gsb_timed_out = gsb_timed_out or new_gsb_timed_out
         
     has_metadata = metadata is not None
 
