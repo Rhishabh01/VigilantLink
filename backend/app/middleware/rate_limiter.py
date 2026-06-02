@@ -16,11 +16,41 @@ Behavior:
 import asyncio
 import logging
 import time
-from typing import Dict
+from typing import Dict, Optional
 
 from fastapi import HTTPException, Request
 
 logger = logging.getLogger(__name__)
+
+# Atomic leaky bucket Lua script for Redis
+LUA_SCRIPT = """
+local key = KEYS[1]
+local capacity = tonumber(ARGV[1])
+local leak_rate = tonumber(ARGV[2])
+local now = tonumber(ARGV[3])
+local cost = tonumber(ARGV[4])
+
+local bucket = redis.call('HMGET', key, 'tokens', 'last_leak')
+local tokens = capacity
+local last_leak = now
+
+if bucket[1] then
+    tokens = tonumber(bucket[1])
+    last_leak = tonumber(bucket[2])
+    local elapsed = now - last_leak
+    tokens = math.min(capacity, tokens + elapsed * leak_rate)
+end
+
+if tokens >= cost then
+    tokens = tokens - cost
+    redis.call('HMSET', key, 'tokens', tokens, 'last_leak', now)
+    redis.call('EXPIRE', key, 60)
+    return {1, tokens}
+else
+    local retry_after = (cost - tokens) / leak_rate
+    return {0, retry_after}
+end
+"""
 
 
 class LeakyBucket:
@@ -60,12 +90,13 @@ class SessionRateLimiter:
     Sessions identified by X-Session-ID header, falling back to client IP.
     """
 
-    def __init__(self, capacity: int = 10, leak_rate: float = 2.0) -> None:
+    def __init__(self, capacity: int = 10, leak_rate: float = 2.0, redis_cache=None) -> None:
         self._buckets: Dict[str, LeakyBucket] = {}
         self._capacity = capacity
         self._leak_rate = leak_rate
         self._lock = asyncio.Lock()
         self._cleanup_counter = 0
+        self.redis_cache = redis_cache
 
     async def check(self, request: Request) -> None:
         """
@@ -75,6 +106,36 @@ class SessionRateLimiter:
             "X-Session-ID",
             request.client.host if request.client else "unknown",
         )
+
+        # Use Redis if available to prevent bypass across multiple workers
+        if self.redis_cache and self.redis_cache._is_connected and self.redis_cache._redis:
+            now = time.time()
+            try:
+                res = await self.redis_cache._redis.eval(
+                    LUA_SCRIPT,
+                    1,
+                    f"vl:ratelimit:{session_id}",
+                    self._capacity,
+                    self._leak_rate,
+                    now,
+                    1.0
+                )
+                success, value = res
+                if not success:
+                    retry = round(float(value), 1)
+                    logger.warning(f"Rate limit exceeded (Redis) for session={session_id}, retry_after={retry}s")
+                    raise HTTPException(
+                        status_code=429,
+                        detail="Rate limit exceeded. Slow down hover requests.",
+                        headers={"Retry-After": str(retry)},
+                    )
+                return
+            except Exception as e:
+                # If HTTPException was raised, re-raise it
+                if isinstance(e, HTTPException):
+                    raise
+                # Otherwise, log Redis error and fall back to local memory
+                logger.warning(f"Redis rate limiting failed, falling back to local: {e}")
 
         async with self._lock:
             if session_id not in self._buckets:
@@ -91,7 +152,7 @@ class SessionRateLimiter:
 
         if not bucket.try_consume():
             retry = round(bucket.retry_after, 1)
-            logger.warning(f"Rate limit exceeded for session={session_id}, retry_after={retry}s")
+            logger.warning(f"Rate limit exceeded (Local) for session={session_id}, retry_after={retry}s")
             raise HTTPException(
                 status_code=429,
                 detail="Rate limit exceeded. Slow down hover requests.",

@@ -1,5 +1,6 @@
 import asyncio
 import os
+import secrets
 import sys
 import time
 
@@ -15,6 +16,8 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
+
+from .utils.url_validator import resolve_and_validate
 
 from .core.logging import setup_logging, get_logger
 
@@ -38,7 +41,7 @@ logger = get_logger("VigilantLink")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_cache = RedisCache(redis_url=REDIS_URL)
-rate_limiter = SessionRateLimiter(capacity=10, leak_rate=2.0)
+rate_limiter = SessionRateLimiter(capacity=10, leak_rate=2.0, redis_cache=redis_cache)
 
 
 
@@ -76,13 +79,23 @@ async def root():
 
 DEV_MODE = os.getenv("DEV_MODE", "").lower() in ("true", "1", "yes")
 
+def _build_allowed_origins() -> list:
+    """Build CORS origin allowlist from environment variables."""
+    origins = []
+    allowed_ids_str = os.getenv("ALLOWED_EXTENSION_IDS") or os.getenv("EXTENSIONS_IDS") or os.getenv("EXTENSION_ID") or ""
+    allowed_ids = [ext_id.strip() for ext_id in allowed_ids_str.split(",") if ext_id.strip()]
+    for ext_id in allowed_ids:
+        origins.append(f"chrome-extension://{ext_id}")
+    if DEV_MODE:
+        origins.extend(["http://localhost:8000", "http://127.0.0.1:8000"])
+    return origins
+
 def is_allowed_origin(origin: Optional[str]) -> bool:
     if DEV_MODE:
         return True
     if not origin:
         return False
 
-    # Check ALLOWED_EXTENSION_IDS (from Railway), EXTENSIONS_IDS, or EXTENSION_ID
     allowed_ids_str = os.getenv("ALLOWED_EXTENSION_IDS") or os.getenv("EXTENSIONS_IDS") or os.getenv("EXTENSION_ID") or ""
     allowed_ids = [ext_id.strip() for ext_id in allowed_ids_str.split(",") if ext_id.strip()]
     allowed_origins = {f"chrome-extension://{ext_id}" for ext_id in allowed_ids}
@@ -130,11 +143,16 @@ async def verify_origin_and_version_middleware(request: Request, call_next):
             
     return await call_next(request)
 
+# Build CORS allowlist from environment. In production, only chrome-extension://
+# origins are allowed. This replaces the insecure allow_origins=["*"] +
+# allow_credentials=True combination, which would let any origin make
+# credentialed requests to the API.
+_cors_origins = _build_allowed_origins()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins if _cors_origins else [],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -165,6 +183,14 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
             raise HTTPException(
                 status_code=400,
                 detail=f"Unsupported scheme: {parsed.scheme}. Only http/https URLs are supported."
+            )
+
+        # SSRF protection: block requests to private/reserved IP ranges
+        is_safe, _, ssrf_reason = resolve_and_validate(url_str)
+        if not is_safe:
+            raise HTTPException(
+                status_code=400,
+                detail=f"URL blocked: {ssrf_reason}"
             )
 
         # Normalize URL for cache deduplication
@@ -204,7 +230,7 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
             lambda: run_phase1(url_str),
         )
 
-        request_id = generate_request_id()
+        request_id = secrets.token_hex(12)
 
         # Build stage 1 response
         metadata = phase1.get("metadata") or {}
@@ -253,10 +279,32 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
 
         if needs_deep_scan:
             # Fire-and-forget Phase 2 in background for suspicious/dangerous links
-            task = asyncio.create_task(_run_phase2_background(request_id, canonical, phase1))
-            background_tasks.add(task)
-            task.add_done_callback(background_tasks.discard)
-            logger.info(f"Phase 1 complete for {url_str} in {phase1['duration_ms']}ms (id={request_id}). Deep scan triggered.")
+            if len(background_tasks) >= MAX_BACKGROUND_TASKS:
+                logger.warning(f"[PHASE2] Background task limit ({MAX_BACKGROUND_TASKS}) reached, skipping deep scan for {request_id}")
+                
+                # Mark as complete immediately so frontend doesn't hang polling
+                # Ensure we run this async operation correctly without blocking
+                stage2_bypass = {
+                    "s": 2,
+                    "id": request_id,
+                    "url": url_str,
+                    "furl": phase1.get("final_url", url_str),
+                    "hops": [{"u": h["url"], "c": h["status_code"]} for h in phase1.get("hops", [])],
+                    "t": metadata.get("title"),
+                    "d": metadata.get("description"),
+                    "img": metadata.get("image_url"),
+                    "fav": metadata.get("favicon_url"),
+                    "ss": None,
+                    "p3": "skipped (server load)",
+                    "sec": stage1_response["sec"],
+                    "ms": phase1["duration_ms"],
+                }
+                asyncio.create_task(redis_cache.set_pending(request_id, stage2_bypass))
+            else:
+                task = asyncio.create_task(_run_phase2_background(request_id, canonical, phase1))
+                background_tasks.add(task)
+                task.add_done_callback(background_tasks.discard)
+            logger.info(f"Phase 1 complete for {url_str[:80]} in {phase1['duration_ms']}ms (id={request_id}). Deep scan triggered.")
         else:
             # Safe link: bypass deep analysis and Playwright to save resources.
             # Mark as complete in Redis so frontend polling terminates immediately.
@@ -307,7 +355,9 @@ async def get_deep_result(request_id: str) -> dict:
     return {"s": 0, "id": request_id}
 
 
-# Global set to hold strong references to background tasks to prevent GC
+# Global set to hold strong references to background tasks to prevent GC.
+# Capped at 100 to prevent unbounded accumulation under extreme load.
+MAX_BACKGROUND_TASKS = 100
 background_tasks = set()
 
 async def _run_phase2_background(

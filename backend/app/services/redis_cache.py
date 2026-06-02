@@ -177,7 +177,7 @@ class RedisCache:
 
     async def get_pending(self, request_id: str) -> Optional[Dict[str, Any]]:
         """Get pending deep scan result by request_id."""
-        print(f"[POLL READ] request_id={request_id}")
+        logger.debug(f"[POLL READ] request_id={request_id}")
         
         if self._is_connected and self._redis:
             key = f"{PENDING_PREFIX}{request_id}"
@@ -185,7 +185,7 @@ class RedisCache:
                 raw = await self._redis.get(key)
                 if raw:
                     res = json.loads(raw)
-                    print(f"[POLL READ] Found in Redis: s={res.get('s')}")
+                    logger.debug(f"[POLL READ] Found in Redis: s={res.get('s')}")
                     return res
             except redis.RedisError as e:
                 logger.error(f"Redis GET pending failed: {e}")
@@ -193,29 +193,29 @@ class RedisCache:
         # Fallback check
         res = self._fallback_pending.get(request_id)
         if res:
-            print(f"[POLL READ] Found in Fallback: s={res.get('s')}")
+            logger.debug(f"[POLL READ] Found in Fallback: s={res.get('s')}")
         else:
-            print(f"[POLL READ] Not found")
+            logger.debug(f"[POLL READ] Not found")
         return res
 
     async def set_pending(
         self, request_id: str, report: Dict[str, Any]
     ) -> None:
         """Store pending deep scan result for polling."""
-        print(f"[PHASE2 SAVE] request_id={request_id}")
+        logger.debug(f"[PHASE2 SAVE] request_id={request_id}")
         
         if self._is_connected and self._redis:
             key = f"{PENDING_PREFIX}{request_id}"
             try:
                 await self._redis.set(key, json.dumps(report), ex=PENDING_TTL_S)
-                print(f"[PHASE2 SAVE] Stored in Redis")
+                logger.debug(f"[PHASE2 SAVE] Stored in Redis")
                 return
             except redis.RedisError as e:
                 logger.error(f"Redis SET pending failed: {e}")
         
         # Fallback storage
         self._fallback_pending[request_id] = report
-        print(f"[PHASE2 SAVE] Stored in Fallback")
+        logger.debug(f"[PHASE2 SAVE] Stored in Fallback")
         # Self-cleanup after 5 mins to prevent memory leak
         async def _cleanup():
             await asyncio.sleep(PENDING_TTL_S)

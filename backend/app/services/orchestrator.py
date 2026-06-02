@@ -510,7 +510,7 @@ def compute_final_score(
     ssl_uncertain = external.get("ssl_timed_out", False)
     phishtank_uncertain = external.get("phishtank_timed_out", False)
     openphish_uncertain = external.get("openphish_timed_out", False)
-    rdap_uncertain = external.get("rdap_uncertain", False)
+    rdap_uncertain = external.get("rdap_timed_out", False)
     
     is_susp_heur = (
         heuristics.get("typosquatting_detected") or 
