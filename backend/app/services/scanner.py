@@ -247,12 +247,25 @@ def _normalize_gsb_url(target: str) -> Optional[str]:
     return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path or "/", parsed.params, parsed.query, ""))
 
 
-async def check_google_safe_browsing(url: str) -> List[str]:
-    """Check a URL against Google Safe Browsing v4 threatMatches."""
+async def check_google_safe_browsing(urls: List[str]) -> List[str]:
+    """Check URLs against Google Safe Browsing v4 threatMatches in a single batch."""
     api_key = os.getenv("GOOGLE_SAFE_BROWSING_API_KEY")
-    normalized = _normalize_gsb_url(url)
-    if not api_key or not normalized:
+    
+    if not api_key:
+        logger.warning("[GSB] GOOGLE_SAFE_BROWSING_API_KEY not set — skipping GSB check")
         return []
+
+    normalized_urls = []
+    for u in urls:
+        norm = _normalize_gsb_url(u)
+        if norm and norm not in normalized_urls:
+            normalized_urls.append(norm)
+
+    if not normalized_urls:
+        logger.debug(f"[GSB] Could not normalize any URLs from batch.")
+        return []
+        
+    logger.info(f"[GSB] Checking batch of {len(normalized_urls)} URLs: {normalized_urls}")
 
     payload = {
         "client": {
@@ -263,7 +276,7 @@ async def check_google_safe_browsing(url: str) -> List[str]:
             "threatTypes": GSB_THREAT_TYPES,
             "platformTypes": ["ANY_PLATFORM"],
             "threatEntryTypes": ["URL"],
-            "threatEntries": [{"url": normalized}],
+            "threatEntries": [{"url": norm} for norm in normalized_urls],
         },
     }
 
@@ -287,7 +300,12 @@ async def check_google_safe_browsing(url: str) -> List[str]:
             data = response.json()
             matches = data.get("matches", [])
             threats = [match.get("threatType") for match in matches if match.get("threatType") in GSB_THREAT_TYPES]
-            return list(dict.fromkeys([t for t in threats if t]))
+            result = list(dict.fromkeys([t for t in threats if t]))
+            if result:
+                logger.warning(f"[GSB] THREATS FOUND for batch: {result}")
+            else:
+                logger.info(f"[GSB] Clean — no threats for batch")
+            return result
 
     except httpx.TimeoutException:
         logger.debug(f"[GSB] Request timed out")
@@ -299,16 +317,16 @@ async def check_google_safe_browsing(url: str) -> List[str]:
 
 async def run_external_scans(domain: str) -> Dict[str, Any]:
     """
-    Tier 2: Run SSL, GSB, RDAP, PhishTank, and OpenPhish in parallel.
+    Tier 2: Run SSL, RDAP, PhishTank, and OpenPhish in parallel.
     'domain' can be a hostname or a full URL.
     """
     parsed = urllib.parse.urlparse(domain)
     if parsed.scheme and parsed.netloc:
         target_domain = parsed.netloc.split(':')[0]
-        gsb_url = urllib.parse.urlunparse(parsed)
+        full_url = urllib.parse.urlunparse(parsed)
     else:
         target_domain = domain
-        gsb_url = f"http://{domain}"
+        full_url = f"http://{domain}"
 
     parts = target_domain.split('.')
     if len(parts) > 2:
@@ -317,7 +335,6 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         root_domain = target_domain
 
     ssl_timed_out = False
-    gsb_timed_out = False
     rdap_timed_out = False
     phishtank_timed_out = False
     openphish_timed_out = False
@@ -336,16 +353,6 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
             logger.debug(f"SSL cert age failed for {target_domain}: {e}")
             return None
  
-    async def _safe_gsb() -> List[str]:
-        nonlocal gsb_timed_out
-        try:
-            return await asyncio.wait_for(
-                check_google_safe_browsing(gsb_url), timeout=GSB_TIMEOUT_S
-            )
-        except asyncio.TimeoutError:
-            gsb_timed_out = True
-            return []
-
     async def _safe_rdap() -> int:
         nonlocal rdap_timed_out
         try:
@@ -360,44 +367,35 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         nonlocal phishtank_timed_out
         try:
             return await asyncio.wait_for(
-                check_phishtank(gsb_url), timeout=2.0
+                check_phishtank(full_url), timeout=2.0
             )
         except asyncio.TimeoutError:
             phishtank_timed_out = True
             return False
         except Exception as e:
-            logger.debug(f"PhishTank check failed for {gsb_url}: {e}")
+            logger.debug(f"PhishTank check failed for {full_url}: {e}")
             return False
 
     async def _safe_openphish() -> bool:
         nonlocal openphish_timed_out
         try:
             return await asyncio.wait_for(
-                check_openphish(gsb_url), timeout=3.0
+                check_openphish(full_url), timeout=3.0
             )
         except asyncio.TimeoutError:
             openphish_timed_out = True
             return False
         except Exception as e:
-            logger.debug(f"OpenPhish check failed for {gsb_url}: {e}")
+            logger.debug(f"OpenPhish check failed for {full_url}: {e}")
             return False
 
     results = await asyncio.gather(
-        _safe_ssl(), _safe_gsb(), _safe_rdap(), _safe_phishtank(), _safe_openphish()
+        _safe_ssl(), _safe_rdap(), _safe_phishtank(), _safe_openphish()
     )
-    cert_age, gsb_results, domain_age, phishtank_flagged, openphish_flagged = results
- 
-    gsb_threat_type: Optional[str] = None
-    if gsb_results:
-        for threat in GSB_THREAT_PRIORITY:
-            if threat in gsb_results:
-                gsb_threat_type = threat
-                break
+    cert_age, domain_age, phishtank_flagged, openphish_flagged = results
  
     threat_type: Optional[str] = None
-    if gsb_threat_type:
-        threat_type = gsb_threat_type
-    elif phishtank_flagged:
+    if phishtank_flagged:
         threat_type = "Confirmed Phishing (PhishTank)"
     elif openphish_flagged:
         threat_type = "Active Phishing Campaign (OpenPhish)"
@@ -410,12 +408,8 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         "ssl_cert_age_days": cert_age,
         "domain_age_days": domain_age,
         "threat_type": threat_type,
-        "gsb_threats": gsb_results,
-        "gsb_matched": bool(gsb_results),
-        "gsb_threat_type": gsb_threat_type,
         "rdap_timed_out": rdap_timed_out,
         "ssl_timed_out": ssl_timed_out,
-        "gsb_timed_out": gsb_timed_out,
         "phishtank_flagged": phishtank_flagged,
         "openphish_flagged": openphish_flagged,
         "phishtank_timed_out": phishtank_timed_out,

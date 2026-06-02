@@ -15,6 +15,7 @@ from typing import Optional
 from playwright.async_api import async_playwright, Browser, BrowserContext
 from ..core.constants import MAX_CONCURRENT_SCREENSHOTS
 from ..core.logging import get_logger
+from ..utils.url_validator import resolve_and_validate
 
 logger = get_logger("VigilantLink")
 
@@ -67,6 +68,13 @@ class BrowserPool:
             self._context = await self._browser.new_context(
                 viewport={"width": 1280, "height": 720},
                 device_scale_factor=1,
+                # bypass_csp=True is required for screenshot capture.
+                # Many websites use Content Security Policy headers that block
+                # inline styles/scripts injected by Playwright during rendering,
+                # which produces blank or broken screenshots. Since this browser
+                # context is headless, isolated, and only used to render pages
+                # for visual capture (never for user sessions or authentication),
+                # the security impact is minimal.
                 bypass_csp=True,
                 user_agent=SCREENSHOT_USER_AGENT,
             )
@@ -135,6 +143,12 @@ class BrowserPool:
 
         if not self._context:
             raise RuntimeError("BrowserPool failed to start")
+
+        # SSRF protection: validate URL before navigating browser
+        is_safe, _, reason = resolve_and_validate(url)
+        if not is_safe:
+            logger.warning(f"[SSRF] Blocked screenshot for {url[:80]}: {reason}")
+            return None
 
         async with self._semaphore:
             self._active_pages += 1

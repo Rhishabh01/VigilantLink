@@ -66,7 +66,19 @@ function renderHiddenPresets(hiddenPresets) {
     row.className = 'preset-item';
 
     const info = document.createElement('div');
-    info.innerHTML = `<span class="preset-name" style="font-weight:600">${site.name}</span> <span class="preset-domain" style="font-size:11px;color:var(--text-muted)">(${site.domain})</span>`;
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'preset-name';
+    nameSpan.style.fontWeight = '600';
+    nameSpan.textContent = site.name;
+
+    const domainSpan = document.createElement('span');
+    domainSpan.className = 'preset-domain';
+    domainSpan.style.fontSize = '11px';
+    domainSpan.style.color = 'var(--text-muted)';
+    domainSpan.textContent = ` (${site.domain})`;
+
+    info.appendChild(nameSpan);
+    info.appendChild(domainSpan);
     row.appendChild(info);
 
     const restoreBtn = document.createElement('button');

@@ -2,6 +2,7 @@ import httpx
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from ..core.logging import get_logger
+from ..utils.url_validator import resolve_and_validate
 
 logger = get_logger("VigilantLink")
 
@@ -10,7 +11,16 @@ async def fetch_metadata(url: str):
     Fast metadata extraction using raw HTTP requests.
     Attempts to find Open Graph tags and standard meta tags.
     Includes lightweight retry on failure.
+
+    SSRF Protection:
+      - Pre-validates URL's resolved IP before any outbound connection.
     """
+    # SSRF check before any outbound request
+    is_safe, _, reason = resolve_and_validate(url)
+    if not is_safe:
+        logger.warning(f"[SSRF] Blocked metadata fetch for {url[:80]}: {reason}")
+        return None
+
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",

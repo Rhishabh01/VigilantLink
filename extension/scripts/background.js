@@ -2,7 +2,7 @@
 // Phase 1: Instant analysis (POST /analyze) — returned immediately
 // Phase 2: Deep scan polling (GET /analyze/deep/{request_id}) — background poll
 
-const DEFAULT_BACKEND_URL = "https://vigilantlink-production.up.railway.app";
+const DEFAULT_BACKEND_URL = "https://extension-production-4bd4.up.railway.app";
 const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 
 
@@ -146,9 +146,22 @@ async function analyzeTwoPhase(url, signal, tabId, generation, cacheOnly = false
     console.error("Backend response status:", phase1Response.status);
     console.error("Backend response body:", errorText);
 
-    throw new Error(
-      `Backend Error ${phase1Response.status}: ${errorText}`
-    );
+    // Extract a safe message if possible, otherwise use a generic one
+    let safeMessage = "An unexpected error occurred.";
+    if (phase1Response.status === 429) {
+      safeMessage = "Rate limit exceeded. Please slow down.";
+    } else if (phase1Response.status === 400 || phase1Response.status === 403) {
+      try {
+        const parsed = JSON.parse(errorText);
+        if (parsed.detail && typeof parsed.detail === 'string' && parsed.detail.length < 100) {
+          safeMessage = parsed.detail;
+        }
+      } catch (e) {
+        // Ignore JSON parse errors for raw text
+      }
+    }
+    
+    throw new Error(safeMessage);
   }
 
   const phase1Data = await phase1Response.json();
