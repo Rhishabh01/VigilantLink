@@ -18,6 +18,7 @@ import json
 import logging
 import time
 from typing import Any, Dict, Optional
+from cachetools import TTLCache
 
 import redis.asyncio as redis
 
@@ -43,7 +44,8 @@ _INTERNAL_FIELDS = frozenset({"created_at", "refreshed_at"})
 
 def _cache_key(canonical_url: str) -> str:
     """Generate Redis key from canonical URL."""
-    h = hashlib.sha256(canonical_url.encode()).hexdigest()[:16]
+    # Full SHA-256 hash (64 chars) prevents accidental and intentional collisions (M6)
+    h = hashlib.sha256(canonical_url.encode()).hexdigest()
     return f"{KEY_PREFIX}{h}"
 
 
@@ -58,19 +60,27 @@ class RedisCache:
         self._redis_url = redis_url
         self._redis: Optional[redis.Redis] = None
         self._is_connected = False
-        # Fallback for when Redis is unavailable (only works for single-process)
-        self._fallback_pending: Dict[str, Any] = {}
-        self._fallback_full: Dict[str, Any] = {}
-        self._fallback_partial: Dict[str, Any] = {}
+        # Fallback for when Redis is unavailable
+        # Bounded TTLCache prevents memory exhaustion (Issue H2)
+        self._fallback_pending = TTLCache(maxsize=1000, ttl=PENDING_TTL_S)
+        self._fallback_full = TTLCache(maxsize=1000, ttl=HARD_TTL_S)
+        self._fallback_partial = TTLCache(maxsize=2000, ttl=PARTIAL_TTL_S)
 
     async def connect(self) -> None:
         """Initialize Redis connection pool."""
         try:
+            kwargs = {
+                "decode_responses": True,
+                "max_connections": 20,
+                "socket_timeout": 2.0
+            }
+            # Support secure Redis connections on PaaS providers (H5)
+            if self._redis_url.startswith("rediss://"):
+                kwargs["ssl_cert_reqs"] = "none"
+
             self._redis = redis.from_url(
                 self._redis_url,
-                decode_responses=True,
-                max_connections=20,
-                socket_timeout=2.0
+                **kwargs
             )
             await self._redis.ping()
             self._is_connected = True
@@ -216,11 +226,6 @@ class RedisCache:
         # Fallback storage
         self._fallback_pending[request_id] = report
         logger.debug(f"[PHASE2 SAVE] Stored in Fallback")
-        # Self-cleanup after 5 mins to prevent memory leak
-        async def _cleanup():
-            await asyncio.sleep(PENDING_TTL_S)
-            self._fallback_pending.pop(request_id, None)
-        asyncio.create_task(_cleanup())
 
     # ------------------------------------------------------------------
     # Background refresh (soft-TTL)

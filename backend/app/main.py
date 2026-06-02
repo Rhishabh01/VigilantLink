@@ -41,7 +41,8 @@ logger = get_logger("VigilantLink")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_cache = RedisCache(redis_url=REDIS_URL)
-rate_limiter = SessionRateLimiter(capacity=10, leak_rate=2.0, redis_cache=redis_cache)
+rate_limiter = SessionRateLimiter(capacity=10, leak_rate=2.0, redis_cache=redis_cache, prefix="main")
+polling_rate_limiter = SessionRateLimiter(capacity=60, leak_rate=2.0, redis_cache=redis_cache, prefix="poll")
 
 
 
@@ -342,10 +343,12 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
 # ============================================================
 
 @app.get("/analyze/deep/{request_id}")
-async def get_deep_result(request_id: str) -> dict:
+async def get_deep_result(request_id: str, request: Request) -> dict:
     """
     Poll endpoint for Phase 2 deep scan results.
     """
+    await polling_rate_limiter.check(request)
+    
     result = await redis_cache.get_pending(request_id)
     if result:
         # Reduced noise: only log if we actually found something to return

@@ -247,17 +247,25 @@ def _normalize_gsb_url(target: str) -> Optional[str]:
     return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path or "/", parsed.params, parsed.query, ""))
 
 
-async def check_google_safe_browsing(url: str) -> List[str]:
-    """Check a URL against Google Safe Browsing v4 threatMatches."""
+async def check_google_safe_browsing(urls: List[str]) -> List[str]:
+    """Check URLs against Google Safe Browsing v4 threatMatches in a single batch."""
     api_key = os.getenv("GOOGLE_SAFE_BROWSING_API_KEY")
-    normalized = _normalize_gsb_url(url)
+    
     if not api_key:
         logger.warning("[GSB] GOOGLE_SAFE_BROWSING_API_KEY not set — skipping GSB check")
         return []
-    if not normalized:
-        logger.debug(f"[GSB] Could not normalize URL: {url[:80]}")
+
+    normalized_urls = []
+    for u in urls:
+        norm = _normalize_gsb_url(u)
+        if norm and norm not in normalized_urls:
+            normalized_urls.append(norm)
+
+    if not normalized_urls:
+        logger.debug(f"[GSB] Could not normalize any URLs from batch.")
         return []
-    logger.info(f"[GSB] Checking: {normalized[:80]}")
+        
+    logger.info(f"[GSB] Checking batch of {len(normalized_urls)} URLs: {normalized_urls}")
 
     payload = {
         "client": {
@@ -268,7 +276,7 @@ async def check_google_safe_browsing(url: str) -> List[str]:
             "threatTypes": GSB_THREAT_TYPES,
             "platformTypes": ["ANY_PLATFORM"],
             "threatEntryTypes": ["URL"],
-            "threatEntries": [{"url": normalized}],
+            "threatEntries": [{"url": norm} for norm in normalized_urls],
         },
     }
 
@@ -294,9 +302,9 @@ async def check_google_safe_browsing(url: str) -> List[str]:
             threats = [match.get("threatType") for match in matches if match.get("threatType") in GSB_THREAT_TYPES]
             result = list(dict.fromkeys([t for t in threats if t]))
             if result:
-                logger.warning(f"[GSB] THREATS FOUND for {normalized[:80]}: {result}")
+                logger.warning(f"[GSB] THREATS FOUND for batch: {result}")
             else:
-                logger.info(f"[GSB] Clean — no threats for {normalized[:80]}")
+                logger.info(f"[GSB] Clean — no threats for batch")
             return result
 
     except httpx.TimeoutException:

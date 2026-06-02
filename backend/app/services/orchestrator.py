@@ -603,54 +603,58 @@ async def run_phase1(url: str) -> Dict[str, Any]:
     if ':' in domain_to_check:
         domain_to_check = domain_to_check.split(':')[0]
         
+    async def _safe_gsb(target_urls: List[str]) -> Tuple[List[str], bool]:
+        try:
+            logger.info(f"[PHASE1-GSB] Starting GSB check for {len(target_urls)} URLs")
+            threats = await asyncio.wait_for(check_google_safe_browsing(target_urls), timeout=GSB_TIMEOUT_S)
+            logger.info(f"[PHASE1-GSB] Result: {threats} (timed_out=False)")
+            return threats, False
+        except asyncio.TimeoutError:
+            logger.warning(f"[PHASE1-GSB] Timed out")
+            return [], True
+        except Exception as e:
+            logger.error(f"[PHASE1-GSB] Exception: {e}")
+            return [], True
+
     async with asyncio.TaskGroup() as tg:
         trace_task = tg.create_task(trace_url(url))
         meta_task = tg.create_task(fetch_metadata(url))
         dns_task = tg.create_task(check_dns(domain_to_check))
-        
-        async def _safe_gsb(target_url: str) -> Tuple[List[str], bool]:
-            try:
-                logger.info(f"[PHASE1-GSB] Starting GSB check for: {target_url[:80]}")
-                threats = await asyncio.wait_for(check_google_safe_browsing(target_url), timeout=GSB_TIMEOUT_S)
-                logger.info(f"[PHASE1-GSB] Result: {threats} (timed_out=False)")
-                return threats, False
-            except asyncio.TimeoutError:
-                logger.warning(f"[PHASE1-GSB] Timed out for: {target_url[:80]}")
-                return [], True
-            except Exception as e:
-                logger.error(f"[PHASE1-GSB] Exception for {target_url[:80]}: {e}")
-                return [], True
-                
-        gsb_task = tg.create_task(_safe_gsb(url))
 
     trace_result = trace_task.result()
-    metadata = meta_task.result()
-    dns_resolves = dns_task.result()
-    gsb_threats, gsb_timed_out = gsb_task.result()
-
-    logger.info(f"[PHASE1] GSB complete — threats={gsb_threats}, timed_out={gsb_timed_out}")
-
     final_url = trace_result["final_url"]
     hops = trace_result["hops"]
 
-    # If domain changed during redirect, re-fetch metadata for final URL
+    # Gather all URLs in the chain for a single batched GSB check
+    hop_urls = [h["url"] for h in hops]
+    if final_url not in hop_urls:
+        hop_urls.append(final_url)
+
     final_domain = urlparse(final_url).netloc
     if ':' in final_domain:
         final_domain = final_domain.split(':')[0]
+
+    # Run GSB on all hops, plus metadata/DNS re-fetches if domain changed
+    async with asyncio.TaskGroup() as tg2:
+        gsb_task = tg2.create_task(_safe_gsb(hop_urls))
         
-    if domain_to_check != final_domain:
-        logger.debug(f"[PHASE1] Domain changed during redirect, re-fetching metadata for {final_domain}")
-        async with asyncio.TaskGroup() as tg2:
+        if domain_to_check != final_domain:
+            logger.debug(f"[PHASE1] Domain changed during redirect, re-fetching metadata for {final_domain}")
             meta_task2 = tg2.create_task(fetch_metadata(final_url))
             dns_task2 = tg2.create_task(check_dns(final_domain))
-            gsb_task2 = tg2.create_task(_safe_gsb(final_url))
+        else:
+            meta_task2 = None
+            dns_task2 = None
+
+    if meta_task2:
         metadata = meta_task2.result()
         dns_resolves = dns_task2.result()
-        
-        new_gsb_threats, new_gsb_timed_out = gsb_task2.result()
-        gsb_threats = list(set(gsb_threats + new_gsb_threats))
-        gsb_timed_out = gsb_timed_out or new_gsb_timed_out
-        logger.info(f"[PHASE1] GSB after redirect — combined threats={gsb_threats}")
+    else:
+        metadata = meta_task.result()
+        dns_resolves = dns_task.result()
+
+    gsb_threats, gsb_timed_out = gsb_task.result()
+    logger.info(f"[PHASE1] GSB after redirect — combined threats={gsb_threats}")
         
     has_metadata = metadata is not None
 

@@ -348,18 +348,29 @@ document.addEventListener('click', async (e) => {
     const domain = document.getElementById('site-domain-input').value.trim()
       .replace(/^https?:\/\//, '').replace(/\/.*$/, '');
 
-    if (name && domain) {
+    // Strict validation to prevent malformed input and potential XSS vectors
+    // Name should be alphanumeric with some basic punctuation
+    const nameValid = /^[a-zA-Z0-9\s\-_.,()]+$/.test(name) && name.length > 0 && name.length <= 50;
+    // Domain should be a valid FQDN
+    const domainValid = /^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$/.test(domain);
+
+    if (nameValid && domainValid) {
       const { customSites } = await getSettings();
-      customSites.push({
-        name,
-        domain
-      });
-      await chrome.storage.local.set({ customSites });
+      // Ensure no exact duplicates
+      if (!customSites.find(s => s.domain === domain)) {
+        customSites.push({
+          name,
+          domain
+        });
+        await chrome.storage.local.set({ customSites });
+      }
       document.getElementById('site-name-input').value = '';
       document.getElementById('site-domain-input').value = '';
       document.getElementById('add-form').style.display = 'none';
       document.getElementById('show-add-btn').style.display = 'block';
       updateToggles();
+    } else {
+      alert("Invalid input: Please provide a valid site name (alphanumeric) and domain (e.g. example.com).");
     }
   } else if (e.target.closest('.remove')) {
     const removeBtn = e.target.closest('.remove');
