@@ -98,7 +98,7 @@ Detection of phishing indicators, malicious redirects, and suspicious browser be
 # Architecture
 
 <p align="center">
-  <img src="assets/New Architecture.png" width="1000" alt="VigilantLink Architecture Diagram"/>
+  <img src="assets/New Architecture.png" width="750" alt="VigilantLink Architecture Diagram"/>
 </p>
 
 ### Architecture Overview
@@ -201,7 +201,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 # Road-Map
 
 <p align="center">
-  <img src="assets/Roadmap.png" width="500" alt="VigilantLink Roadmap"/>
+  <img src="assets/Roadmap.png" width="800" alt="VigilantLink Roadmap"/>
 </p>
 
 ---
