@@ -199,7 +199,10 @@ For reporting vulnerabilities, please refer to our [SECURITY.md](SECURITY.md).
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 # Road-Map
-> soon
+
+<p align="center">
+  <img src="assets/Roadmap.png" width="500" alt="VigilantLink Roadmap"/>
+</p>
 
 ---
 
