@@ -464,7 +464,7 @@
       width: 100%;
       padding: 10px;
       background: transparent;
-      border: 1px dashed var(--border);
+      border: 1px solid var(--border);
       border-radius: var(--radius);
       color: var(--text-dim);
       font-size: 13px;
@@ -749,15 +749,15 @@
     </div>
 
     <div class="settings-content">
-      <!-- Behavior Card -->
+      <!-- Extension Settings Card -->
       <div class="settings-card">
-        <div class="settings-card-title">Behavior</div>
+        <div class="settings-card-title">Extension Settings</div>
         <div class="settings-toggle-row">
           <div class="settings-toggle-info">
             <span class="settings-label">Auto-add current website</span>
             <span class="settings-desc">
               <span class="info-icon">i</span>
-              Automatically add the active tab's domain to your protected list when you visit it.
+              Automatically add the active tab's domain to your protected list when you click on the add website button.
             </span>
           </div>
           <label class="toggle">
@@ -778,6 +778,26 @@
             <input type="checkbox" id="settings-fixed-size-toggle">
             <span class="slider"></span>
           </label>
+        </div>
+        <hr class="protection-divider">
+        <div class="settings-toggle-row">
+          <div class="settings-toggle-info">
+            <span class="settings-label">Edge Add-ons</span>
+            <span class="settings-desc">
+              <span class="info-icon">i</span>
+              Rate or Update the extension on the Microsoft Edge Store.
+            </span>
+          </div>
+          <button class="restore-btn" id="settings-store-btn"
+            style="flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding: 6px; border-radius: 6px;"
+            title="Open Store">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+              <polyline points="15 3 21 3 21 9"></polyline>
+              <line x1="10" y1="14" x2="21" y2="3"></line>
+            </svg>
+          </button>
         </div>
       </div>
 

@@ -65,7 +65,7 @@ function throttle(func, limit) {
 
 const DEFAULT_SETTINGS = {
   globalEnabled: true,
-  disabledSites: []
+  disabledSites: ['youtube.com', 'mail.google.com', 'instagram.com', 'linkedin.com']
 };
 
 // Check if VigilantLink is enabled for current site
@@ -77,7 +77,7 @@ async function isEnabledForSite() {
       if (override === 'disabled') return resolve(false);
 
       const globalEnabled = result.globalEnabled !== false;
-      const disabledSites = result.disabledSites || [];
+      const disabledSites = result.disabledSites !== undefined ? result.disabledSites : DEFAULT_SETTINGS.disabledSites;
       const currentDomain = window.location.hostname;
 
       if (!globalEnabled) return resolve(false);
@@ -219,21 +219,32 @@ async function handleLinkMouseEnter(event) {
 
     const isFixed = await getFixedPhysicalSize();
     let scale = 1;
+    let zoom = 1;
+    try {
+      const response = await new Promise(resolve => chrome.runtime.sendMessage({ action: 'get_zoom' }, resolve));
+      if (response && response.zoom) {
+        zoom = response.zoom;
+      }
+    } catch (e) {
+      if (window.outerWidth && window.innerWidth) {
+        let browserZoom = window.outerWidth / window.innerWidth;
+        if (Math.abs(browserZoom - 1) < 0.08) browserZoom = 1;
+        if (browserZoom < 0.25) browserZoom = 0.25;
+        if (browserZoom > 5) browserZoom = 5;
+        zoom = browserZoom;
+        console.log(`[VigilantLink] Zoom fallback used. BrowserZoom: ${browserZoom}`);
+      }
+    }
+
     if (isFixed) {
-      try {
-        const response = await new Promise(resolve => chrome.runtime.sendMessage({ action: 'get_zoom' }, resolve));
-        if (response && response.zoom) {
-          scale = 1 / response.zoom;
-        }
-      } catch (e) {
-        if (window.outerWidth && window.innerWidth) {
-          let browserZoom = window.outerWidth / window.innerWidth;
-          if (Math.abs(browserZoom - 1) < 0.08) browserZoom = 1;
-          if (browserZoom < 0.25) browserZoom = 0.25;
-          if (browserZoom > 5) browserZoom = 5;
-          scale = 1 / browserZoom;
-          console.log(`[VigilantLink] Zoom fallback used. BrowserZoom: ${browserZoom}, Scale: ${scale}`);
-        }
+      // when fixed: the same size for all zoom levels, locked to 90% of default size
+      scale = 0.9 / zoom;
+    } else {
+      // when unfixed and zoomed in (zoom > 100%), the card size shouldn't change
+      if (zoom > 1) {
+        scale = 1 / zoom;
+      } else {
+        scale = 1;
       }
     }
 
