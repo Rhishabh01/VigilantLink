@@ -2,7 +2,7 @@
 // Phase 1: Instant analysis (POST /analyze) — returned immediately
 // Phase 2: Deep scan polling (GET /analyze/deep/{request_id}) — background poll
 
-const DEFAULT_BACKEND_URL = "https://extension-production-4bd4.up.railway.app";
+const DEFAULT_BACKEND_URL = "https://vigilantlink-1.onrender.com";
 const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 
 
@@ -160,7 +160,7 @@ async function analyzeTwoPhase(url, signal, tabId, generation, cacheOnly = false
         // Ignore JSON parse errors for raw text
       }
     }
-    
+
     throw new Error(safeMessage);
   }
 

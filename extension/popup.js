@@ -8,7 +8,7 @@ const PRESET_SITES = [
   { name: 'Google Accounts', domain: 'accounts.google.com' }
 ];
 
-const DEFAULT_BACKEND_URL = 'https://extension-production-4bd4.up.railway.app';
+const DEFAULT_BACKEND_URL = 'https://vigilantlink-1.onrender.com';
 
 async function getSettings() {
   const data = await chrome.storage.local.get(['globalEnabled', 'disabledSites', 'customSites', 'hiddenPresets', 'theme', 'siteOrder', 'backendUrl', 'autoAddSite', 'fixedPhysicalSize']);
