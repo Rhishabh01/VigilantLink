@@ -8,6 +8,9 @@ const PRESET_SITES = [
   { name: 'Google Accounts', domain: 'accounts.google.com' }
 ];
 
+// Sites that are off by default — always shown below the ON sites in the list
+const DEFAULT_DISABLED_SITES = ['youtube.com', 'mail.google.com', 'instagram.com', 'linkedin.com'];
+
 const DEFAULT_BACKEND_URL = 'https://vigilantlink-1.onrender.com';
 
 async function getSettings() {
@@ -18,7 +21,7 @@ async function getSettings() {
 
   return {
     globalEnabled: data.globalEnabled !== false,
-    disabledSites: data.disabledSites || [],
+    disabledSites: data.disabledSites !== undefined ? data.disabledSites : ['youtube.com', 'mail.google.com', 'instagram.com', 'linkedin.com'],
     customSites: data.customSites || [],
     hiddenPresets: data.hiddenPresets || [],
     theme: data.theme || systemTheme,
@@ -140,8 +143,16 @@ function renderSiteList(disabledSites, customSites, hiddenPresets, siteOrder) {
 
   const allSites = [...presets, ...custom];
 
-  // Sort according to siteOrder
+  // Sort so default-disabled sites always appear at the bottom.
+  // User-toggled state does NOT affect order.
   allSites.sort((a, b) => {
+    const isDefaultOffA = DEFAULT_DISABLED_SITES.includes(a.domain);
+    const isDefaultOffB = DEFAULT_DISABLED_SITES.includes(b.domain);
+
+    if (isDefaultOffA !== isDefaultOffB) {
+      return isDefaultOffA ? 1 : -1;
+    }
+
     let idxA = siteOrder.indexOf(a.domain);
     let idxB = siteOrder.indexOf(b.domain);
     if (idxA === -1) idxA = 999;
@@ -329,7 +340,10 @@ document.addEventListener('click', async (e) => {
             const url = new URL(tab.url);
             if (url.protocol !== 'chrome:' && url.protocol !== 'chrome-extension:') {
               const hostname = url.hostname;
-              const cleanName = hostname.replace(/^www\./, '').replace(/\.[^.]+$/, '');
+              let cleanName = hostname.replace(/^www\./, '').replace(/\.[^.]+$/, '');
+              if (cleanName.length > 0) {
+                cleanName = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
+              }
               document.getElementById('site-name-input').value = cleanName;
               document.getElementById('site-domain-input').value = hostname;
             }
@@ -344,7 +358,10 @@ document.addEventListener('click', async (e) => {
     document.getElementById('add-form').style.display = 'none';
     document.getElementById('show-add-btn').style.display = 'block';
   } else if (e.target.id === 'save-site-btn') {
-    const name = document.getElementById('site-name-input').value.trim();
+    let name = document.getElementById('site-name-input').value.trim();
+    if (name.length > 0) {
+      name = name.charAt(0).toUpperCase() + name.slice(1);
+    }
     const domain = document.getElementById('site-domain-input').value.trim()
       .replace(/^https?:\/\//, '').replace(/\/.*$/, '');
 
@@ -394,6 +411,8 @@ document.addEventListener('click', async (e) => {
     showSettingsView();
   } else if (e.target.closest('#back-btn')) {
     hideSettingsView();
+  } else if (e.target.closest('#settings-store-btn')) {
+    chrome.tabs.create({ url: `https://microsoftedge.microsoft.com/addons/detail/vigilantlink/clbplhbcdefoonngbdccaeekgllbmimb` });
   }
 });
 

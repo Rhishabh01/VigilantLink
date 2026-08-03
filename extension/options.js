@@ -121,6 +121,10 @@ document.getElementById('reset-all-btn')?.addEventListener('click', async () => 
   }
 });
 
+document.getElementById('store-btn')?.addEventListener('click', () => {
+  chrome.tabs.create({ url: `https://microsoftedge.microsoft.com/addons/detail/${chrome.runtime.id}` });
+});
+
 chrome.storage.onChanged.addListener(() => {
   loadSettings();
 });
