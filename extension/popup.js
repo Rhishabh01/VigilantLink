@@ -11,7 +11,7 @@ const PRESET_SITES = [
 // Sites that are off by default — always shown below the ON sites in the list
 const DEFAULT_DISABLED_SITES = ['youtube.com', 'mail.google.com', 'instagram.com', 'linkedin.com'];
 
-const DEFAULT_BACKEND_URL = 'https://extension-production-4bd4.up.railway.app';
+const DEFAULT_BACKEND_URL = 'https://vigilantlink-1.onrender.com';
 
 async function getSettings() {
   const data = await chrome.storage.local.get(['globalEnabled', 'disabledSites', 'customSites', 'hiddenPresets', 'theme', 'siteOrder', 'backendUrl', 'autoAddSite', 'fixedPhysicalSize']);
