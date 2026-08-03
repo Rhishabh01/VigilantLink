@@ -1,7 +1,7 @@
 # VigilantLink
 
 <p align="center" >Real-time, privacy-preserving phishing detection and deep link analysis for modern browsing.</p>
-<p align="center">If this project helped you in any manner , consider starring the repo ⭐</p>
+<p align="center">If this project helped you in any way consider starring the repo ⭐</p>
 <p align="center">
 
 [![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
@@ -98,7 +98,7 @@ Detection of phishing indicators, malicious redirects, and suspicious browser be
 # Architecture
 
 <p align="center">
-  <img src="assets/New Architecture.png" width="1000" alt="VigilantLink Architecture Diagram"/>
+  <img src="assets/New Architecture.png" width="750" alt="VigilantLink Architecture Diagram"/>
 </p>
 
 ### Architecture Overview
@@ -197,6 +197,12 @@ For reporting vulnerabilities, please refer to our [SECURITY.md](SECURITY.md).
 # License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+# Road-Map
+
+<p align="center">
+  <img src="assets/Roadmap.png" width="800" alt="VigilantLink Roadmap"/>
+</p>
 
 ---
 

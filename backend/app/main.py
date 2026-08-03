@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
+from datetime import datetime, timezone
 
 from .utils.url_validator import resolve_and_validate
 
@@ -547,4 +548,9 @@ async def request_preview(request: Request, body: AnalyzeRequest) -> dict:
 
 @app.get("/health")
 async def health_check() -> dict:
-    return {"status": "ok", "service": "VigilantLink"}
+    return {
+        "status": "ok",
+        "service": "VigilantLink Backend",
+        "version": MIN_EXTENSION_VERSION,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }

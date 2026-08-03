@@ -160,7 +160,7 @@ async function analyzeTwoPhase(url, signal, tabId, generation, cacheOnly = false
         // Ignore JSON parse errors for raw text
       }
     }
-    
+
     throw new Error(safeMessage);
   }
 
