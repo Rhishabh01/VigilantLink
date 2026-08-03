@@ -221,7 +221,10 @@ async function handleLinkMouseEnter(event) {
     let scale = 1;
     let zoom = 1;
     try {
-      const response = await new Promise(resolve => chrome.runtime.sendMessage({ action: 'get_zoom' }, resolve));
+      const response = await Promise.race([
+        new Promise(resolve => chrome.runtime.sendMessage({ action: 'get_zoom' }, resolve)),
+        new Promise(resolve => setTimeout(() => resolve(null), 500))
+      ]);
       if (response && response.zoom) {
         zoom = response.zoom;
       }
