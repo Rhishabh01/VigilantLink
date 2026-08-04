@@ -60,6 +60,8 @@ async def _keep_alive_loop() -> None:
     KEEP_ALIVE_INTERVAL_S seconds (default 600 = 10 min). Render free-tier
     spins down after ~15 min of inactivity, so 10 min keeps a safe margin.
     """
+    ping_count = 0
+    fail_streak = 0
     logger.info(
         f"[KEEP-ALIVE] Started — pinging {KEEP_ALIVE_URL}/health "
         f"every {KEEP_ALIVE_INTERVAL_S}s"
@@ -67,13 +69,23 @@ async def _keep_alive_loop() -> None:
     async with httpx.AsyncClient(timeout=10.0) as client:
         while True:
             await asyncio.sleep(KEEP_ALIVE_INTERVAL_S)
+            ping_count += 1
+            t0 = time.monotonic()
             try:
                 resp = await client.get(f"{KEEP_ALIVE_URL}/health")
+                elapsed_ms = (time.monotonic() - t0) * 1000
+                fail_streak = 0
                 logger.info(
-                    f"[KEEP-ALIVE] Ping OK — status={resp.status_code}"
+                    f"[KEEP-ALIVE] ✅ Ping #{ping_count} OK — "
+                    f"status={resp.status_code}, took {elapsed_ms:.0f}ms"
                 )
             except Exception as exc:
-                logger.warning(f"[KEEP-ALIVE] Ping failed: {exc}")
+                elapsed_ms = (time.monotonic() - t0) * 1000
+                fail_streak += 1
+                logger.error(
+                    f"[KEEP-ALIVE] ❌ Ping #{ping_count} FAILED — "
+                    f"{exc} (fail streak: {fail_streak}, took {elapsed_ms:.0f}ms)"
+                )
 
 
 @asynccontextmanager
