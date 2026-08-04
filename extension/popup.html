@@ -546,6 +546,18 @@
       border-bottom: 1px solid var(--border);
       padding-bottom: 6px;
       margin-bottom: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .version-badge {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-dim);
+      opacity: 1;
+      text-transform: none;
+      letter-spacing: normal;
     }
 
     .settings-field {
@@ -751,7 +763,7 @@
     <div class="settings-content">
       <!-- Extension Settings Card -->
       <div class="settings-card">
-        <div class="settings-card-title">Extension Settings</div>
+        <div class="settings-card-title">Extension Settings <span class="version-badge" id="version-label"></span></div>
         <div class="settings-toggle-row">
           <div class="settings-toggle-info">
             <span class="settings-label">Auto-add current website</span>

@@ -49,30 +49,38 @@ polling_rate_limiter = SessionRateLimiter(capacity=60, leak_rate=2.0, redis_cach
 
 # Keep-alive configuration (prevents Render free-tier spin-down)
 KEEP_ALIVE_URL = os.getenv("KEEP_ALIVE_URL", "").strip()
-KEEP_ALIVE_INTERVAL_S = int(os.getenv("KEEP_ALIVE_INTERVAL_S", "600"))  # default 10 min
-
+KEEP_ALIVE_INTERVAL_S = int(os.getenv("KEEP_ALIVE_INTERVAL_S", "300"))  # default 5 min
+# How often to log countdown progress between pings (seconds)
+_KA_LOG_INTERVAL = 120  # every 2 minutes
 
 
 async def _keep_alive_loop() -> None:
     """Periodically ping the /health endpoint to prevent Render spin-down.
 
     Only runs when KEEP_ALIVE_URL is configured (production). Pings every
-    KEEP_ALIVE_INTERVAL_S seconds (default 600 = 10 min). Render free-tier
-    spins down after ~15 min of inactivity, so 10 min keeps a safe margin.
+    KEEP_ALIVE_INTERVAL_S seconds (default 300 = 5 min). Render free-tier
+    spins down after ~15 min of inactivity, so 5 min keeps a safe margin.
+
+    Flow:
+      1. Immediate verification ping on startup (no delay).
+      2. Countdown logs every _KA_LOG_INTERVAL seconds for visibility.
+      3. Repeat indefinitely.
     """
     ping_count = 0
     fail_streak = 0
+    health_url = f"{KEEP_ALIVE_URL}/health"
     logger.info(
-        f"[KEEP-ALIVE] Started — pinging {KEEP_ALIVE_URL}/health "
-        f"every {KEEP_ALIVE_INTERVAL_S}s"
+        f"[KEEP-ALIVE] ⏱️  Timer started — pinging {health_url} "
+        f"every {KEEP_ALIVE_INTERVAL_S}s ({KEEP_ALIVE_INTERVAL_S // 60}min)"
     )
-    async with httpx.AsyncClient(timeout=10.0) as client:
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
         while True:
-            await asyncio.sleep(KEEP_ALIVE_INTERVAL_S)
+            # ── Ping ────────────────────────────────────────────────
             ping_count += 1
             t0 = time.monotonic()
             try:
-                resp = await client.get(f"{KEEP_ALIVE_URL}/health")
+                resp = await client.get(health_url)
                 elapsed_ms = (time.monotonic() - t0) * 1000
                 fail_streak = 0
                 logger.info(
@@ -84,8 +92,21 @@ async def _keep_alive_loop() -> None:
                 fail_streak += 1
                 logger.error(
                     f"[KEEP-ALIVE] ❌ Ping #{ping_count} FAILED — "
-                    f"{exc} (fail streak: {fail_streak}, took {elapsed_ms:.0f}ms)"
+                    f"{type(exc).__name__}: {exc} "
+                    f"(fail streak: {fail_streak}, took {elapsed_ms:.0f}ms)"
                 )
+
+            # ── Wait with countdown logs ────────────────────────────
+            remaining = KEEP_ALIVE_INTERVAL_S
+            while remaining > 0:
+                sleep_chunk = min(_KA_LOG_INTERVAL, remaining)
+                await asyncio.sleep(sleep_chunk)
+                remaining -= sleep_chunk
+                if remaining > 0:
+                    logger.info(
+                        f"[KEEP-ALIVE] ⏳ Next ping in {remaining}s "
+                        f"({remaining // 60}m {remaining % 60}s)"
+                    )
 
 
 @asynccontextmanager
@@ -256,7 +277,7 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
         # Check Redis full cache first — return complete result instantly
         cached_full = await redis_cache.get_full(canonical)
         if cached_full:
-            logger.info(f"[RESULT] Full cache hit: {canonical[:50]}...")
+            logger.info(f"[RESULT] Full cache hit")
             return cached_full
 
         # Check partial cache — return stage 1 instantly + re-trigger phase 2
@@ -271,7 +292,7 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
             phase1_raw = cached_partial.get("_phase1_raw")
             if phase1_raw is None:
                 # Stale cache from old extension version — re-run Phase 1
-                logger.info(f"[PHASE1] Re-running for stale cache entry: {canonical[:50]}...")
+                logger.info(f"[PHASE1] Re-running for stale cache entry")
                 phase1_raw = await run_phase1(url_str)
             asyncio.create_task(
                 _run_phase2_background(request_id, canonical, phase1_raw)
@@ -361,7 +382,7 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
                 task = asyncio.create_task(_run_phase2_background(request_id, canonical, phase1))
                 background_tasks.add(task)
                 task.add_done_callback(background_tasks.discard)
-            logger.info(f"Phase 1 complete for {url_str[:80]} in {phase1['duration_ms']}ms (id={request_id}). Deep scan triggered.")
+            logger.info(f"Phase 1 complete in {phase1['duration_ms']}ms (id={request_id}). Deep scan triggered.")
         else:
             # Safe link: bypass deep analysis and Playwright to save resources.
             # Mark as complete in Redis so frontend polling terminates immediately.
@@ -384,7 +405,7 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
             await redis_cache.set_pending(request_id, stage2_bypass)
             # Cache the full safe result to skip phase 1 entirely on next hover
             await redis_cache.set_full(canonical, stage2_bypass)
-            logger.info(f"Phase 1 complete for {url_str} in {phase1['duration_ms']}ms (id={request_id}). Safe link - bypassed Phase 2.")
+            logger.info(f"Phase 1 complete in {phase1['duration_ms']}ms (id={request_id}). Safe link - bypassed Phase 2.")
 
         return stage1_response
 
@@ -472,7 +493,7 @@ async def _run_phase2_background(
         # Cache intelligence result
         await redis_cache.set_full(canonical_url, stage2_response)
         await redis_cache.set_pending(request_id, stage2_response)
-        logger.info(f"[CACHE] Phase 2 result stored for {canonical_url[:50]} (id={request_id})")
+        logger.info(f"[CACHE] Phase 2 result stored (id={request_id})")
 
         # 3. Run Phase 3: Risk-adaptive screenshot capture
         # Safe (green)   → no Playwright, no automatic screenshot (uses OG metadata or manual button)
@@ -484,7 +505,7 @@ async def _run_phase2_background(
         redirect_depth = len(phase1.get("hops", []))
 
         if needs_screenshot(metadata, risk_score, ssl_age, vendor_flags, redirect_depth):
-            logger.info(f"[PHASE2] Launching browser for screenshot: {final_url[:50]}...")
+            logger.info(f"[PHASE2] Launching browser for screenshot (id={request_id})...")
             try:
                 screenshot_base64 = await asyncio.shield(
                     asyncio.wait_for(
@@ -505,7 +526,7 @@ async def _run_phase2_background(
         stage2_response["p3"] = "done"
         await redis_cache.set_pending(request_id, stage2_response)
 
-        logger.info(f"[PHASE2] Deep scan complete for {canonical_url[:50]}...")
+        logger.info(f"[PHASE2] Deep scan complete (id={request_id})...")
         
     except Exception as e:
         logger.exception(f"[PHASE2] Background scan failed for {request_id}: {e}")
@@ -564,7 +585,7 @@ async def request_preview(request: Request, body: AnalyzeRequest) -> dict:
     url_str = str(body.url)
     canonical = normalize_url(url_str)
     
-    logger.info(f"[PREVIEW] Manual preview requested for {url_str[:50]}...")
+    logger.info(f"[PREVIEW] Manual preview requested...")
     try:
         # Check cache early to find the final URL to speed up Playwright
         cached_full = await redis_cache.get_full(canonical)

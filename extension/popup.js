@@ -9,7 +9,7 @@ const PRESET_SITES = [
 ];
 
 // Sites that are off by default — always shown below the ON sites in the list
-const DEFAULT_DISABLED_SITES = ['youtube.com', 'mail.google.com', 'instagram.com', 'linkedin.com'];
+const DEFAULT_DISABLED_SITES = ['youtube.com', 'mail.google.com', 'instagram.com', 'linkedin.com', 'accounts.google.com'];
 
 const DEFAULT_BACKEND_URL = 'https://vigilantlink-1.onrender.com';
 
@@ -431,6 +431,13 @@ function hideSettingsView() {
 
 async function loadSettingsData() {
   const settings = await getSettings();
+
+  // Populate version label
+  const versionLabel = document.getElementById('version-label');
+  if (versionLabel) {
+    const manifest = chrome.runtime.getManifest();
+    versionLabel.textContent = `Version: ${manifest.version}`;
+  }
 
   // Populate auto-add toggle
   const autoAddToggle = document.getElementById('settings-auto-add-toggle');
