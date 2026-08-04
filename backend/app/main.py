@@ -4,6 +4,8 @@ import secrets
 import sys
 import time
 
+import httpx
+
 # Load .env for local development (Railway sets env vars natively)
 try:
     from dotenv import load_dotenv
@@ -45,6 +47,33 @@ redis_cache = RedisCache(redis_url=REDIS_URL)
 rate_limiter = SessionRateLimiter(capacity=10, leak_rate=2.0, redis_cache=redis_cache, prefix="main")
 polling_rate_limiter = SessionRateLimiter(capacity=60, leak_rate=2.0, redis_cache=redis_cache, prefix="poll")
 
+# Keep-alive configuration (prevents Render free-tier spin-down)
+KEEP_ALIVE_URL = os.getenv("KEEP_ALIVE_URL", "").strip()
+KEEP_ALIVE_INTERVAL_S = int(os.getenv("KEEP_ALIVE_INTERVAL_S", "600"))  # default 10 min
+
+
+
+async def _keep_alive_loop() -> None:
+    """Periodically ping the /health endpoint to prevent Render spin-down.
+
+    Only runs when KEEP_ALIVE_URL is configured (production). Pings every
+    KEEP_ALIVE_INTERVAL_S seconds (default 600 = 10 min). Render free-tier
+    spins down after ~15 min of inactivity, so 10 min keeps a safe margin.
+    """
+    logger.info(
+        f"[KEEP-ALIVE] Started — pinging {KEEP_ALIVE_URL}/health "
+        f"every {KEEP_ALIVE_INTERVAL_S}s"
+    )
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        while True:
+            await asyncio.sleep(KEEP_ALIVE_INTERVAL_S)
+            try:
+                resp = await client.get(f"{KEEP_ALIVE_URL}/health")
+                logger.info(
+                    f"[KEEP-ALIVE] Ping OK — status={resp.status_code}"
+                )
+            except Exception as exc:
+                logger.warning(f"[KEEP-ALIVE] Ping failed: {exc}")
 
 
 @asynccontextmanager
@@ -63,9 +92,23 @@ async def lifespan(app: FastAPI):
         logger.warning("[STARTUP] Redis connect timed out — running in no-cache mode")
     except Exception as e:
         logger.warning(f"[STARTUP] Redis connection failed — no-cache mode: {e}")
+
+    # Start keep-alive background task (only in production with KEEP_ALIVE_URL set)
+    keep_alive_task = None
+    if KEEP_ALIVE_URL:
+        keep_alive_task = asyncio.create_task(_keep_alive_loop())
+    else:
+        logger.info("[STARTUP] KEEP_ALIVE_URL not set — keep-alive disabled")
+
     logger.info(f"[STARTUP] Initialization ready in {time.monotonic() - t0:.2f}s")
     yield
     # ── Shutdown ─────────────────────────────────────────────────────────
+    if keep_alive_task:
+        keep_alive_task.cancel()
+        try:
+            await keep_alive_task
+        except asyncio.CancelledError:
+            logger.info("[KEEP-ALIVE] Task cancelled")
     await browser_pool.stop()
     await redis_cache.close()
 
