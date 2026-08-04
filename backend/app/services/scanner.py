@@ -265,7 +265,7 @@ async def check_google_safe_browsing(urls: List[str]) -> List[str]:
         logger.debug(f"[GSB] Could not normalize any URLs from batch.")
         return []
         
-    logger.info(f"[GSB] Checking batch of {len(normalized_urls)} URLs: {normalized_urls}")
+    logger.info(f"[GSB] Checking batch of {len(normalized_urls)} URLs")
 
     payload = {
         "client": {

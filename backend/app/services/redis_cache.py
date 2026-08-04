@@ -283,7 +283,7 @@ class RedisCache:
                 "ms": p2["duration_ms"],
             }
             await self.set_full(canonical_url, stage2)
-            logger.info(f"Background refresh complete for {canonical_url[:60]}")
+            logger.info("Background refresh complete")
         except Exception as e:
             logger.error(f"Background refresh failed: {e}")
 
