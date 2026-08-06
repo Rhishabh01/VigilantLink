@@ -6,7 +6,7 @@ import time
 
 import httpx
 
-# Load .env for local development (Railway sets env vars natively)
+# Load .env for local development (Render sets env vars natively)
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -114,7 +114,7 @@ async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────────
     # NOTE: Chromium (BrowserPool) is intentionally NOT started here.
     # Launching a browser at startup blocks the event loop for several
-    # seconds, causing Railway/health-check timeouts before the server
+    # seconds, causing Render/health-check timeouts before the server
     # is ready. Instead, browser_pool.start() is called lazily inside
     # capture_screenshot() on first use.
     t0 = time.monotonic()
@@ -344,7 +344,7 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
         await redis_cache.set_partial(canonical, {**stage1_response, "_phase1_raw": phase1})
 
         # Determine if we need to trigger Phase 2 deep scan
-        # Gated to reduce backend compute/Railway usage. Safe links bypass deep analysis.
+        # Gated to reduce backend compute/Render usage. Safe links bypass deep analysis.
         needs_deep_scan = False
         if not sec["is_safe"] or sec["verdict"] != "green":
             needs_deep_scan = True

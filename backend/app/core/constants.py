@@ -91,7 +91,7 @@ GSB_API_URL = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
 # ============================================================
 # Resource Limits
 # ============================================================
-MAX_CONCURRENT_SCREENSHOTS: int = 2  # Aggressively limited to prevent OOM in Railway
+MAX_CONCURRENT_SCREENSHOTS: int = 2  # Aggressively limited to prevent OOM in Render
 
 # ============================================================
 # URL Normalization — Tracking params to strip

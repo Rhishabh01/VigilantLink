@@ -122,7 +122,7 @@ This ensures the screenshot completes even if the user's HTTP request is cancell
 
 ### Lazy Browser Initialization
 
-`BrowserPool` does **not** start Chromium at server startup. It initializes on first use. This prevents the Playwright startup cost from blocking Railway health-check requests during deployment.
+`BrowserPool` does **not** start Chromium at server startup. It initializes on first use. This prevents the Playwright startup cost from blocking Render health-check requests during deployment.
 
 ---
 

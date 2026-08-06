@@ -58,7 +58,7 @@ Flow:
 Phase 2 poll endpoint. Returns `{ "s": 0, "id": request_id }` if not ready, or the full stage 2 response when complete.
 
 ### `GET /health`
-Returns `{ "status": "ok", "service": "VigilantLink" }`. Used by Railway health checks.
+Returns `{ "status": "ok", "service": "VigilantLink" }`. Used by Render health checks.
 
 ---
 
@@ -149,7 +149,7 @@ SSL errors are detected by inspecting the exception message for `"SSL"` or `"cer
 
 `BrowserPool` manages a single shared Playwright `BrowserContext` with a semaphore gating concurrent screenshot pages.
 
-**Initialization:** Lazy — Chromium does not launch at startup. First call to `capture_screenshot` triggers `start()`. This avoids blocking the event loop during Railway health-check window.
+**Initialization:** Lazy — Chromium does not launch at startup. First call to `capture_screenshot` triggers `start()`. This avoids blocking the event loop during Render health-check window.
 
 **Launch args:**
 ```
@@ -209,10 +209,10 @@ URLs are truncated to 50 characters in all log statements to avoid leaking full 
 
 ---
 
-## Railway Considerations
+## Render Considerations
 
-- Server binds to `${PORT:-8080}` — Railway injects `PORT` at runtime
+- Server binds to `${PORT:-8080}` — Render injects `PORT` at runtime
 - Chromium is installed in the Docker image via `playwright install chromium`
-- Chromium lazy-start prevents health-check timeouts during cold boot
+- Chromium lazy-start prevents Render health-check timeouts during cold boot
 - Redis connection failure is non-fatal — backend degrades gracefully
 - `gunicorn` is available in `requirements.txt` but the default `CMD` uses `uvicorn` directly (single worker is appropriate for async workloads)

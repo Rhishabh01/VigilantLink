@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Backend-green.svg)](https://fastapi.tiangolo.com/)
 [![Playwright](https://img.shields.io/badge/Playwright-DeepScan-purple.svg)](https://playwright.dev/)
-[![Railway](https://img.shields.io/badge/Railway-Deployed-black.svg)](https://railway.app/)
+[![Render](https://img.shields.io/badge/Render-Deployed-black.svg)](https://render.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 </p>
@@ -52,7 +52,7 @@ The extension analyzes links directly on hover and provides instant security ins
 *   **Playwright-powered deep scanning**
 *   **Progressive Phase 1 → Phase 2 architecture**
 *   **Privacy-focused logging and analysis**
-*   **Railway-ready production deployment**
+*   **Render-ready production deployment**
 *   **Local standalone deployment support**
 
 ---
@@ -66,7 +66,7 @@ Detailed technical documentation is available in the [docs/](docs/) directory:
 *   [Extension](docs/extension.md) — Chrome MV3 architecture and messaging.
 *   [Scoring Engine](docs/scoring-engine.md) — Risk methodology and signal weights.
 *   [API Reference](docs/api-reference.md) — Endpoint schemas and JSON examples.
-*   [Deployment](docs/deployment.md) — Railway, Docker, and production setup.
+*   [Deployment](docs/deployment.md) — Render, Docker, and production setup.
 *   [Troubleshooting](docs/troubleshooting.md) — Common issues and recovery steps.
 
 ---
@@ -162,14 +162,18 @@ The system aggregates all security signals and produces one of:
 
 # Installation
 
-## Backend Setup (Railway Deployment)
+## Backend Setup (Render Deployment)
 
-To deploy the backend to Railway:
-1. Connect your GitHub repository to **Railway** and create a new project.
-2. Set the **Root Directory** to `backend/` in your service settings.
-3. Add a **Redis** service to your Railway project (Railway automatically configures the `REDIS_URL` environment variable).
-4. Set the `GOOGLE_SAFE_BROWSING_API_KEY` environment variable in your Railway service settings.
-5. Deploy. Railway will automatically build and run the backend using the provided `Dockerfile`.
+To deploy the backend to Render:
+1. Create a new **Web Service** on Render and connect your GitHub repository.
+2. Under **Build & Deploy**, set the **Root Directory** to `backend/`.
+3. Set the **Runtime** to `Docker`.
+4. Create a **Redis** service on Render (or use an external Redis provider) and copy its connection string.
+5. In your Web Service settings, add the following environment variables:
+   - `GOOGLE_SAFE_BROWSING_API_KEY`: Your Google Safe Browsing API key.
+   - `REDIS_URL`: The connection string for your Redis instance.
+   - `KEEP_ALIVE_URL`: The URL of your Render Web Service (e.g., `https://your-service-name.onrender.com`) to enable the self-ping keep-alive loop and prevent spin-downs.
+6. Deploy the Web Service. Render will build and run the backend automatically using the provided `Dockerfile`.
 
 *For local development setup instructions, please refer to [docs/deployment.md](docs/deployment.md).*
 
@@ -182,7 +186,7 @@ To deploy the backend to Railway:
 3. Click **Load unpacked** and select the `extension/` directory of this repository.
 
 > [!TIP]
-> By default, the extension is configured to use the production Railway backend (`https://vigilantlink-production.up.railway.app`). If you want to connect it to your own deployed Railway backend, update the `BACKEND_URL` variable at the top of `extension/scripts/background.js` to your service URL (e.g., `https://your-app-name.up.railway.app`).
+> By default, the extension is configured to use the production Render backend (`https://vigilantlink-1.onrender.com`). If you want to connect it to your own deployed Render backend, update the `DEFAULT_BACKEND_URL` variable at the top of `extension/scripts/background.js` (and `popup.js`, `options.js` if necessary) to your service URL (e.g., `https://your-app-name.onrender.com`).
 
 ---
 

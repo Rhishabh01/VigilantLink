@@ -2,31 +2,32 @@
 
 ---
 
-## Railway (Production)
+## Render (Production)
 
 ### Prerequisites
 
-- A Railway account and project
-- GitHub repository connected to Railway
-- Redis service added to the Railway project
+- A Render account
+- GitHub repository connected to Render
+- A Redis instance (Render Redis or external provider like Upstash)
 
 ### Steps
 
 1. Push the repository to GitHub
-2. In Railway, create a new project and connect the repository
-3. Set the **Root Directory** to `backend/`
-4. Add a Redis plugin to the project (Railway provides managed Redis)
-5. Set environment variables (see below)
-6. Deploy — Railway will use the `Dockerfile` automatically
+2. In Render, create a new **Web Service** and connect the repository
+3. Under **Build & Deploy**, set the **Root Directory** to `backend/`
+4. Set the **Runtime** to `Docker`
+5. Create a Redis instance on Render (or use an external Redis provider) and copy its connection string
+6. Set environment variables in the Web Service settings (see below)
+7. Deploy — Render will automatically build and run the service using the `Dockerfile`
 
-Railway injects `PORT` at runtime. The `CMD` in the Dockerfile uses `${PORT:-8080}`.
+Render injects `PORT` at runtime. The `CMD` in the Dockerfile uses `${PORT:-8080}`.
 
 ### Environment Variables
 
 | Variable | Required | Description |
 |---|---|---|
 | `GOOGLE_SAFE_BROWSING_API_KEY` | Yes | GSB v4 API key |
-| `REDIS_URL` | Yes (auto-set by Railway Redis plugin) | Redis connection string |
+| `REDIS_URL` | Yes | Redis connection string |
 | `LOG_LEVEL` | No | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` (default: `INFO`) |
 | `EXTENSION_ID` | No | Chrome extension ID for origin validation (relaxed in current code) |
 
@@ -80,7 +81,7 @@ The Chromium system dependencies must be present before `playwright install chro
 web: uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 
-Used when deploying on platforms that read `Procfile` directly (e.g., Heroku-style). Railway uses the `Dockerfile` by default.
+Used when deploying on platforms that read `Procfile` directly (e.g., Heroku-style). Render uses the `Dockerfile` by default when the Docker runtime environment is selected.
 
 ---
 
@@ -112,7 +113,7 @@ Playwright requires Chromium to be installed separately after pip install:
 playwright install chromium
 ```
 
-In Docker, this is handled by the `RUN playwright install chromium` layer. On Railway, the Dockerfile handles it automatically.
+In Docker, this is handled by the `RUN playwright install chromium` layer. On Render, when deployed as a Docker Web Service, the Dockerfile handles it automatically.
 
 If Chromium fails to launch at runtime (typically missing system libraries), the screenshot phase will fail gracefully and Phase 2 will complete without a screenshot. The scoring pipeline is unaffected.
 
@@ -120,7 +121,7 @@ If Chromium fails to launch at runtime (typically missing system libraries), the
 
 ## Production Logging
 
-Set `LOG_LEVEL=INFO` in production (the default). Use `LOG_LEVEL=DEBUG` only during local debugging — debug mode logs every poll request and internal scoring step, which floods Railway logs.
+Set `LOG_LEVEL=INFO` in production (the default). Use `LOG_LEVEL=DEBUG` only during local debugging — debug mode logs every poll request and internal scoring step, which floods Render logs.
 
 URL values in logs are truncated to 50 characters:
 ```python
@@ -156,4 +157,4 @@ Each external scan (PhishTank, OpenPhish, GSB, RDAP, SSL) has an individual time
 - The server runs a single async uvicorn worker. This is intentional for an async FastAPI app — multiple workers would each hold their own `BrowserPool` and Redis connection, increasing Chromium memory usage significantly.
 - The `BrowserPool` semaphore (`MAX_CONCURRENT_SCREENSHOTS`) limits concurrent browser pages. Tune this constant in `constants.py` based on available memory (each page uses ~100–150MB).
 - `RequestCollapser` handles burst traffic for the same URL — concurrent hovers deduplicate to one backend call.
-- For higher throughput, deploy multiple Railway services behind a load balancer and use a shared Redis instance for cross-instance caching.
+- For higher throughput, deploy multiple Render web services behind a load balancer and use a shared Redis instance for cross-instance caching.

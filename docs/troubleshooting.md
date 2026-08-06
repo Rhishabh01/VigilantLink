@@ -2,7 +2,7 @@
 
 ---
 
-## Railway Startup Failures
+## Render Startup Failures
 
 ### Service fails health check immediately after deploy
 
@@ -10,7 +10,7 @@
 
 **Status:** Fixed. `BrowserPool` now uses lazy initialization — Chromium only starts on first screenshot request.
 
-**If still occurring:** Check Railway logs for `[STARTUP]` lines. If no `[STARTUP] Initialization ready` line appears, the process crashed before the lifespan handler completed. Look for import errors or missing environment variables.
+**If still occurring:** Check Render logs for `[STARTUP]` lines. If no `[STARTUP] Initialization ready` line appears, the process crashed before the lifespan handler completed. Look for import errors or missing environment variables.
 
 ---
 
@@ -18,15 +18,15 @@
 
 **Cause:** A dependency is missing from `requirements.txt` or `pip install` failed silently during build.
 
-**Fix:** Check the Railway build logs for pip install errors. Rebuild with cache disabled:
+**Fix:** Check the Render build logs for pip install errors. Rebuild with cache disabled:
 
-Railway Dashboard → Deployments → Redeploy → clear build cache option.
+Render Dashboard → Deployments → Manual Deploy → Clear build cache & deploy.
 
 ---
 
 ### `PORT` not bound
 
-**Symptom:** Railway shows the service as running but health checks fail.
+**Symptom:** Render shows the service as running but health checks fail.
 
 **Cause:** The server is binding to a hardcoded port instead of `${PORT}`.
 
@@ -95,7 +95,7 @@ Missing libraries will be printed as `error while loading shared libraries`.
 
 **Cause A:** Phase 2 background task crashed before storing a result in Redis.
 
-**Check:** Search Railway logs for `[ERROR] Phase 2 failed`. The fallback handler should have written a stage 2 response anyway. If it did not, it means the `finally` block in `_run_phase2_background` also failed.
+**Check:** Search Render logs for `[ERROR] Phase 2 failed`. The fallback handler should have written a stage 2 response anyway. If it did not, it means the `finally` block in `_run_phase2_background` also failed.
 
 **Cause B:** Redis is unavailable, so `set_pending` silently failed.
 
@@ -131,7 +131,7 @@ Missing libraries will be printed as `error while loading shared libraries`.
 
 **Expected behavior:** The backend logs a warning and continues in no-cache mode. All analyses run fresh.
 
-**If Redis is required:** Ensure `REDIS_URL` is set correctly. Railway's Redis plugin sets this automatically. For local development, start Redis locally or use `REDIS_URL=redis://localhost:6379/0`.
+**If Redis is required:** Ensure `REDIS_URL` is set correctly. When using Render Redis, you need to manually set `REDIS_URL` under your Web Service environment variables with the Redis connection string. For local development, start Redis locally or use `REDIS_URL=redis://localhost:6379/0`.
 
 ---
 
@@ -142,7 +142,7 @@ Missing libraries will be printed as `error while loading shared libraries`.
 - Partial results: 30 min
 - Pending: 60 seconds
 
-**Fix:** Reduce `maxsize` values in `RedisCache` or lower TTLs in `constants.py`. Railway's managed Redis instance has a memory limit — set an eviction policy of `allkeys-lru` in Redis config.
+**Fix:** Reduce `maxsize` values in `RedisCache` or lower TTLs in `constants.py`. Render's managed Redis instance has a memory limit — set an eviction policy of `allkeys-lru` in Redis config.
 
 ---
 
@@ -222,4 +222,4 @@ If the outer `wait_for` is removed, `shield` has no effect on the timeout behavi
 | Extension popup never opens | Content script not injected | Verify `host_permissions` in `manifest.json` covers the page domain |
 | CORS errors in browser console | `ALLOWED_ORIGIN` mismatch | Set `EXTENSION_ID` env var to match installed extension ID |
 | Phase 2 never triggers | Phase 1 score below Phase 2 threshold | Expected — only suspicious URLs trigger deep scan |
-| Railway deploy succeeds but 502 on all requests | Wrong `PORT` binding | Confirm `CMD` uses `${PORT}` not a hardcoded value |
+| Render deploy succeeds but 502 on all requests | Wrong `PORT` binding | Confirm `CMD` uses `${PORT}` not a hardcoded value |

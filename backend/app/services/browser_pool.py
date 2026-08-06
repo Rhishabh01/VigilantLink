@@ -137,7 +137,7 @@ class BrowserPool:
         """
         # Lazy-start: initialise Chromium on first use rather than at
         # server startup (which would block the event loop for several
-        # seconds and cause Railway health-check timeouts).
+        # seconds and cause Render health-check timeouts).
         if not self._started:
             await self.start()
 

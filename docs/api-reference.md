@@ -115,7 +115,7 @@ Poll endpoint. Returns the Phase 2 result when ready.
 { "status": "ok", "service": "VigilantLink" }
 ```
 
-Used by Railway health checks. Always returns HTTP 200 while the server is running.
+Used by Render health checks. Always returns HTTP 200 while the server is running.
 
 ### `GET /`
 

@@ -823,7 +823,7 @@ def needs_screenshot(
 ) -> bool:
     """
     Phase 3 gatekeeper.
-    Gated to reduce backend compute/Railway usage. Safe links bypass deep analysis.
+    Gated to reduce backend compute/Render usage. Safe links bypass deep analysis.
     Only generate screenshots for suspicious or dangerous links that lack an OpenGraph image.
     """
     # If the website already provided an OpenGraph preview, keep it and save credits
