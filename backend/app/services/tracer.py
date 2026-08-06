@@ -30,8 +30,26 @@ async def trace_url(url: str) -> Dict[str, Any]:
             "ssrf_blocked": True,
         }
 
+    from ..utils.url_validator import is_ip_blocked
+
     async def _check_redirect(response: httpx.Response) -> None:
-        """Event hook: re-validate each redirect destination to prevent SSRF via redirect."""
+        """Event hook: re-validate each redirect destination and connection peername to prevent SSRF/DNS Rebinding."""
+        # 1. Connection-level Peer IP verification (defends against DNS Rebinding)
+        stream = response.extensions.get("network_stream")
+        if stream:
+            sock = stream.get_extra_info("socket")
+            if sock:
+                try:
+                    peer_ip, _ = sock.getpeername()
+                    if is_ip_blocked(peer_ip):
+                        raise httpx.ConnectError(
+                            f"SSRF/DNS Rebinding: connection to private IP blocked ({peer_ip})",
+                            request=response.request,
+                        )
+                except OSError:
+                    pass  # Socket might be closed/unreadable
+
+        # 2. Redirect URL verification
         if response.is_redirect:
             next_url = response.headers.get("location", "")
             if next_url:

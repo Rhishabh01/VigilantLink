@@ -103,7 +103,12 @@ class SessionRateLimiter:
         """
         Check rate limit for the request. Raises HTTP 429 if exceeded.
         """
-        client_ip = request.client.host if request.client else "unknown"
+        # Extract real client IP behind reverse proxy (Render, Cloudflare, etc.)
+        forwarded_for = request.headers.get("x-forwarded-for")
+        if forwarded_for:
+            client_ip = forwarded_for.split(",")[-1].strip()
+        else:
+            client_ip = request.client.host if request.client else "unknown"
         session_id = request.headers.get("X-Session-ID", "anon")
         # Combine IP and Session ID to prevent trivial rotation bypass while preserving legitimate NAT usage
         combined_id = f"{client_ip}:{session_id}"

@@ -27,8 +27,42 @@ async def fetch_metadata(url: str):
         "Accept-Language": "en-US,en;q=0.9",
     }
 
+    from ..utils.url_validator import is_ip_blocked
+
+    async def _check_ssrf(response: httpx.Response) -> None:
+        # 1. Connection-level Peer IP verification (defends against DNS Rebinding)
+        stream = response.extensions.get("network_stream")
+        if stream:
+            sock = stream.get_extra_info("socket")
+            if sock:
+                try:
+                    peer_ip, _ = sock.getpeername()
+                    if is_ip_blocked(peer_ip):
+                        raise httpx.ConnectError(
+                            f"SSRF/DNS Rebinding: connection to private IP blocked ({peer_ip})",
+                            request=response.request,
+                        )
+                except OSError:
+                    pass
+
+        # 2. Redirect destination verification
+        if response.is_redirect:
+            next_url = response.headers.get("location", "")
+            if next_url:
+                next_url = str(response.url.join(next_url))
+                is_safe, _, reason = resolve_and_validate(next_url)
+                if not is_safe:
+                    raise httpx.ConnectError(
+                        f"SSRF: redirect to private IP blocked ({next_url[:80]}): {reason}",
+                        request=response.request,
+                    )
+
     async def _try_fetch():
-        async with httpx.AsyncClient(follow_redirects=True, timeout=3.0) as client:
+        async with httpx.AsyncClient(
+            follow_redirects=True, 
+            timeout=3.0,
+            event_hooks={"response": [_check_ssrf]}
+        ) as client:
             async with client.stream("GET", url, headers=headers) as response:
                 if response.status_code != 200:
                     return None

@@ -60,7 +60,7 @@ _BLOCKED_IPV6_NETWORKS = [
 ]
 
 
-def _is_ip_blocked(ip_str: str) -> bool:
+def is_ip_blocked(ip_str: str) -> bool:
     """Check whether an IP address falls within any blocked range."""
     try:
         addr = ipaddress.ip_address(ip_str)
@@ -111,7 +111,7 @@ def resolve_and_validate(url: str) -> Tuple[bool, Optional[str], str]:
     # Block raw IP addresses pointing to private ranges
     try:
         addr = ipaddress.ip_address(hostname)
-        if _is_ip_blocked(str(addr)):
+        if is_ip_blocked(str(addr)):
             return False, None, f"Blocked IP: {hostname} is in a private/reserved range"
         return True, str(addr), "ok"
     except ValueError:
@@ -130,7 +130,7 @@ def resolve_and_validate(url: str) -> Tuple[bool, Optional[str], str]:
     # Check ALL resolved IPs — block if ANY resolve to a private range
     for family, _, _, _, sockaddr in results:
         ip_str = sockaddr[0]
-        if _is_ip_blocked(ip_str):
+        if is_ip_blocked(ip_str):
             logger.warning(
                 f"[SSRF] Blocked request to {hostname}: resolved to private IP {ip_str}"
             )

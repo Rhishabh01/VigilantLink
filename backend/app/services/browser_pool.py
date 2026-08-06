@@ -78,6 +78,18 @@ class BrowserPool:
                 bypass_csp=True,
                 user_agent=SCREENSHOT_USER_AGENT,
             )
+
+            # Playwright SSRF Protection: Intercept and validate all outbound page requests
+            async def check_ssrf(route):
+                req_url = route.request.url
+                is_safe_req, _, reason_req = resolve_and_validate(req_url)
+                if not is_safe_req:
+                    logger.warning(f"[SSRF] Playwright blocked request to {req_url[:80]}: {reason_req}")
+                    await route.abort("blockedbyclient")
+                else:
+                    await route.continue_()
+
+            await self._context.route("**/*", check_ssrf)
             self._started = True
             self._screenshot_count = 0
 
