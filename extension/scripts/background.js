@@ -115,6 +115,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
     return true; // Async response
   }
+
+  if (request.action === "get_domain_age") {
+    const { url } = request;
+    if (!url) {
+      sendResponse({ success: false, error: "URL required" });
+      return false;
+    }
+    getBackendUrl().then(backendUrl => {
+      fetch(`${backendUrl}/domain-age`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Extension-Version": EXTENSION_VERSION
+        },
+        body: JSON.stringify({ url })
+      })
+        .then(res => {
+          if (!res.ok) throw new Error("Domain age fetch failed");
+          return res.json();
+        })
+        .then(data => sendResponse(data))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+    });
+    return true; // Async response
+  }
 });
 
 function cancelRequest(tabId) {

@@ -531,3 +531,14 @@
   margin: 0;
   display: block;
 }
+
+/* Domain Age Section */
+.domain-age {
+  margin-top: -6px;
+  margin-bottom: 12px;
+}
+
+.domain-age-value {
+  color: var(--v-text-secondary);
+  font-weight: 500;
+}
