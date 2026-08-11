@@ -699,8 +699,6 @@ function finalizeReconnectCard(data) {
   if (final_url) {
     const urlDestDiv = createUrlDestSection(final_url);
     bodyDiv.appendChild(urlDestDiv);
-    const domainAgeDiv = createDomainAgeSection(final_url);
-    bodyDiv.appendChild(domainAgeDiv);
   }
 
   const screenshotContainer = document.createElement('div');
@@ -1040,6 +1038,17 @@ function createForensicSection(reasons) {
   return reasonsDiv;
 }
 
+function formatShortAge(rawAge) {
+  if (!rawAge || rawAge === 'Unknown' || rawAge === 'Loading...') return '';
+  return rawAge
+    .replace(/Years?/gi, 'Y')
+    .replace(/Months?/gi, 'M')
+    .replace(/Days?/gi, 'D')
+    .replace(/(\d+)\s+([YMD])/gi, '$1$2')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function createUrlDestSection(finalUrl) {
   const urlDestDiv = document.createElement('div');
   urlDestDiv.className = 'url-dest';
@@ -1087,36 +1096,24 @@ function createUrlDestSection(finalUrl) {
   copyBtn.appendChild(svg);
   urlDestDiv.appendChild(copyBtn);
 
-  return urlDestDiv;
-}
-
-function createDomainAgeSection(targetUrl) {
-  const domainAgeDiv = document.createElement('div');
-  domainAgeDiv.className = 'url-dest domain-age';
-
-  const labelEl = document.createElement('strong');
-  labelEl.textContent = 'Age: ';
-  domainAgeDiv.appendChild(labelEl);
-
-  const valueEl = document.createElement('span');
-  valueEl.className = 'domain-age-value';
-  valueEl.textContent = 'Loading...';
-  domainAgeDiv.appendChild(valueEl);
+  const ageEl = document.createElement('span');
+  ageEl.className = 'url-dest-age';
+  urlDestDiv.appendChild(ageEl);
 
   try {
-    chrome.runtime.sendMessage({ action: 'get_domain_age', url: targetUrl }, (response) => {
-      if (response && response.success && response.data) {
-        const { age_string } = response.data;
-        valueEl.textContent = age_string;
-      } else {
-        valueEl.textContent = 'Unknown';
+    chrome.runtime.sendMessage({ action: 'get_domain_age', url: finalUrl }, (response) => {
+      if (response && response.success && response.data && response.data.age_string) {
+        const shortAge = formatShortAge(response.data.age_string);
+        if (shortAge) {
+          ageEl.textContent = `Domain Age: ${shortAge}`;
+        }
       }
     });
   } catch (e) {
-    valueEl.textContent = 'Unknown';
+    // Ignore error, age element remains empty
   }
 
-  return domainAgeDiv;
+  return urlDestDiv;
 }
 
 function updatePopupWithResult(data) {
@@ -1187,8 +1184,6 @@ function updatePopupWithResult(data) {
   if (final_url) {
     const urlDestDiv = createUrlDestSection(final_url);
     bodyDiv.appendChild(urlDestDiv);
-    const domainAgeDiv = createDomainAgeSection(final_url);
-    bodyDiv.appendChild(domainAgeDiv);
   }
 
   const screenshotContainer = document.createElement('div');
