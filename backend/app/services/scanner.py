@@ -23,7 +23,7 @@ from ..core.constants import (
     SSL_CERT_TIMEOUT_S, RDAP_TIMEOUT_S, NEWLY_REGISTERED_DAYS,
     RECENTLY_REGISTERED_DAYS,
 )
-from .rdap_client import fetch_domain_age_rdap
+from .rdap_client import fetch_domain_age_rdap, extract_root_domain
 from ..core.logging import get_logger
 
 logger = get_logger("VigilantLink")
@@ -315,10 +315,15 @@ async def check_google_safe_browsing(urls: List[str]) -> List[str]:
     return []
 
 
+# ============================================================
+# Tier 2: External Security Scans
+# ============================================================
+
 async def run_external_scans(domain: str) -> Dict[str, Any]:
     """
     Tier 2: Run SSL, RDAP, PhishTank, and OpenPhish in parallel.
     'domain' can be a hostname or a full URL.
+    Preserves successful individual results even if one scan times out.
     """
     parsed = urllib.parse.urlparse(domain)
     if parsed.scheme and parsed.netloc:
@@ -328,17 +333,13 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         target_domain = domain
         full_url = f"http://{domain}"
 
-    parts = target_domain.split('.')
-    if len(parts) > 2:
-        root_domain = f"{parts[-2]}.{parts[-1]}"
-    else:
-        root_domain = target_domain
+    root_domain = extract_root_domain(target_domain)
 
     ssl_timed_out = False
     rdap_timed_out = False
     phishtank_timed_out = False
     openphish_timed_out = False
- 
+
     async def _safe_ssl() -> Optional[int]:
         nonlocal ssl_timed_out
         try:
@@ -352,22 +353,29 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         except Exception as e:
             logger.debug(f"SSL cert age failed for {target_domain}: {e}")
             return None
- 
-    async def _safe_rdap() -> int:
+
+    async def _safe_rdap() -> Optional[int]:
         nonlocal rdap_timed_out
         try:
-            return await asyncio.wait_for(
-                fetch_domain_age_rdap(root_domain), timeout=RDAP_TIMEOUT_S
+            res = await asyncio.wait_for(
+                fetch_domain_age_rdap(root_domain), timeout=2.5
             )
+            if res is None:
+                rdap_timed_out = True
+            return res
         except asyncio.TimeoutError:
             rdap_timed_out = True
-            return DEFAULT_DOMAIN_AGE_DAYS
+            logger.debug(f"[RDAP] Lookup timeout: {root_domain}")
+            return None
+        except Exception as e:
+            logger.debug(f"[RDAP] Lookup failed for {root_domain}: {e}")
+            return None
 
     async def _safe_phishtank() -> bool:
         nonlocal phishtank_timed_out
         try:
             return await asyncio.wait_for(
-                check_phishtank(full_url), timeout=2.0
+                check_phishtank(full_url), timeout=1.5
             )
         except asyncio.TimeoutError:
             phishtank_timed_out = True
@@ -380,7 +388,7 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         nonlocal openphish_timed_out
         try:
             return await asyncio.wait_for(
-                check_openphish(full_url), timeout=3.0
+                check_openphish(full_url), timeout=1.5
             )
         except asyncio.TimeoutError:
             openphish_timed_out = True
@@ -389,11 +397,32 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
             logger.debug(f"OpenPhish check failed for {full_url}: {e}")
             return False
 
-    results = await asyncio.gather(
-        _safe_ssl(), _safe_rdap(), _safe_phishtank(), _safe_openphish()
-    )
-    cert_age, domain_age, phishtank_flagged, openphish_flagged = results
- 
+    # Execute all 4 external scans concurrently with bounded sub-task isolation
+    task_ssl = asyncio.create_task(_safe_ssl())
+    task_rdap = asyncio.create_task(_safe_rdap())
+    task_pt = asyncio.create_task(_safe_phishtank())
+    task_op = asyncio.create_task(_safe_openphish())
+
+    tasks = [task_ssl, task_rdap, task_pt, task_op]
+    done, pending = await asyncio.wait(tasks, timeout=3.0)
+
+    # Cancel hanging tasks without erasing results from completed tasks
+    for task in pending:
+        task.cancel()
+        if task == task_ssl:
+            ssl_timed_out = True
+        elif task == task_rdap:
+            rdap_timed_out = True
+        elif task == task_pt:
+            phishtank_timed_out = True
+        elif task == task_op:
+            openphish_timed_out = True
+
+    cert_age = task_ssl.result() if task_ssl in done and not task_ssl.cancelled() and not task_ssl.exception() else None
+    domain_age = task_rdap.result() if task_rdap in done and not task_rdap.cancelled() and not task_rdap.exception() else None
+    phishtank_flagged = task_pt.result() if task_pt in done and not task_pt.cancelled() and not task_pt.exception() else False
+    openphish_flagged = task_op.result() if task_op in done and not task_op.cancelled() and not task_op.exception() else False
+
     threat_type: Optional[str] = None
     if phishtank_flagged:
         threat_type = "Confirmed Phishing (PhishTank)"
@@ -401,9 +430,9 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         threat_type = "Active Phishing Campaign (OpenPhish)"
     elif cert_age is not None and cert_age < 7:
         threat_type = "Recently Issued SSL Certificate"
-    elif domain_age < NEWLY_REGISTERED_DAYS:
+    elif domain_age is not None and domain_age < NEWLY_REGISTERED_DAYS:
         threat_type = "Newly Registered Domain"
- 
+
     return {
         "ssl_cert_age_days": cert_age,
         "domain_age_days": domain_age,
