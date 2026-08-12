@@ -699,6 +699,8 @@ function finalizeReconnectCard(data) {
   if (final_url) {
     const urlDestDiv = createUrlDestSection(final_url);
     bodyDiv.appendChild(urlDestDiv);
+    const domainAgeDiv = createDomainAgeSection(final_url);
+    bodyDiv.appendChild(domainAgeDiv);
   }
 
   const screenshotContainer = document.createElement('div');
@@ -1088,6 +1090,35 @@ function createUrlDestSection(finalUrl) {
   return urlDestDiv;
 }
 
+function createDomainAgeSection(targetUrl) {
+  const domainAgeDiv = document.createElement('div');
+  domainAgeDiv.className = 'url-dest domain-age';
+
+  const labelEl = document.createElement('strong');
+  labelEl.textContent = 'Age: ';
+  domainAgeDiv.appendChild(labelEl);
+
+  const valueEl = document.createElement('span');
+  valueEl.className = 'domain-age-value';
+  valueEl.textContent = 'Loading...';
+  domainAgeDiv.appendChild(valueEl);
+
+  try {
+    chrome.runtime.sendMessage({ action: 'get_domain_age', url: targetUrl }, (response) => {
+      if (response && response.success && response.data) {
+        const { age_string } = response.data;
+        valueEl.textContent = age_string;
+      } else {
+        valueEl.textContent = 'Unknown';
+      }
+    });
+  } catch (e) {
+    valueEl.textContent = 'Unknown';
+  }
+
+  return domainAgeDiv;
+}
+
 function updatePopupWithResult(data) {
   if (!isPopupValid()) return;
 
@@ -1156,6 +1187,8 @@ function updatePopupWithResult(data) {
   if (final_url) {
     const urlDestDiv = createUrlDestSection(final_url);
     bodyDiv.appendChild(urlDestDiv);
+    const domainAgeDiv = createDomainAgeSection(final_url);
+    bodyDiv.appendChild(domainAgeDiv);
   }
 
   const screenshotContainer = document.createElement('div');

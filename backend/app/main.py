@@ -630,3 +630,10 @@ async def health_check() -> dict:
         "version": MIN_EXTENSION_VERSION,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+# ============================================================
+# Domain Age Endpoint
+# ============================================================
+from .routers import domain_age_router
+app.include_router(domain_age_router.router)
+
