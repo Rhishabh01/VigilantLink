@@ -13,53 +13,64 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-RDAP_BOOTSTRAP_URL = "https://rdap.org/domain/{domain}"
-RDAP_TIMEOUT_S = 0.8  # Hard budget — enforced here AND by caller
+RDAP_TIMEOUT_S = 5.0
+
+# Secondary authoritative RDAP servers by top-level domain
+TLD_RDAP_ENDPOINTS = {
+    "com": "https://rdap.verisign.com/com/v1/domain/{domain}",
+    "net": "https://rdap.verisign.com/net/v1/domain/{domain}",
+    "org": "https://rdap.publicinterestregistry.org/rdap/domain/{domain}",
+    "info": "https://rdap.afilias.net/rdap/domain/{domain}",
+}
 
 
 async def fetch_domain_age_rdap(domain: str) -> int:
     """
     Fetch domain registration date via RDAP (HTTP/JSON).
-
-    Returns:
-        Age in days. Returns 3000 (assume old) on failure/not-found.
-
-    Raises:
-        asyncio.TimeoutError: If request exceeds RDAP_TIMEOUT_S.
-            Caller must handle this to apply uncertainty penalty.
+    Tries rdap.org first, then falls back to direct authoritative registry endpoints.
     """
-    url = RDAP_BOOTSTRAP_URL.format(domain=domain)
+    tld = domain.split(".")[-1].lower() if "." in domain else ""
+    urls = [f"https://rdap.org/domain/{domain}"]
+    if tld in TLD_RDAP_ENDPOINTS:
+        urls.append(TLD_RDAP_ENDPOINTS[tld].format(domain=domain))
 
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(RDAP_TIMEOUT_S)) as client:
-            resp = await client.get(url, follow_redirects=True)
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
-            if resp.status_code == 404:
-                # Domain not in RDAP = likely legacy/old domain
-                logger.info(f"RDAP: domain {domain} not found (assuming old)")
+    async with httpx.AsyncClient(timeout=httpx.Timeout(RDAP_TIMEOUT_S), follow_redirects=True, headers=headers) as client:
+        for url in urls:
+            try:
+                resp = await client.get(url)
+                if resp.status_code == 404:
+                    logger.info(f"RDAP 404 for {domain} at {url} (assuming old domain)")
+                    return 3000
+
+                if resp.status_code != 200:
+                    continue
+
+                data = resp.json()
+
+                # Search events array for registration or creation
+                events = data.get("events", [])
+                for event in events:
+                    action = event.get("eventAction", "").lower()
+                    if action in ("registration", "created"):
+                        date_str = event.get("eventDate", "")
+                        if date_str:
+                            # Parse ISO timestamp
+                            clean_date = date_str.replace("Z", "+00:00")
+                            reg_date = datetime.datetime.fromisoformat(clean_date)
+                            now = datetime.datetime.now(datetime.timezone.utc)
+                            return max(0, (now - reg_date).days)
+
+                logger.info(f"RDAP response received for {domain} but no registration date found.")
                 return 3000
 
-            resp.raise_for_status()
-            data = resp.json()
+            except httpx.TimeoutException:
+                logger.warning(f"RDAP timeout for {domain} at {url}")
+                continue
+            except Exception as e:
+                logger.warning(f"RDAP error for {domain} at {url}: {e}")
+                continue
 
-            # RDAP events array: find "registration" event
-            for event in data.get("events", []):
-                if event.get("eventAction") == "registration":
-                    date_str = event.get("eventDate", "")
-                    reg_date = datetime.datetime.fromisoformat(
-                        date_str.replace("Z", "+00:00")
-                    )
-                    now = datetime.datetime.now(datetime.timezone.utc)
-                    return max(0, (now - reg_date).days)
-
-            # No registration event found
-            logger.info(f"RDAP: no registration event for {domain}")
-            return 3000
-
-    except httpx.TimeoutException:
-        logger.warning(f"RDAP timeout for {domain}")
-        raise  # Propagate — caller applies uncertainty penalty
-
-    except Exception as e:
-        logger.warning(f"RDAP failed for {domain}: {e}")
-        return 3000
+    # Default fallback if all endpoints failed or timed out
+    return 3000

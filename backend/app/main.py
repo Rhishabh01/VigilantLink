@@ -121,15 +121,25 @@ async def lifespan(app: FastAPI):
     logger.info("[STARTUP] Connecting to Redis...")
     try:
         await asyncio.wait_for(redis_cache.connect(), timeout=3.0)
+        # In dev mode, flush stale cache on startup so schema changes take effect immediately
+        if os.getenv("ENVIRONMENT", "development").lower() != "production":
+            if redis_cache._is_connected and redis_cache._redis:
+                await redis_cache._redis.flushdb()
+                logger.info("[STARTUP] Dev mode — Redis cache flushed (stale entries cleared)")
     except asyncio.TimeoutError:
         logger.warning("[STARTUP] Redis connect timed out — running in no-cache mode")
     except Exception as e:
         logger.warning(f"[STARTUP] Redis connection failed — no-cache mode: {e}")
 
-    # Start keep-alive background task (only in production with KEEP_ALIVE_URL set)
+
+    # Start keep-alive background task only in production
     keep_alive_task = None
-    if KEEP_ALIVE_URL:
+    is_production = os.getenv("ENVIRONMENT", "development").lower() == "production"
+    if KEEP_ALIVE_URL and is_production:
         keep_alive_task = asyncio.create_task(_keep_alive_loop())
+        logger.info(f"[STARTUP] Keep-alive enabled — pinging {KEEP_ALIVE_URL} every {KEEP_ALIVE_INTERVAL_S}s")
+    elif KEEP_ALIVE_URL and not is_production:
+        logger.info("[STARTUP] KEEP_ALIVE_URL set but ENVIRONMENT != 'production' — keep-alive suppressed for local dev")
     else:
         logger.info("[STARTUP] KEEP_ALIVE_URL not set — keep-alive disabled")
 
@@ -374,7 +384,7 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
                     "fav": metadata.get("favicon_url"),
                     "ss": None,
                     "p3": "skipped (server load)",
-                    "sec": stage1_response["sec"],
+                    "sec": {**stage1_response["sec"], "da": None},
                     "ms": phase1["duration_ms"],
                 }
                 asyncio.create_task(redis_cache.set_pending(request_id, stage2_bypass))
@@ -398,7 +408,7 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
                 "fav": metadata.get("favicon_url"),
                 "ss": None,
                 "p3": "done",
-                "sec": stage1_response["sec"],
+                "sec": {**stage1_response["sec"], "da": None},
                 "ms": phase1["duration_ms"],
             }
             # Set pending immediately so background poller resolves
@@ -481,6 +491,7 @@ async def _run_phase2_background(
                 "vf": sec2["vendor_flags"],
                 "tv": sec2["total_vendors"],
                 "age": sec2.get("ssl_cert_age_days"),
+                "da": sec2.get("domain_age_days"),
                 "sr": sec2["suspicious_redirects"],
                 "ts": sec2["typosquatting_detected"],
                 "r": sec2["reasons"],

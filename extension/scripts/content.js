@@ -697,7 +697,7 @@ function finalizeReconnectCard(data) {
   bodyDiv.appendChild(metaSection);
 
   if (final_url) {
-    const urlDestDiv = createUrlDestSection(final_url);
+    const urlDestDiv = createUrlDestSection(final_url, security.da ?? null);
     bodyDiv.appendChild(urlDestDiv);
   }
 
@@ -1038,6 +1038,16 @@ function createForensicSection(reasons) {
   return reasonsDiv;
 }
 
+function formatDaysToAge(days) {
+  if (days === null || days === undefined) return '';
+  if (days < 30) return `${Math.max(1, days)}D`;
+  const years = Math.floor(days / 365);
+  const months = Math.floor((days % 365) / 30);
+  if (years === 0) return months > 0 ? `${months}M` : `${days}D`;
+  if (months === 0) return `${years}Y`;
+  return `${years}Y ${months}M`;
+}
+
 function formatShortAge(rawAge) {
   if (!rawAge || rawAge === 'Unknown' || rawAge === 'Loading...') return '';
   return rawAge
@@ -1049,7 +1059,7 @@ function formatShortAge(rawAge) {
     .trim();
 }
 
-function createUrlDestSection(finalUrl) {
+function createUrlDestSection(finalUrl, ageDays) {
   const urlDestDiv = document.createElement('div');
   urlDestDiv.className = 'url-dest';
 
@@ -1098,20 +1108,15 @@ function createUrlDestSection(finalUrl) {
 
   const ageEl = document.createElement('span');
   ageEl.className = 'url-dest-age';
-  urlDestDiv.appendChild(ageEl);
-
-  try {
-    chrome.runtime.sendMessage({ action: 'get_domain_age', url: finalUrl }, (response) => {
-      if (response && response.success && response.data && response.data.age_string) {
-        const shortAge = formatShortAge(response.data.age_string);
-        if (shortAge) {
-          ageEl.textContent = `Domain Age: ${shortAge}`;
-        }
-      }
-    });
-  } catch (e) {
-    // Ignore error, age element remains empty
+  const ageText = formatDaysToAge(ageDays);
+  if (ageText) {
+    ageEl.textContent = `${ageText} old`;
+  } else if (ageDays === null) {
+    ageEl.textContent = 'Age: N/A';
+  } else {
+    ageEl.textContent = 'Scanning...';
   }
+  urlDestDiv.appendChild(ageEl);
 
   return urlDestDiv;
 }
@@ -1182,9 +1187,10 @@ function updatePopupWithResult(data) {
   bodyDiv.appendChild(metaSection);
 
   if (final_url) {
-    const urlDestDiv = createUrlDestSection(final_url);
+    const urlDestDiv = createUrlDestSection(final_url, security.da ?? null);
     bodyDiv.appendChild(urlDestDiv);
   }
+
 
   const screenshotContainer = document.createElement('div');
   screenshotContainer.className = 'screenshot-container';
@@ -1359,6 +1365,19 @@ function mergeDeepScanResult(data) {
         existingInfo.textContent = '';
         const forensicSection = createForensicSection(filteredReasons);
         if (forensicSection) existingInfo.appendChild(forensicSection);
+      }
+    }
+
+    // Patch domain age badge once Phase 2 data (with da) arrives
+    if (security.da !== undefined) {
+      const ageEl = currentPopupShadowRoot.querySelector('.url-dest-age');
+      if (ageEl) {
+        const ageText = formatDaysToAge(security.da);
+        if (ageText) {
+          ageEl.textContent = `${ageText} old`;
+        } else {
+          ageEl.textContent = 'Age: N/A';
+        }
       }
     }
   }

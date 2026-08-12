@@ -798,6 +798,7 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             "vendor_flags": vf,
             "total_vendors": tv,
             "ssl_cert_age_days": external.get("ssl_cert_age_days"),
+            "domain_age_days": external.get("domain_age_days"),
             "risk_score": risk_score,
             "suspicious_redirects": len(hops) > MAX_REDIRECT_HOPS_FREE and not _all_hops_within_google(hops, final_url),
             "typosquatting_detected": heuristics.get("typosquatting_detected", False),

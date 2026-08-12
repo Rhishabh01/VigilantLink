@@ -260,12 +260,13 @@
 .url-dest {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   margin-bottom: 12px;
   font-size: 11px;
   color: var(--v-text-primary);
   width: 100%;
   box-sizing: border-box;
+  flex-wrap: nowrap;
 }
 
 .url-dest strong {
@@ -281,6 +282,7 @@
   text-overflow: ellipsis;
   flex: 1 1 auto;
   min-width: 0;
+  max-width: 110px;
 }
 
 .url-dest a:hover {
@@ -291,9 +293,12 @@
   flex: 0 0 auto;
   white-space: nowrap;
   color: var(--v-text-muted);
-  font-size: 11px;
-  font-weight: 500;
-  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--v-surface);
+  border: 1px solid var(--v-border);
+  border-radius: 4px;
+  padding: 1px 5px;
 }
 
 #copy-dest-btn {

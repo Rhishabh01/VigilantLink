@@ -118,7 +118,7 @@ async def get_domain_age_info(url_or_domain: str) -> Dict[str, Any]:
     rdap_url = RDAP_URL_TEMPLATE.format(domain=domain)
     
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(3.0)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
             resp = await client.get(rdap_url, follow_redirects=True)
             if resp.status_code == 200:
                 data = resp.json()
