@@ -353,9 +353,6 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
         except Exception as e:
             logger.debug(f"SSL cert age failed for {target_domain}: {e}")
             return None
-        except Exception as e:
-            logger.debug(f"[RDAP] Lookup failed for {root_domain}: {e}")
-            return None
 
     async def _safe_phishtank() -> bool:
         nonlocal phishtank_timed_out
@@ -385,7 +382,7 @@ async def run_external_scans(domain: str) -> Dict[str, Any]:
 
     # Execute all 4 external scans concurrently with bounded sub-task isolation
     task_ssl = asyncio.create_task(_safe_ssl())
-        task_pt = asyncio.create_task(_safe_phishtank())
+    task_pt = asyncio.create_task(_safe_phishtank())
     task_op = asyncio.create_task(_safe_openphish())
 
     tasks = [task_ssl, task_pt, task_op]
