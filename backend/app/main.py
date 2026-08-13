@@ -345,6 +345,7 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
                 "age": sec.get("ssl_cert_age_days"),
                 "sr": sec["suspicious_redirects"],
                 "ts": sec["typosquatting_detected"],
+                "da": sec.get("da"),
                 "r": sec["reasons"],
             },
             "ms": phase1["duration_ms"],
