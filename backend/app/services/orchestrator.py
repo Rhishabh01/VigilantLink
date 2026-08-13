@@ -485,7 +485,7 @@ def compute_final_score(
                 reasons.append(f"Young SSL certificate ({cert_age} days old)")
 
     # Phase 2 Signal: Domain Age (RDAP)
-    domain_age = external.get("domain_age_days")
+    domain_age = phase1_result.get("security", {}).get("da")
     if domain_age is not None:
         rdap_penalty = 0
         if domain_age < NEWLY_REGISTERED_DAYS:
@@ -760,7 +760,7 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
         logger.warning(f"[PHASE2] External scans timed out for {root_domain}")
         external = {
             "ssl_cert_age_days": None,
-            "domain_age_days": None,
+            
             "threat_type": None,
             "popularity_rank": None,
             "ssl_timed_out": True,
@@ -812,7 +812,7 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             "vendor_flags": vf,
             "total_vendors": tv,
             "ssl_cert_age_days": external.get("ssl_cert_age_days"),
-            "domain_age_days": external.get("domain_age_days"),
+            
             "risk_score": risk_score,
             "suspicious_redirects": len(hops) > MAX_REDIRECT_HOPS_FREE and not _all_hops_within_google(hops, final_url),
             "typosquatting_detected": heuristics.get("typosquatting_detected", False),

@@ -646,6 +646,4 @@ async def health_check() -> dict:
 # ============================================================
 # Domain Age Endpoint
 # ============================================================
-from .routers import domain_age_router
-app.include_router(domain_age_router.router)
 
