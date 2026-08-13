@@ -24,6 +24,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from .tracer import trace_url
 from .metadata_fetcher import fetch_metadata
 from .scanner import run_heuristics, run_external_scans, check_google_safe_browsing
+from .rdap_client import fetch_domain_age_rdap
 from ..core.constants import (
     VERDICT_RED_THRESHOLD, VERDICT_YELLOW_THRESHOLD, PUNYCODE_MIN_SCORE,
     MAX_REDIRECT_HOPS_FREE, SEVERE_VENDOR_FLAGS_THRESHOLD,
@@ -614,6 +615,14 @@ async def run_phase1(url: str) -> Dict[str, Any]:
         except asyncio.TimeoutError:
             logger.warning(f"[PHASE1-GSB] Timed out")
             return [], True
+
+    async def _safe_rdap(target_domain: str):
+        try:
+            logger.info(f"[PHASE1-RDAP] Starting RDAP for {target_domain}")
+            return await asyncio.wait_for(fetch_domain_age_rdap(target_domain), timeout=2.0)
+        except Exception as e:
+            logger.warning(f"[PHASE1-RDAP] Failed or timed out: {e}")
+            return None
         except Exception as e:
             logger.error(f"[PHASE1-GSB] Exception: {e}")
             return [], True
@@ -639,6 +648,7 @@ async def run_phase1(url: str) -> Dict[str, Any]:
     # Run GSB on all hops, plus metadata/DNS re-fetches if domain changed
     async with asyncio.TaskGroup() as tg2:
         gsb_task = tg2.create_task(_safe_gsb(hop_urls))
+        rdap_task = tg2.create_task(_safe_rdap(final_domain))
         
         if domain_to_check != final_domain:
             logger.debug(f"[PHASE1] Domain changed during redirect, re-fetching metadata for {final_domain}")
@@ -655,6 +665,7 @@ async def run_phase1(url: str) -> Dict[str, Any]:
         metadata = meta_task.result()
         dns_resolves = dns_task.result()
 
+    domain_age = rdap_task.result()
     gsb_threats, gsb_timed_out = gsb_task.result()
     logger.info(f"[PHASE1] GSB after redirect — combined threats={gsb_threats}")
         
@@ -717,6 +728,7 @@ async def run_phase1(url: str) -> Dict[str, Any]:
             "gsb_threat_type": gsb_threat_type,
             "gsb_threats": gsb_threats,
             "gsb_timed_out": gsb_timed_out,
+            "da": domain_age,
         },
         "duration_ms": duration_ms,
     }

@@ -384,7 +384,7 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
                     "fav": metadata.get("favicon_url"),
                     "ss": None,
                     "p3": "skipped (server load)",
-                    "sec": {**stage1_response["sec"], "da": None},
+                    "sec": stage1_response["sec"],
                     "ms": phase1["duration_ms"],
                 }
                 asyncio.create_task(redis_cache.set_pending(request_id, stage2_bypass))
@@ -408,7 +408,7 @@ async def analyze_link(request: Request, body: AnalyzeRequest) -> dict:
                 "fav": metadata.get("favicon_url"),
                 "ss": None,
                 "p3": "done",
-                "sec": {**stage1_response["sec"], "da": None},
+                "sec": stage1_response["sec"],
                 "ms": phase1["duration_ms"],
             }
             # Set pending immediately so background poller resolves
