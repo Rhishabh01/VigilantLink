@@ -567,17 +567,19 @@ def compute_final_score(
             heuristics.get("typosquatting_detected") or 
             heuristics.get("punycode_detected") or 
             heuristics.get("synergy_detected") or
-            heuristics.get("has_suspicious_keywords")
+            heuristics.get("has_suspicious_keywords") or
+            len(hops) > MAX_REDIRECT_HOPS_FREE or
+            hosted_signals.get("active", False)
         )
-        # Issue 2: Strictly hide uncertainty from safe (green) verdicts
+        
         show_uncertainty = (
-            verdict != "green" and (
-                timed_out_count >= 2 or
-                bool(gsb_threats) or
-                phishtank_flagged or
-                openphish_flagged or
-                is_suspicious_heuristics
-            )
+            capped_score >= VERDICT_YELLOW_THRESHOLD or
+            verdict in ("yellow", "red") or
+            timed_out_count >= 2 or
+            bool(gsb_threats) or
+            phishtank_flagged or
+            openphish_flagged or
+            is_suspicious_heuristics
         )
         if show_uncertainty:
             reasons.append(f"Uncertainty penalty (+{penalty}): {timed_out_count}/5 sources timed out")
