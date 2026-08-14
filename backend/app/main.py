@@ -535,10 +535,8 @@ async def _run_phase2_background(
         await redis_cache.set_pending(request_id, stage2_response)
         logger.info(f"[CACHE] Phase 2 result stored (id={request_id})")
 
-        # 3. Run Phase 3: Risk-adaptive screenshot capture
-        # Safe (green)   → no Playwright, no automatic screenshot (uses OG metadata or manual button)
-        # Suspicious (yellow)  → screenshot allowed
-        # Dangerous (red) → screenshot always captured
+        # 3. Run Phase 3: Screenshot capture for links without OG images
+        # All links without an OpenGraph image get a Playwright screenshot
         screenshot_base64: Optional[str] = None
         ssl_age = phase2["security"].get("ssl_cert_age_days")
         vendor_flags = phase2["security"].get("vendor_flags", 0)
