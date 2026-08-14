@@ -195,34 +195,6 @@
   transition: opacity 0.4s ease;
 }
 
-.preview-request-btn {
-  padding: 8px 16px;
-  border-radius: 6px;
-  background: var(--v-surface);
-  border: 1px solid var(--v-border);
-  color: var(--v-text-primary);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-style: normal;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  pointer-events: auto;
-  position: relative;
-  z-index: 10;
-}
-
-.preview-request-btn:hover {
-  background: var(--v-border);
-  transform: translateY(-1px);
-}
-
-.preview-request-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-}
-
 .preview-image {
   position: absolute;
   top: 0;

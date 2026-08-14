@@ -838,18 +838,10 @@ def needs_screenshot(
 ) -> bool:
     """
     Phase 3 gatekeeper.
-    Gated to reduce backend compute/Render usage. Safe links bypass deep analysis.
-    Only generate screenshots for suspicious or dangerous links that lack an OpenGraph image.
+    Only generate screenshots for links that lack an OpenGraph image.
     """
     # If the website already provided an OpenGraph preview, keep it and save credits
     if metadata and metadata.get("image_url"):
         return False
         
-    if risk_score >= VERDICT_YELLOW_THRESHOLD:
-        return True
-    if vendor_flags > 0:
-        return True
-    if redirect_depth > MAX_REDIRECT_HOPS_FREE:
-        return True
-        
-    return False
+    return True

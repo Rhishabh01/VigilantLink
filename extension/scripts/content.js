@@ -710,12 +710,7 @@ function finalizeReconnectCard(data) {
   if (isPending && !hasImage) {
     placeholder.textContent = 'Loading visual preview...';
   } else if (!hasImage) {
-    placeholder.innerHTML = '';
-    const btn = document.createElement('button');
-    btn.className = 'preview-request-btn';
-    btn.textContent = 'Generate Preview';
-    btn.dataset.url = original_url || data.url || url;
-    placeholder.appendChild(btn);
+    placeholder.textContent = 'Visual preview unavailable';
   }
   screenshotContainer.appendChild(placeholder);
 
@@ -1203,12 +1198,7 @@ function updatePopupWithResult(data) {
     if (isPending && !hasImage) {
       d.textContent = 'Loading visual preview...';
     } else if (!hasImage) {
-      d.innerHTML = '';
-      const btn = document.createElement('button');
-      btn.className = 'preview-request-btn';
-      btn.textContent = 'Generate Preview';
-      btn.dataset.url = original_url || data.url;
-      d.appendChild(btn);
+      d.textContent = 'Visual preview unavailable';
     }
     return d;
   };
@@ -1425,12 +1415,7 @@ function mergeDeepScanResult(data) {
       if (isPending && !hasImage) {
         placeholder.textContent = 'Loading visual preview...';
       } else if (!hasImage) {
-        placeholder.innerHTML = '';
-        const btn = document.createElement('button');
-        btn.className = 'preview-request-btn';
-        btn.textContent = 'Generate Preview';
-        btn.dataset.url = data.url || data.furl;
-        placeholder.appendChild(btn);
+        placeholder.textContent = 'Visual preview unavailable';
       }
     }
   }
@@ -1498,52 +1483,7 @@ function attachPopupEventHandlers(finalUrl) {
       return;
     }
 
-    const previewBtn = e.target.closest('.preview-request-btn');
-    if (previewBtn) {
-      e.preventDefault();
-      e.stopPropagation();
-      // ALWAYS use the original url for cache lookup
-      const urlToPreview = previewBtn.dataset.url || currentAnalysisUrl;
-      previewBtn.textContent = 'Loading visual preview...';
-      previewBtn.disabled = true;
-      previewBtn.style.cursor = 'wait';
 
-      chrome.runtime.sendMessage({ action: 'request_preview', url: urlToPreview }, (response) => {
-        if (response && response.success && response.data && response.data.ss) {
-          // The backend completed the screenshot.
-          // We can let the background polling/messages update the UI, or update it directly here.
-          // But since the message might not come through Phase 2 polling (if Phase 2 was completed),
-          // we should inject the image manually.
-          const container = shadowRoot.querySelector('.screenshot-container');
-          if (container) {
-            let img = container.querySelector('.preview-image');
-            let placeholder = container.querySelector('.preview-placeholder');
-            if (!img) {
-              img = document.createElement('img');
-              img.className = 'preview-image';
-              img.alt = 'Site preview';
-              container.appendChild(img);
-            }
-            img.onload = () => {
-              img.classList.add('loaded');
-              if (placeholder) placeholder.style.opacity = '0';
-            };
-            img.src = response.data.ss;
-            if (placeholder) {
-              placeholder.textContent = ''; // clear out the button
-            }
-          }
-        } else {
-          previewBtn.textContent = 'Failed to load preview';
-          setTimeout(() => {
-            previewBtn.textContent = 'Generate Preview';
-            previewBtn.disabled = false;
-            previewBtn.style.cursor = 'pointer';
-          }, 3000);
-        }
-      });
-      return;
-    }
   });
 }
 

@@ -91,31 +91,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return false;
   }
 
-  if (request.action === "request_preview") {
-    const { url } = request;
-    if (!url) {
-      sendResponse({ success: false });
-      return false;
-    }
-    getBackendUrl().then(backendUrl => {
-      fetch(`${backendUrl}/analyze/preview`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Extension-Version": EXTENSION_VERSION
-        },
-        body: JSON.stringify({ url })
-      })
-        .then(res => {
-          if (!res.ok) throw new Error("Preview failed");
-          return res.json();
-        })
-        .then(data => sendResponse({ success: true, data }))
-        .catch(err => sendResponse({ success: false, error: err.message }));
-    });
-    return true; // Async response
-  }
-
   if (request.action === "get_domain_age") {
     const { url } = request;
     if (!url) {
