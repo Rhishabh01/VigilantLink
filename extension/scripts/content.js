@@ -697,42 +697,37 @@ function finalizeReconnectCard(data) {
   bodyDiv.appendChild(metaSection);
 
   if (final_url) {
-    const urlDestDiv = createUrlDestSection(final_url);
+    const urlDestDiv = createUrlDestSection(final_url, security.da ?? null);
     bodyDiv.appendChild(urlDestDiv);
   }
 
-  const screenshotContainer = document.createElement('div');
-  screenshotContainer.className = 'screenshot-container';
-  const placeholder = document.createElement('div');
-  placeholder.className = 'preview-placeholder';
   const hasImage = !!(data.ss || data.img);
   const isPending = data.s === 1 || data.p3 === 'pending';
-  if (isPending && !hasImage) {
-    placeholder.textContent = 'Loading visual preview...';
-  } else if (!hasImage) {
-    placeholder.innerHTML = '';
-    const btn = document.createElement('button');
-    btn.className = 'preview-request-btn';
-    btn.textContent = 'Generate Preview';
-    btn.dataset.url = original_url || data.url || url;
-    placeholder.appendChild(btn);
-  }
-  screenshotContainer.appendChild(placeholder);
+  if (hasImage || isPending) {
+    const screenshotContainer = document.createElement('div');
+    screenshotContainer.className = 'screenshot-container';
+    const placeholder = document.createElement('div');
+    placeholder.className = 'preview-placeholder';
+    if (isPending && !hasImage) {
+      placeholder.textContent = 'Loading visual preview...';
+    }
+    screenshotContainer.appendChild(placeholder);
 
-  const img = document.createElement('img');
-  img.className = 'preview-image';
-  img.alt = `Preview of ${final_url}`;
-  const displayImage = screenshot_base64 || preview_image_url;
-  if (displayImage) {
-    img.onload = () => {
-      img.classList.add('loaded');
-      placeholder.style.opacity = '0';
-    };
-    img.onerror = () => { };
-    img.src = displayImage;
+    const img = document.createElement('img');
+    img.className = 'preview-image';
+    img.alt = `Preview of ${final_url}`;
+    const displayImage = screenshot_base64 || preview_image_url;
+    if (displayImage) {
+      img.onload = () => {
+        img.classList.add('loaded');
+        placeholder.style.opacity = '0';
+      };
+      img.onerror = () => { };
+      img.src = displayImage;
+    }
+    screenshotContainer.appendChild(img);
+    bodyDiv.appendChild(screenshotContainer);
   }
-  screenshotContainer.appendChild(img);
-  bodyDiv.appendChild(screenshotContainer);
 
   const infoDiv = document.createElement('div');
   infoDiv.className = 'info';
@@ -1038,7 +1033,28 @@ function createForensicSection(reasons) {
   return reasonsDiv;
 }
 
-function createUrlDestSection(finalUrl) {
+function formatDaysToAge(days) {
+  if (days === null || days === undefined) return '';
+  if (days < 30) return `${Math.max(1, days)}D`;
+  const years = Math.floor(days / 365);
+  const months = Math.floor((days % 365) / 30);
+  if (years === 0) return months > 0 ? `${months}M` : `${days}D`;
+  if (months === 0) return `${years}Y`;
+  return `${years}Y ${months}M`;
+}
+
+function formatShortAge(rawAge) {
+  if (!rawAge || rawAge === 'Unknown' || rawAge === 'Loading...') return '';
+  return rawAge
+    .replace(/Years?/gi, 'Y')
+    .replace(/Months?/gi, 'M')
+    .replace(/Days?/gi, 'D')
+    .replace(/(\d+)\s+([YMD])/gi, '$1$2')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function createUrlDestSection(finalUrl, ageDays) {
   const urlDestDiv = document.createElement('div');
   urlDestDiv.className = 'url-dest';
 
@@ -1084,6 +1100,18 @@ function createUrlDestSection(finalUrl) {
 
   copyBtn.appendChild(svg);
   urlDestDiv.appendChild(copyBtn);
+
+  const ageEl = document.createElement('span');
+  ageEl.className = 'url-dest-age';
+  const ageText = formatDaysToAge(ageDays);
+  if (ageText) {
+    ageEl.textContent = `${ageText} old`;
+  } else if (ageDays === null) {
+    ageEl.textContent = 'Age: N/A';
+  } else {
+    ageEl.textContent = 'Scanning...';
+  }
+  urlDestDiv.appendChild(ageEl);
 
   return urlDestDiv;
 }
@@ -1154,50 +1182,43 @@ function updatePopupWithResult(data) {
   bodyDiv.appendChild(metaSection);
 
   if (final_url) {
-    const urlDestDiv = createUrlDestSection(final_url);
+    const urlDestDiv = createUrlDestSection(final_url, security.da ?? null);
     bodyDiv.appendChild(urlDestDiv);
   }
 
-  const screenshotContainer = document.createElement('div');
-  screenshotContainer.className = 'screenshot-container';
 
-  const makePlaceholder = () => {
-    const d = document.createElement('div');
-    d.className = 'preview-placeholder';
-    const hasImage = !!(data.ss || data.img);
-    const isPending = data.s === 1 || data.p3 === 'pending';
+  const hasImage = !!(data.ss || data.img);
+  const isPending = data.s === 1 || data.p3 === 'pending';
+
+  // Only render the screenshot container if there's an image or one is expected
+  if (hasImage || isPending) {
+    const screenshotContainer = document.createElement('div');
+    screenshotContainer.className = 'screenshot-container';
+
+    const placeholder = document.createElement('div');
+    placeholder.className = 'preview-placeholder';
     if (isPending && !hasImage) {
-      d.textContent = 'Loading visual preview...';
-    } else if (!hasImage) {
-      d.innerHTML = '';
-      const btn = document.createElement('button');
-      btn.className = 'preview-request-btn';
-      btn.textContent = 'Generate Preview';
-      btn.dataset.url = original_url || data.url;
-      d.appendChild(btn);
+      placeholder.textContent = 'Loading visual preview...';
     }
-    return d;
-  };
+    screenshotContainer.appendChild(placeholder);
 
-  const placeholder = makePlaceholder();
-  screenshotContainer.appendChild(placeholder);
+    const img = document.createElement('img');
+    img.className = 'preview-image';
+    img.alt = `Preview of ${final_url}`;
 
-  const img = document.createElement('img');
-  img.className = 'preview-image';
-  img.alt = `Preview of ${final_url}`;
+    const displayImage = screenshot_base64 || preview_image_url;
+    if (displayImage) {
+      img.onload = () => {
+        img.classList.add('loaded');
+        placeholder.style.opacity = '0';
+      };
+      img.onerror = () => { };
+      img.src = displayImage;
+    }
 
-  const displayImage = screenshot_base64 || preview_image_url;
-  if (displayImage) {
-    img.onload = () => {
-      img.classList.add('loaded');
-      placeholder.style.opacity = '0';
-    };
-    img.onerror = () => { };
-    img.src = displayImage;
+    screenshotContainer.appendChild(img);
+    bodyDiv.appendChild(screenshotContainer);
   }
-
-  screenshotContainer.appendChild(img);
-  bodyDiv.appendChild(screenshotContainer);
 
   const infoDiv = document.createElement('div');
   infoDiv.className = 'info';
@@ -1333,6 +1354,19 @@ function mergeDeepScanResult(data) {
         if (forensicSection) existingInfo.appendChild(forensicSection);
       }
     }
+
+    // Patch domain age badge once Phase 2 data (with da) arrives
+    if (security.da !== undefined) {
+      const ageEl = currentPopupShadowRoot.querySelector('.url-dest-age');
+      if (ageEl) {
+        const ageText = formatDaysToAge(security.da);
+        if (ageText) {
+          ageEl.textContent = `${ageText} old`;
+        } else {
+          ageEl.textContent = 'Age: N/A';
+        }
+      }
+    }
   }
 
   // Update screenshot if Phase 3 provided one
@@ -1378,12 +1412,9 @@ function mergeDeepScanResult(data) {
       if (isPending && !hasImage) {
         placeholder.textContent = 'Loading visual preview...';
       } else if (!hasImage) {
-        placeholder.innerHTML = '';
-        const btn = document.createElement('button');
-        btn.className = 'preview-request-btn';
-        btn.textContent = 'Generate Preview';
-        btn.dataset.url = data.url || data.furl;
-        placeholder.appendChild(btn);
+        // No image available and scan is done — hide the container entirely
+        const container = currentPopupShadowRoot.querySelector('.screenshot-container');
+        if (container) container.style.display = 'none';
       }
     }
   }
@@ -1451,52 +1482,7 @@ function attachPopupEventHandlers(finalUrl) {
       return;
     }
 
-    const previewBtn = e.target.closest('.preview-request-btn');
-    if (previewBtn) {
-      e.preventDefault();
-      e.stopPropagation();
-      // ALWAYS use the original url for cache lookup
-      const urlToPreview = previewBtn.dataset.url || currentAnalysisUrl;
-      previewBtn.textContent = 'Loading visual preview...';
-      previewBtn.disabled = true;
-      previewBtn.style.cursor = 'wait';
 
-      chrome.runtime.sendMessage({ action: 'request_preview', url: urlToPreview }, (response) => {
-        if (response && response.success && response.data && response.data.ss) {
-          // The backend completed the screenshot.
-          // We can let the background polling/messages update the UI, or update it directly here.
-          // But since the message might not come through Phase 2 polling (if Phase 2 was completed),
-          // we should inject the image manually.
-          const container = shadowRoot.querySelector('.screenshot-container');
-          if (container) {
-            let img = container.querySelector('.preview-image');
-            let placeholder = container.querySelector('.preview-placeholder');
-            if (!img) {
-              img = document.createElement('img');
-              img.className = 'preview-image';
-              img.alt = 'Site preview';
-              container.appendChild(img);
-            }
-            img.onload = () => {
-              img.classList.add('loaded');
-              if (placeholder) placeholder.style.opacity = '0';
-            };
-            img.src = response.data.ss;
-            if (placeholder) {
-              placeholder.textContent = ''; // clear out the button
-            }
-          }
-        } else {
-          previewBtn.textContent = 'Failed to load preview';
-          setTimeout(() => {
-            previewBtn.textContent = 'Generate Preview';
-            previewBtn.disabled = false;
-            previewBtn.style.cursor = 'pointer';
-          }, 3000);
-        }
-      });
-      return;
-    }
   });
 }
 

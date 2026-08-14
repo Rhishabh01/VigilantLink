@@ -91,14 +91,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return false;
   }
 
-  if (request.action === "request_preview") {
+  if (request.action === "get_domain_age") {
     const { url } = request;
     if (!url) {
-      sendResponse({ success: false });
+      sendResponse({ success: false, error: "URL required" });
       return false;
     }
     getBackendUrl().then(backendUrl => {
-      fetch(`${backendUrl}/analyze/preview`, {
+      fetch(`${backendUrl}/domain-age`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -107,10 +107,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         body: JSON.stringify({ url })
       })
         .then(res => {
-          if (!res.ok) throw new Error("Preview failed");
+          if (!res.ok) throw new Error("Domain age fetch failed");
           return res.json();
         })
-        .then(data => sendResponse({ success: true, data }))
+        .then(data => sendResponse(data))
         .catch(err => sendResponse({ success: false, error: err.message }));
     });
     return true; // Async response

@@ -24,6 +24,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from .tracer import trace_url
 from .metadata_fetcher import fetch_metadata
 from .scanner import run_heuristics, run_external_scans, check_google_safe_browsing
+from .rdap_client import fetch_domain_age_rdap
 from ..core.constants import (
     VERDICT_RED_THRESHOLD, VERDICT_YELLOW_THRESHOLD, PUNYCODE_MIN_SCORE,
     MAX_REDIRECT_HOPS_FREE, SEVERE_VENDOR_FLAGS_THRESHOLD,
@@ -484,7 +485,7 @@ def compute_final_score(
                 reasons.append(f"Young SSL certificate ({cert_age} days old)")
 
     # Phase 2 Signal: Domain Age (RDAP)
-    domain_age = external.get("domain_age_days")
+    domain_age = phase1_result.get("security", {}).get("da")
     if domain_age is not None:
         rdap_penalty = 0
         if domain_age < NEWLY_REGISTERED_DAYS:
@@ -567,17 +568,19 @@ def compute_final_score(
             heuristics.get("typosquatting_detected") or 
             heuristics.get("punycode_detected") or 
             heuristics.get("synergy_detected") or
-            heuristics.get("has_suspicious_keywords")
+            heuristics.get("has_suspicious_keywords") or
+            len(hops) > MAX_REDIRECT_HOPS_FREE or
+            hosted_signals.get("active", False)
         )
-        # Issue 2: Strictly hide uncertainty from safe (green) verdicts
+        
         show_uncertainty = (
-            verdict != "green" and (
-                timed_out_count >= 2 or
-                bool(gsb_threats) or
-                phishtank_flagged or
-                openphish_flagged or
-                is_suspicious_heuristics
-            )
+            capped_score >= VERDICT_YELLOW_THRESHOLD or
+            verdict in ("yellow", "red") or
+            timed_out_count >= 2 or
+            bool(gsb_threats) or
+            phishtank_flagged or
+            openphish_flagged or
+            is_suspicious_heuristics
         )
         if show_uncertainty:
             reasons.append(f"Uncertainty penalty (+{penalty}): {timed_out_count}/5 sources timed out")
@@ -612,6 +615,14 @@ async def run_phase1(url: str) -> Dict[str, Any]:
         except asyncio.TimeoutError:
             logger.warning(f"[PHASE1-GSB] Timed out")
             return [], True
+
+    async def _safe_rdap(target_domain: str):
+        try:
+            logger.info(f"[PHASE1-RDAP] Starting RDAP for {target_domain}")
+            return await asyncio.wait_for(fetch_domain_age_rdap(target_domain), timeout=2.0)
+        except Exception as e:
+            logger.warning(f"[PHASE1-RDAP] Failed or timed out: {e}")
+            return None
         except Exception as e:
             logger.error(f"[PHASE1-GSB] Exception: {e}")
             return [], True
@@ -637,6 +648,7 @@ async def run_phase1(url: str) -> Dict[str, Any]:
     # Run GSB on all hops, plus metadata/DNS re-fetches if domain changed
     async with asyncio.TaskGroup() as tg2:
         gsb_task = tg2.create_task(_safe_gsb(hop_urls))
+        rdap_task = tg2.create_task(_safe_rdap(final_domain))
         
         if domain_to_check != final_domain:
             logger.debug(f"[PHASE1] Domain changed during redirect, re-fetching metadata for {final_domain}")
@@ -653,6 +665,7 @@ async def run_phase1(url: str) -> Dict[str, Any]:
         metadata = meta_task.result()
         dns_resolves = dns_task.result()
 
+    domain_age = rdap_task.result()
     gsb_threats, gsb_timed_out = gsb_task.result()
     logger.info(f"[PHASE1] GSB after redirect — combined threats={gsb_threats}")
         
@@ -715,6 +728,7 @@ async def run_phase1(url: str) -> Dict[str, Any]:
             "gsb_threat_type": gsb_threat_type,
             "gsb_threats": gsb_threats,
             "gsb_timed_out": gsb_timed_out,
+            "da": domain_age,
         },
         "duration_ms": duration_ms,
     }
@@ -746,7 +760,7 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
         logger.warning(f"[PHASE2] External scans timed out for {root_domain}")
         external = {
             "ssl_cert_age_days": None,
-            "domain_age_days": None,
+            
             "threat_type": None,
             "popularity_rank": None,
             "ssl_timed_out": True,
@@ -798,6 +812,7 @@ async def run_phase2(url: str, phase1_result: Dict[str, Any]) -> Dict[str, Any]:
             "vendor_flags": vf,
             "total_vendors": tv,
             "ssl_cert_age_days": external.get("ssl_cert_age_days"),
+            
             "risk_score": risk_score,
             "suspicious_redirects": len(hops) > MAX_REDIRECT_HOPS_FREE and not _all_hops_within_google(hops, final_url),
             "typosquatting_detected": heuristics.get("typosquatting_detected", False),
@@ -823,18 +838,10 @@ def needs_screenshot(
 ) -> bool:
     """
     Phase 3 gatekeeper.
-    Gated to reduce backend compute/Render usage. Safe links bypass deep analysis.
-    Only generate screenshots for suspicious or dangerous links that lack an OpenGraph image.
+    Only generate screenshots for links that lack an OpenGraph image.
     """
     # If the website already provided an OpenGraph preview, keep it and save credits
     if metadata and metadata.get("image_url"):
         return False
         
-    if risk_score >= VERDICT_YELLOW_THRESHOLD:
-        return True
-    if vendor_flags > 0:
-        return True
-    if redirect_depth > MAX_REDIRECT_HOPS_FREE:
-        return True
-        
-    return False
+    return True
