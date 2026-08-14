@@ -701,33 +701,33 @@ function finalizeReconnectCard(data) {
     bodyDiv.appendChild(urlDestDiv);
   }
 
-  const screenshotContainer = document.createElement('div');
-  screenshotContainer.className = 'screenshot-container';
-  const placeholder = document.createElement('div');
-  placeholder.className = 'preview-placeholder';
   const hasImage = !!(data.ss || data.img);
   const isPending = data.s === 1 || data.p3 === 'pending';
-  if (isPending && !hasImage) {
-    placeholder.textContent = 'Loading visual preview...';
-  } else if (!hasImage) {
-    placeholder.textContent = 'Visual preview unavailable';
-  }
-  screenshotContainer.appendChild(placeholder);
+  if (hasImage || isPending) {
+    const screenshotContainer = document.createElement('div');
+    screenshotContainer.className = 'screenshot-container';
+    const placeholder = document.createElement('div');
+    placeholder.className = 'preview-placeholder';
+    if (isPending && !hasImage) {
+      placeholder.textContent = 'Loading visual preview...';
+    }
+    screenshotContainer.appendChild(placeholder);
 
-  const img = document.createElement('img');
-  img.className = 'preview-image';
-  img.alt = `Preview of ${final_url}`;
-  const displayImage = screenshot_base64 || preview_image_url;
-  if (displayImage) {
-    img.onload = () => {
-      img.classList.add('loaded');
-      placeholder.style.opacity = '0';
-    };
-    img.onerror = () => { };
-    img.src = displayImage;
+    const img = document.createElement('img');
+    img.className = 'preview-image';
+    img.alt = `Preview of ${final_url}`;
+    const displayImage = screenshot_base64 || preview_image_url;
+    if (displayImage) {
+      img.onload = () => {
+        img.classList.add('loaded');
+        placeholder.style.opacity = '0';
+      };
+      img.onerror = () => { };
+      img.src = displayImage;
+    }
+    screenshotContainer.appendChild(img);
+    bodyDiv.appendChild(screenshotContainer);
   }
-  screenshotContainer.appendChild(img);
-  bodyDiv.appendChild(screenshotContainer);
 
   const infoDiv = document.createElement('div');
   infoDiv.className = 'info';
@@ -1187,41 +1187,38 @@ function updatePopupWithResult(data) {
   }
 
 
-  const screenshotContainer = document.createElement('div');
-  screenshotContainer.className = 'screenshot-container';
+  const hasImage = !!(data.ss || data.img);
+  const isPending = data.s === 1 || data.p3 === 'pending';
 
-  const makePlaceholder = () => {
-    const d = document.createElement('div');
-    d.className = 'preview-placeholder';
-    const hasImage = !!(data.ss || data.img);
-    const isPending = data.s === 1 || data.p3 === 'pending';
+  // Only render the screenshot container if there's an image or one is expected
+  if (hasImage || isPending) {
+    const screenshotContainer = document.createElement('div');
+    screenshotContainer.className = 'screenshot-container';
+
+    const placeholder = document.createElement('div');
+    placeholder.className = 'preview-placeholder';
     if (isPending && !hasImage) {
-      d.textContent = 'Loading visual preview...';
-    } else if (!hasImage) {
-      d.textContent = 'Visual preview unavailable';
+      placeholder.textContent = 'Loading visual preview...';
     }
-    return d;
-  };
+    screenshotContainer.appendChild(placeholder);
 
-  const placeholder = makePlaceholder();
-  screenshotContainer.appendChild(placeholder);
+    const img = document.createElement('img');
+    img.className = 'preview-image';
+    img.alt = `Preview of ${final_url}`;
 
-  const img = document.createElement('img');
-  img.className = 'preview-image';
-  img.alt = `Preview of ${final_url}`;
+    const displayImage = screenshot_base64 || preview_image_url;
+    if (displayImage) {
+      img.onload = () => {
+        img.classList.add('loaded');
+        placeholder.style.opacity = '0';
+      };
+      img.onerror = () => { };
+      img.src = displayImage;
+    }
 
-  const displayImage = screenshot_base64 || preview_image_url;
-  if (displayImage) {
-    img.onload = () => {
-      img.classList.add('loaded');
-      placeholder.style.opacity = '0';
-    };
-    img.onerror = () => { };
-    img.src = displayImage;
+    screenshotContainer.appendChild(img);
+    bodyDiv.appendChild(screenshotContainer);
   }
-
-  screenshotContainer.appendChild(img);
-  bodyDiv.appendChild(screenshotContainer);
 
   const infoDiv = document.createElement('div');
   infoDiv.className = 'info';
@@ -1415,7 +1412,9 @@ function mergeDeepScanResult(data) {
       if (isPending && !hasImage) {
         placeholder.textContent = 'Loading visual preview...';
       } else if (!hasImage) {
-        placeholder.textContent = 'Visual preview unavailable';
+        // No image available and scan is done — hide the container entirely
+        const container = currentPopupShadowRoot.querySelector('.screenshot-container');
+        if (container) container.style.display = 'none';
       }
     }
   }
